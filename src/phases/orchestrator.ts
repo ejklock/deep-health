@@ -2,12 +2,15 @@ import type { CommandRunner, PhaseStatus } from '../types/common.js';
 import type { ProjectConfig } from '../types/config.js';
 import type { ScanResultJson } from '../types/scan.js';
 import type { UpdateResultJson } from '../types/update.js';
+import type { EngineWarning } from '../scanner/types.js';
 import { validateGateA, validateEcosystemGate } from '../gates/validator.js';
 import { GateValidationError } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
 import { runScanner } from './scanner.js';
 // Ecosystem registry — plugins are registered via ecosystem/index.ts side-effects
 import { EcosystemRegistry, defaultRegistry } from '../ecosystem/index.js';
+// Scanner registry — engines are registered via scanner/index.ts side-effects
+import '../scanner/index.js';
 
 export interface OrchestratorOptions {
   configPath: string;
@@ -40,6 +43,11 @@ export interface OrchestratorResult {
   /** Update results keyed by plugin id (e.g. 'npm', 'composer') */
   updates: Record<string, UpdateResultJson>;
   overallStatus: PhaseStatus;
+  /**
+   * Non-fatal engine warnings accumulated during the pipeline run.
+   * Phase 0: always empty. Prepared for SonarQube warn-only policy in Phase 1+.
+   */
+  warnings: EngineWarning[];
 }
 
 function shouldRunPhase(phase: string, options: OrchestratorOptions): boolean {
@@ -56,6 +64,7 @@ export async function runOrchestrator(
     scan: null,
     updates: {},
     overallStatus: 'success',
+    warnings: [],
   };
 
   // Phase 1 — Scan (hard precondition)
