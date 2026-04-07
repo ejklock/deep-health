@@ -71,6 +71,7 @@ function withSonarQube(
   base: ProjectConfig,
   options: {
     enabled?: boolean;
+    mode?: 'external' | 'managed';
     onFailure?: 'warn' | 'fail';
     hostUrl?: string;
     projectKey?: string;
@@ -82,6 +83,7 @@ function withSonarQube(
     scanners: {
       sonarqube: {
         enabled: options.enabled ?? true,
+        mode: options.mode ?? 'external',
         host_url: options.hostUrl ?? 'http://localhost:9000',
         project_key: options.projectKey ?? 'test-project',
         token_env: options.tokenEnv ?? 'SONAR_TOKEN',
@@ -451,9 +453,10 @@ describe('runOrchestrator — on_failure policy for status=error (no throw)', ()
     delete process.env['SONAR_TOKEN'];
   });
 
-  it('emits warning and continues when secondary engine returns status=error with on_failure=warn', async () => {
+  it('throws when secondary engine returns status=error for unknown engine id (fail-safe default)', async () => {
     const baseConfig = await loadTestConfig();
-    // Use a custom config with a stub engine id — resolveOnFailure defaults to warn for unknown ids
+    // Phase 2 hardening: unknown engine ids default to on_failure='fail', not 'warn'.
+    // This prevents silently swallowing integration bugs from unrecognised engines.
     const config: ProjectConfig = { ...baseConfig };
 
     const runner = new MockCommandRunner({
@@ -468,25 +471,16 @@ describe('runOrchestrator — on_failure policy for status=error (no throw)', ()
     reg.register(new OsvScannerEngine());
     reg.register(new ErrorStatusEngine('stub-engine', 'intentional stub failure'));
 
-    const result = await runOrchestrator(runner, config, {
-      configPath: 'project-config.yml',
-      cwd: fixturesDir,
-      dryRun: false,
-      verbose: false,
-      scannerRegistry: reg,
-    });
-
-    // Pipeline should continue — OSV result is the primary
-    expect(result.scan).not.toBeNull();
-    expect(result.scan?.agent).toBe('osv-scanner');
-
-    // Warning recorded for the errored secondary engine
-    expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0]?.engineId).toBe('stub-engine');
-    expect(result.warnings[0]?.message).toContain('intentional stub failure');
-
-    // Errored engine result should NOT appear in aggregated.engineResults
-    expect(result.aggregated?.engineResults['stub-engine']).toBeUndefined();
+    // Unknown engine should now THROW (safe default = fail)
+    await expect(
+      runOrchestrator(runner, config, {
+        configPath: 'project-config.yml',
+        cwd: fixturesDir,
+        dryRun: false,
+        verbose: false,
+        scannerRegistry: reg,
+      }),
+    ).rejects.toThrow('intentional stub failure');
   });
 
   it('throws when secondary engine returns status=error with on_failure=fail (SonarQube)', async () => {
@@ -549,5 +543,43 @@ describe('runOrchestrator — on_failure policy for status=error (no throw)', ()
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]?.engineId).toBe('sonarqube');
     expect(result.warnings[0]?.message).toContain('sonar quality gate failed');
+  });
+
+  it('throws for unknown engine that throws (fail-safe for throw path)', async () => {
+    const baseConfig = await loadTestConfig();
+    const config: ProjectConfig = { ...baseConfig };
+
+    const runner = new MockCommandRunner({
+      '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
+      '--lockfile package-lock.json --lockfile composer.lock --format json': {
+        stdout: JSON.stringify({ results: [] }),
+        exitCode: 0,
+      },
+    });
+
+    // ThrowingEngine: throws instead of returning status=error
+    class ThrowingEngine implements ScannerEngine {
+      readonly id = 'unknown-throw-engine';
+      readonly name = 'ThrowingEngine';
+      async assertAvailable(_ctx: ScannerEngineContext): Promise<void> {}
+      async scan(_ctx: ScannerEngineContext): Promise<ScanResultJson> {
+        throw new Error('unexpected engine throw');
+      }
+    }
+
+    const reg = new ScannerEngineRegistry();
+    reg.register(new OsvScannerEngine());
+    reg.register(new ThrowingEngine());
+
+    // Unknown engine id — resolveOnFailure returns 'fail' (safe default)
+    await expect(
+      runOrchestrator(runner, config, {
+        configPath: 'project-config.yml',
+        cwd: fixturesDir,
+        dryRun: false,
+        verbose: false,
+        scannerRegistry: reg,
+      }),
+    ).rejects.toThrow('unexpected engine throw');
   });
 });

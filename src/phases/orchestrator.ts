@@ -74,15 +74,26 @@ function shouldRunPhase(phase: string, options: OrchestratorOptions): boolean {
 /**
  * Resolve the on_failure policy for a secondary engine.
  *
- * Currently only SonarQube has an explicit config key; all other secondary
- * engines default to 'warn'. This single lookup point makes it easy to
- * extend per-engine config in the future without scattering the logic.
+ * - SonarQube: reads from config (defaults to 'warn' when not explicitly set).
+ * - Any other engine id that is NOT explicitly known in this registry: defaults
+ *   to 'fail' as the safe fallback.
+ *
+ * Rationale for the 'fail' default for unknowns: an unrecognised engine has no
+ * config key, so silently swallowing its failure could mask integration bugs or
+ * misconfiguration. Failing loudly is the safe choice. Operators can wrap the
+ * engine in a known config entry to opt into warn behaviour.
  */
 function resolveOnFailure(engineId: string, config: ProjectConfig): 'warn' | 'fail' {
   if (engineId === 'sonarqube') {
     return config.scanners?.sonarqube?.on_failure ?? 'warn';
   }
-  return 'warn';
+  // Unknown secondary engine — fail by default (safe hardening, Phase 2)
+  logger.warn(
+    `Engine "${engineId}" is not a recognised secondary engine. ` +
+    `Defaulting on_failure to "fail" for safety. ` +
+    `Add explicit config for this engine to override.`,
+  );
+  return 'fail';
 }
 
 /**

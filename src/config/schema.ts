@@ -24,7 +24,16 @@ const RuntimeConfigSchema = z.object({
 
 const SonarQubeConfigSchema = z.object({
   enabled: z.boolean().default(false),
-  host_url: z.string().url(),
+  /**
+   * 'external' (default): sonar-scanner connects to a pre-existing SonarQube instance.
+   * 'managed': the CLI provisions an ephemeral SonarQube CE container via Docker,
+   *            runs the scan, then tears it down automatically.
+   *
+   * When mode is 'managed', host_url is ignored (the provisioner sets it dynamically).
+   * Phase 1 behaviour is preserved: omitting mode is equivalent to 'external'.
+   */
+  mode: z.enum(['external', 'managed']).default('external'),
+  host_url: z.string().url().optional().default('http://localhost:9000'),
   project_key: z.string(),
   token_env: z.string().default('SONAR_TOKEN'),
   on_failure: z.enum(['warn', 'fail']).default('warn'),

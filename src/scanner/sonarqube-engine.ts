@@ -1,5 +1,6 @@
 import type { ScannerEngine, ScannerEngineContext } from './types.js';
 import type { ScanResultJson } from '../types/scan.js';
+import { DockerSonarQubeProvisioner } from '../provisioner/docker-sonarqube.js';
 import { EnvironmentError } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
 import { getPlatformInstallHint } from '../utils/platform.js';
@@ -94,18 +95,123 @@ async function fetchSonarMetrics(
   }
 }
 
+// ─── Shared scan execution (used by both external and managed modes) ────────────
+
+/**
+ * Build auth args for sonar-scanner.
+ *
+ * External mode: uses the configured token from env.
+ * Managed mode (MVP): uses default admin/admin credentials of the ephemeral container.
+ * This is acceptable because the container is fully ephemeral and immediately torn down.
+ */
+function buildAuthArg(mode: 'external' | 'managed', token: string): string {
+  if (mode === 'managed') {
+    // Ephemeral container — default admin credentials. Phase 3 may introduce
+    // token injection via the SonarQube API after provisioning.
+    return `-Dsonar.login=admin -Dsonar.password=admin`;
+  }
+  return `-Dsonar.token=${token}`;
+}
+
+/**
+ * Execute sonar-scanner and collect quality gate + metrics from the SonarQube API.
+ * Returns the final ScanResultJson.
+ */
+async function executeSonarScan(
+  ctx: ScannerEngineContext,
+  hostUrl: string,
+  projectKey: string,
+  token: string,
+  mode: 'external' | 'managed',
+  base: ScanResultJson,
+): Promise<ScanResultJson> {
+  const { runner, cwd } = ctx;
+
+  if (runner.dryRun) {
+    logger.info(
+      `[DRY-RUN] Would execute: sonar-scanner ` +
+      `-Dsonar.host.url=${hostUrl} -Dsonar.projectKey=${projectKey}`,
+    );
+    return { ...base, status: 'success' };
+  }
+
+  // Build sonar-scanner command
+  const authArg = buildAuthArg(mode, token);
+  const cmd = [
+    'sonar-scanner',
+    `-Dsonar.host.url=${hostUrl}`,
+    `-Dsonar.projectKey=${projectKey}`,
+    authArg,
+  ].join(' ');
+
+  logger.debug(`Running: sonar-scanner -Dsonar.host.url=${hostUrl} -Dsonar.projectKey=${projectKey} [auth omitted]`);
+
+  const scanRun = await runner.run(cmd, { cwd });
+
+  if (scanRun.exitCode !== 0) {
+    return {
+      ...base,
+      status: 'error',
+      error: `sonar-scanner exited with code ${scanRun.exitCode}: ${scanRun.stderr || scanRun.stdout}`,
+    };
+  }
+
+  logger.info('SonarQube: scan complete, collecting quality gate status...');
+
+  // Determine token to use for API calls
+  const apiToken = mode === 'managed' ? 'admin' : token;
+
+  // Collect metadata from SonarQube API (best-effort; never blocks the pipeline)
+  const [qualityGate, metrics] = await Promise.all([
+    fetchSonarQualityGate(hostUrl, projectKey, apiToken),
+    fetchSonarMetrics(hostUrl, projectKey, apiToken),
+  ]);
+
+  const qualityGateStatus = qualityGate?.projectStatus?.status ?? 'UNKNOWN';
+  const qualityGatePassed = qualityGateStatus === 'OK';
+
+  if (!qualityGatePassed) {
+    logger.warn(`SonarQube: quality gate status is "${qualityGateStatus}"`);
+  } else {
+    logger.info(`SonarQube: quality gate passed (${qualityGateStatus})`);
+  }
+
+  const metadata: Record<string, unknown> = {
+    qualityGateStatus,
+    qualityGatePassed,
+    ...(qualityGate?.projectStatus?.conditions
+      ? { qualityGateConditions: qualityGate.projectStatus.conditions }
+      : {}),
+    ...(metrics ? { metrics } : {}),
+  };
+
+  return {
+    ...base,
+    status: 'success',
+    metadata,
+  };
+}
+
 // ─── SonarQubeEngine ───────────────────────────────────────────────────────────
 
 /**
  * Scanner engine wrapping the sonar-scanner CLI + SonarQube REST API.
  *
- * Phase 1 scope:
- * - External mode only (pre-installed sonar-scanner CLI required)
- * - No Docker mode
- * - No branch analysis
- * - Quality gate + basic metrics collected via SonarQube API
- * - on_failure: 'warn' (default) — failure emits a warning and continues
- * - on_failure: 'fail' — failure propagates as an error
+ * Phase 1 (external mode):
+ * - sonar-scanner CLI must be pre-installed
+ * - Connects to an existing SonarQube instance at host_url
+ * - Token via env var (token_env, defaults to SONAR_TOKEN)
+ *
+ * Phase 2 (managed mode):
+ * - Provisions an ephemeral SonarQube Community Edition Docker container
+ * - Waits for readiness via API polling
+ * - Runs sonar-scanner against the ephemeral instance
+ * - Collects quality gate + metrics as in external mode
+ * - Tears down the container in a finally block (guaranteed cleanup)
+ * - MVP: uses default admin/admin credentials (ephemeral container only)
+ *
+ * on_failure: 'warn' (default) — failure emits a warning and continues
+ * on_failure: 'fail' — failure propagates as an error
  *
  * This engine's results are stored in `engineResults` of the aggregated result.
  * They do NOT feed Gate A (which is always driven by OSV output).
@@ -134,7 +240,8 @@ export class SonarQubeEngine implements ScannerEngine {
    *
    * - If SonarQube is not configured or disabled: returns a 'skipped' result immediately.
    * - If sonar-scanner is unavailable: throws EnvironmentError (caller handles warn/fail).
-   * - Otherwise: runs sonar-scanner, then collects quality gate + metrics from API.
+   * - mode='external' (default): connects to configured host_url.
+   * - mode='managed': provisions ephemeral Docker container, scans, tears down.
    */
   async scan(ctx: ScannerEngineContext): Promise<ScanResultJson> {
     const { runner, config, cwd } = ctx;
@@ -156,7 +263,15 @@ export class SonarQubeEngine implements ScannerEngine {
       return base;
     }
 
-    const { host_url, project_key, token_env } = sonarConfig;
+    const mode = sonarConfig.mode ?? 'external';
+    const { project_key, token_env } = sonarConfig;
+
+    // ─── Managed mode ────────────────────────────────────────────────────────
+    if (mode === 'managed') {
+      return this._scanManaged(ctx, project_key, base);
+    }
+
+    // ─── External mode (Phase 1 path, preserved) ─────────────────────────────
     const token = process.env[token_env] ?? '';
 
     if (!token) {
@@ -166,69 +281,50 @@ export class SonarQubeEngine implements ScannerEngine {
       );
     }
 
-    logger.info('SonarQube: running sonar-scanner...');
+    logger.info('SonarQube: running sonar-scanner (external mode)...');
 
     // Verify sonar-scanner is installed
     await this.assertAvailable(ctx);
 
-    if (runner.dryRun) {
-      logger.info(
-        `[DRY-RUN] Would execute: sonar-scanner ` +
-        `-Dsonar.host.url=${host_url} -Dsonar.projectKey=${project_key}`,
-      );
-      return { ...base, status: 'success' };
+    return executeSonarScan(ctx, sonarConfig.host_url, project_key, token, 'external', base);
+  }
+
+  // ─── Private: managed mode execution ─────────────────────────────────────────
+
+  private async _scanManaged(
+    ctx: ScannerEngineContext,
+    projectKey: string,
+    base: ScanResultJson,
+  ): Promise<ScanResultJson> {
+    const { runner } = ctx;
+
+    logger.info('SonarQube: running in managed mode — provisioning ephemeral container...');
+
+    // Verify sonar-scanner is installed before provisioning (fail fast)
+    await this.assertAvailable(ctx);
+
+    const provisioner = new DockerSonarQubeProvisioner();
+
+    let hostUrl: string;
+    try {
+      const { baseUrl } = await provisioner.provision();
+      hostUrl = baseUrl;
+
+      logger.info(`SonarQube: waiting for container to be ready at ${hostUrl}...`);
+      await provisioner.waitReady();
+      logger.info('SonarQube: container ready');
+
+      if (runner.dryRun) {
+        logger.info(
+          `[DRY-RUN] Would execute: sonar-scanner ` +
+          `-Dsonar.host.url=${hostUrl} -Dsonar.projectKey=${projectKey}`,
+        );
+        return { ...base, status: 'success' };
+      }
+
+      return await executeSonarScan(ctx, hostUrl, projectKey, 'admin', 'managed', base);
+    } finally {
+      await provisioner.teardown();
     }
-
-    // Build sonar-scanner command
-    const cmd = [
-      'sonar-scanner',
-      `-Dsonar.host.url=${host_url}`,
-      `-Dsonar.projectKey=${project_key}`,
-      `-Dsonar.token=${token}`,
-    ].join(' ');
-
-    logger.debug(`Running: sonar-scanner -Dsonar.host.url=${host_url} -Dsonar.projectKey=${project_key} [token omitted]`);
-
-    const scanRun = await runner.run(cmd, { cwd });
-
-    if (scanRun.exitCode !== 0) {
-      return {
-        ...base,
-        status: 'error',
-        error: `sonar-scanner exited with code ${scanRun.exitCode}: ${scanRun.stderr || scanRun.stdout}`,
-      };
-    }
-
-    logger.info('SonarQube: scan complete, collecting quality gate status...');
-
-    // Collect metadata from SonarQube API (best-effort; never blocks the pipeline)
-    const [qualityGate, metrics] = await Promise.all([
-      fetchSonarQualityGate(host_url, project_key, token),
-      fetchSonarMetrics(host_url, project_key, token),
-    ]);
-
-    const qualityGateStatus = qualityGate?.projectStatus?.status ?? 'UNKNOWN';
-    const qualityGatePassed = qualityGateStatus === 'OK';
-
-    if (!qualityGatePassed) {
-      logger.warn(`SonarQube: quality gate status is "${qualityGateStatus}"`);
-    } else {
-      logger.info(`SonarQube: quality gate passed (${qualityGateStatus})`);
-    }
-
-    const metadata: Record<string, unknown> = {
-      qualityGateStatus,
-      qualityGatePassed,
-      ...(qualityGate?.projectStatus?.conditions
-        ? { qualityGateConditions: qualityGate.projectStatus.conditions }
-        : {}),
-      ...(metrics ? { metrics } : {}),
-    };
-
-    return {
-      ...base,
-      status: 'success',
-      metadata,
-    };
   }
 }

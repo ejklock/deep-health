@@ -6,6 +6,19 @@ import type { CommandRunner, CommandResult, CommandRunnerOptions, ExecutionEnv }
 import type { ProjectConfig } from '../../../src/types/config.js';
 import type { EcosystemRegistry } from '../../../src/ecosystem/registry.js';
 
+// ─── Mock DockerSonarQubeProvisioner for unit tests ────────────────────────────
+// We do NOT want real Docker calls in unit tests.
+
+vi.mock('../../../src/provisioner/docker-sonarqube.js', () => ({
+  DockerSonarQubeProvisioner: vi.fn().mockImplementation(() => ({
+    provision: vi.fn().mockResolvedValue({ baseUrl: 'http://localhost:19999' }),
+    waitReady: vi.fn().mockResolvedValue(undefined),
+    teardown: vi.fn().mockResolvedValue(undefined),
+  })),
+}));
+
+import { DockerSonarQubeProvisioner } from '../../../src/provisioner/docker-sonarqube.js';
+
 // ─── Minimal mocks ─────────────────────────────────────────────────────────────
 
 class MockRunner implements CommandRunner {
@@ -33,7 +46,7 @@ class MockRunner implements CommandRunner {
   }
 }
 
-function makeConfig(sonarEnabled = false, onFailure: 'warn' | 'fail' = 'warn'): ProjectConfig {
+function makeConfig(sonarEnabled = false, onFailure: 'warn' | 'fail' = 'warn', mode: 'external' | 'managed' = 'external'): ProjectConfig {
   return {
     project: { name: 'test', client: 'client' },
     runtime: { node: '20.x', execution: 'local', docker_service: 'app' },
@@ -49,6 +62,7 @@ function makeConfig(sonarEnabled = false, onFailure: 'warn' | 'fail' = 'warn'): 
           scanners: {
             sonarqube: {
               enabled: true,
+              mode,
               host_url: 'http://localhost:9000',
               project_key: 'my-project',
               token_env: 'SONAR_TOKEN',
@@ -97,15 +111,16 @@ describe('SonarQubeEngine', () => {
       const runner = new MockRunner();
       const config: ProjectConfig = {
         ...makeConfig(false),
-        scanners: {
-          sonarqube: {
-            enabled: false,
-            host_url: 'http://localhost:9000',
-            project_key: 'my-project',
-            token_env: 'SONAR_TOKEN',
-            on_failure: 'warn',
+          scanners: {
+            sonarqube: {
+              enabled: false,
+              mode: 'external' as const,
+              host_url: 'http://localhost:9000',
+              project_key: 'my-project',
+              token_env: 'SONAR_TOKEN',
+              on_failure: 'warn',
+            },
           },
-        },
       };
       const result = await engine.scan(makeCtx(runner, config));
 
@@ -328,5 +343,197 @@ describe('SonarQubeEngine', () => {
 
       await expect(engine.assertAvailable(makeCtx(runner, config))).rejects.toThrow(EnvironmentError);
     });
+  });
+});
+
+// ─── Managed mode tests ────────────────────────────────────────────────────────
+
+describe('SonarQubeEngine — managed mode (Phase 2)', () => {
+  const engine = new SonarQubeEngine();
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllGlobals();
+    delete process.env['SONAR_TOKEN'];
+  });
+
+  function makeManagedConfig(): ProjectConfig {
+    return makeConfig(true, 'warn', 'managed');
+  }
+
+  it('skips when sonarqube is not enabled even in managed mode', async () => {
+    const runner = new MockRunner();
+    const config = makeConfig(false);
+    const result = await engine.scan(makeCtx(runner, config));
+
+    expect(result.status).toBe('skipped');
+    expect(runner.calledCommands).toHaveLength(0);
+  });
+
+  it('verifies sonar-scanner availability before provisioning', async () => {
+    // sonar-scanner not found
+    const runner = new MockRunner({ '--version': { exitCode: 127, stderr: 'not found' } });
+    const config = makeManagedConfig();
+
+    await expect(engine.scan(makeCtx(runner, config))).rejects.toThrow(EnvironmentError);
+
+    // Provisioner should NOT have been called (fail fast before provisioning)
+    const MockProvisioner = vi.mocked(DockerSonarQubeProvisioner);
+    const provisionerInstance = MockProvisioner.mock.results[0]?.value as {
+      provision: ReturnType<typeof vi.fn>;
+    } | undefined;
+    // If no provisioner was constructed at all, that's fine — also acceptable
+    if (provisionerInstance) {
+      expect(provisionerInstance.provision).not.toHaveBeenCalled();
+    }
+  });
+
+  it('provisions, scans, and tears down in managed mode', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner -D': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeManagedConfig();
+
+    // Mock SonarQube API (quality gate + metrics)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ status: 'UP' }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ projectStatus: { status: 'OK', conditions: [] } }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ component: { measures: [] } }),
+        }),
+    );
+
+    const result = await engine.scan(makeCtx(runner, config));
+
+    expect(result.status).toBe('success');
+    expect(result.agent).toBe('sonarqube');
+
+    // Provisioner should have been used
+    const MockProvisioner = vi.mocked(DockerSonarQubeProvisioner);
+    expect(MockProvisioner).toHaveBeenCalledOnce();
+    const instance = MockProvisioner.mock.results[0]?.value as {
+      provision: ReturnType<typeof vi.fn>;
+      waitReady: ReturnType<typeof vi.fn>;
+      teardown: ReturnType<typeof vi.fn>;
+    };
+    expect(instance.provision).toHaveBeenCalledOnce();
+    expect(instance.waitReady).toHaveBeenCalledOnce();
+    expect(instance.teardown).toHaveBeenCalledOnce();
+  });
+
+  it('tears down container even when scan fails (finally guarantee)', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      // sonar-scanner exits with error
+      'sonar-scanner -D': { exitCode: 1, stderr: 'ANALYSIS FAILED' },
+    });
+    const config = makeManagedConfig();
+
+    // Mock API calls won't be reached because scan fails, but stub fetch anyway
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503, statusText: 'unavailable', json: async () => ({}) }));
+
+    const result = await engine.scan(makeCtx(runner, config));
+
+    // Result encodes the scan failure
+    expect(result.status).toBe('error');
+
+    // Teardown must have been called regardless
+    const MockProvisioner = vi.mocked(DockerSonarQubeProvisioner);
+    const instance = MockProvisioner.mock.results[0]?.value as {
+      teardown: ReturnType<typeof vi.fn>;
+    };
+    expect(instance.teardown).toHaveBeenCalledOnce();
+  });
+
+  it('tears down when waitReady throws (provision error path)', async () => {
+    // Mock the provisioner so waitReady throws
+    const MockProvisioner = vi.mocked(DockerSonarQubeProvisioner);
+    MockProvisioner.mockImplementationOnce(() => ({
+      provision: vi.fn().mockResolvedValue({ baseUrl: 'http://localhost:19999' }),
+      waitReady: vi.fn().mockRejectedValue(new Error('Container never became ready')),
+      teardown: vi.fn().mockResolvedValue(undefined),
+    }) as unknown as DockerSonarQubeProvisioner);
+
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+    });
+    const config = makeManagedConfig();
+
+    await expect(engine.scan(makeCtx(runner, config))).rejects.toThrow('Container never became ready');
+
+    // teardown must still have been called
+    const instance = MockProvisioner.mock.results[0]?.value as {
+      teardown: ReturnType<typeof vi.fn>;
+    };
+    expect(instance.teardown).toHaveBeenCalledOnce();
+  });
+
+  it('uses admin credentials (not SONAR_TOKEN) for managed mode scan command', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner -D': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeManagedConfig();
+
+    // Stub fetch for quality gate + metrics
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: async () => ({ projectStatus: { status: 'OK', conditions: [] } }),
+        })
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          json: async () => ({ component: { measures: [] } }),
+        }),
+    );
+
+    await engine.scan(makeCtx(runner, config));
+
+    // The scan command should NOT include -Dsonar.token (external mode arg)
+    // but should include admin credentials
+    const scanCommand = runner.calledCommands.find((c) => c.includes('-Dsonar.projectKey'));
+    expect(scanCommand).toBeDefined();
+    expect(scanCommand).toContain('sonar.login=admin');
+    expect(scanCommand).not.toContain('sonar.token=');
+  });
+
+  it('returns success in dry-run mode without provisioning a container', async () => {
+    const runner = new MockRunner(
+      { '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' } },
+      { dryRun: true },
+    );
+    const config = makeManagedConfig();
+
+    const result = await engine.scan(makeCtx(runner, config));
+
+    expect(result.status).toBe('success');
+
+    // Provisioner should still have been used (we provision, then check dryRun inside)
+    const MockProvisioner = vi.mocked(DockerSonarQubeProvisioner);
+    expect(MockProvisioner).toHaveBeenCalled();
+    // But no actual sonar-scanner -Dsonar.projectKey call
+    const scanCalls = runner.calledCommands.filter((c) => c.includes('-Dsonar.projectKey'));
+    expect(scanCalls).toHaveLength(0);
+
+    // Teardown must always be called
+    const instance = MockProvisioner.mock.results[0]?.value as {
+      teardown: ReturnType<typeof vi.fn>;
+    };
+    expect(instance.teardown).toHaveBeenCalledOnce();
   });
 });

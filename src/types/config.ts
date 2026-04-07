@@ -29,6 +29,11 @@ export interface CloudStorageConfig {
 
 export interface SonarQubeConfig {
   enabled: boolean;
+  /**
+   * 'external' (default): connect to a pre-existing SonarQube instance at host_url.
+   * 'managed': provision an ephemeral SonarQube CE Docker container automatically.
+   */
+  mode: 'external' | 'managed';
   host_url: string;
   project_key: string;
   /** Name of the environment variable holding the SonarQube token. Defaults to SONAR_TOKEN. */
