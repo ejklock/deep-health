@@ -1,6 +1,7 @@
 import type { ExecutiveReportOptions } from '../types/report.js';
-import type { VulnerabilityEntry } from '../types/scan.js';
+import type { ScanResultJson, VulnerabilityEntry } from '../types/scan.js';
 import type { Locale } from './i18n/index.js';
+import type { ExecLocale } from './i18n/types.js';
 import { defaultRegistry } from '../ecosystem/index.js';
 import { getLocale } from './i18n/index.js';
 import { render } from './renderer.js';
@@ -48,6 +49,60 @@ function pendingStatus(vuln: VulnerabilityEntry, locale: Locale): string {
   if (!r || r.includes('No safe version') || r.includes('Cannot parse')) return locale.status.no_fix;
   if (r.includes('Major version bump')) return locale.status.needs_auth;
   return locale.status.pending;
+}
+
+// ── SonarQube executive section builder ──────────────────────────────────────
+
+interface SonarQubeExecSectionData {
+  present: boolean;
+  skipped: boolean;
+  warning: string | null;
+  qualityGate: string | null;
+  metrics: Array<{ key: string; value: string }> | null;
+}
+
+function buildSonarQubeExecSection(
+  engineResults: Record<string, ScanResultJson> | undefined,
+  locale: ExecLocale,
+): SonarQubeExecSectionData {
+  if (!engineResults) {
+    return { present: false, skipped: false, warning: null, qualityGate: null, metrics: null };
+  }
+
+  const sonarResult = engineResults['sonarqube'];
+  if (!sonarResult) {
+    return { present: false, skipped: false, warning: null, qualityGate: null, metrics: null };
+  }
+
+  if (sonarResult.status === 'skipped') {
+    return { present: true, skipped: true, warning: null, qualityGate: null, metrics: null };
+  }
+
+  if (sonarResult.status === 'error') {
+    const msg = sonarResult.error ?? 'scan error';
+    return { present: true, skipped: false, warning: locale.sonarqube_warning(msg), qualityGate: null, metrics: null };
+  }
+
+  const meta = sonarResult.metadata ?? {};
+  const qualityGateStatus = meta['qualityGateStatus'] as string | undefined;
+  const qualityGateLabel = qualityGateStatus
+    ? locale.sonarqube_quality_gate(
+        qualityGateStatus === 'OK' ? '✅ OK' : qualityGateStatus === 'ERROR' ? '❌ ERROR' : qualityGateStatus,
+      )
+    : null;
+
+  const rawMetrics = meta['metrics'] as Record<string, string> | undefined;
+  const metricsForDisplay = rawMetrics
+    ? Object.entries(rawMetrics).map(([key, value]) => ({ key, value }))
+    : null;
+
+  return {
+    present: true,
+    skipped: false,
+    warning: null,
+    qualityGate: qualityGateLabel,
+    metrics: metricsForDisplay,
+  };
 }
 
 // ── context builder ──────────────────────────────────────────────────────────
@@ -205,6 +260,9 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
     };
   });
 
+  // Build SonarQube section (graceful: absent when engineResults not provided)
+  const sonarSection = buildSonarQubeExecSection(opts.engineResults, locale.exec);
+
   const context: Record<string, unknown> = {
     t: locale.exec,
     client: opts.client,
@@ -231,6 +289,7 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
     scanAfterSummary: locale.exec.scan_after_summary_generic(pendingOriginal.length, ecoAfterLabels),
     allFixed: fixedVulns.length > 0 && pendingOriginal.length === 0,
     pendingByPkg,
+    sonarSection,
   };
 
   return render(executiveTemplate, context);

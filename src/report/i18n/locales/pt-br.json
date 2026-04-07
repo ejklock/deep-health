@@ -42,7 +42,12 @@
     "all_fixed": "Todas as vulnerabilidades identificadas foram corrigidas. O projeto está atualizado e seguro em relação às suas dependências.",
     "pending_needs_action_intro": "Todas as vulnerabilidades que puderam ser corrigidas sem mudanças disruptivas foram aplicadas. Os itens listados abaixo requerem avaliação ou autorização de versão principal:",
     "pending_manual": "Vulnerabilidades identificadas requerem ação manual — nenhuma correção automática foi aplicada.",
-    "fixed_version": "corrigido ({{version}})"
+    "fixed_version": "corrigido ({{version}})",
+    "sonarqube_section": "## Análise de Qualidade — SonarQube",
+    "sonarqube_quality_gate": "**Quality Gate:** {{status}}",
+    "sonarqube_metrics": "**Métricas:**",
+    "sonarqube_skipped": "_SonarQube: análise não executada ou desativada neste ciclo._",
+    "sonarqube_warning": "_SonarQube: análise com aviso — {{message}}_"
   },
   "consolidated": {
     "title": "# Relatório de Segurança — {{projectName}}",
@@ -57,6 +62,13 @@
     "section_pending": "Pendências — Requerem Ação Manual",
     "breaking_title": "Requerem BREAKING CHANGE (aguardando autorização por pacote)",
     "breaking_authorize": "Para autorizar: \"sim, confirmo breaking changes para [pacote]\"",
-    "no_safe_version_title": "Sem versão segura disponível dentro da restrição atual"
+    "no_safe_version_title": "Sem versão segura disponível dentro da restrição atual",
+    "sonarqube_section": "## Análise de Qualidade — SonarQube",
+    "sonarqube_quality_gate": "**Quality Gate:** {{status}}",
+    "sonarqube_metrics": "**Métricas principais:**",
+    "sonarqube_affected_files": "**Arquivos com problemas (amostra):**",
+    "sonarqube_no_issues": "_Nenhum problema BLOCKER/CRITICAL/MAJOR encontrado._",
+    "sonarqube_skipped": "_SonarQube: análise não executada ou desativada neste ciclo._",
+    "sonarqube_warning": "_SonarQube: análise com aviso — {{message}}_"
   }
 }

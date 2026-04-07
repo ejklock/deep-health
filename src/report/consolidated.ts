@@ -1,7 +1,8 @@
 import type { ConsolidatedReport } from '../types/report.js';
-import type { EcosystemScanResult } from '../types/scan.js';
+import type { EcosystemScanResult, ScanResultJson } from '../types/scan.js';
 import { defaultRegistry } from '../ecosystem/index.js';
 import { getLocale } from './i18n/index.js';
+import type { ConsolidatedLocale } from './i18n/types.js';
 import { render } from './renderer.js';
 import consolidatedTemplate from './templates/consolidated.hbs.js';
 
@@ -20,6 +21,99 @@ function emptyEcosystemResult(): EcosystemScanResult {
 
 function statusLabel(s: string | undefined): string {
   return s === 'pass' ? '✅ PASS' : s === 'fail' ? '❌ FAIL' : '— skipped';
+}
+
+// ─── SonarQube section builder ───────────────────────────────────────────────
+
+/**
+ * Extract unique file paths from issue component strings.
+ * Component format: "projectKey:path/to/file.ts"
+ */
+function extractFilePaths(
+  issues: Array<{ component: string; message: string; severity: string; rule: string }>,
+): string[] {
+  const seen = new Set<string>();
+  for (const issue of issues) {
+    const colon = issue.component.indexOf(':');
+    const file = colon >= 0 ? issue.component.slice(colon + 1) : issue.component;
+    seen.add(file);
+  }
+  return [...seen];
+}
+
+interface SonarQubeSectionData {
+  present: boolean;
+  skipped: boolean;
+  warning: string | null;
+  qualityGate: string | null;
+  qualityGatePassed: boolean | null;
+  metrics: Array<{ key: string; value: string }> | null;
+  affectedFiles: string[] | null;
+  noIssues: boolean;
+}
+
+function buildSonarQubeConsolidatedSection(
+  engineResults: Record<string, ScanResultJson> | undefined,
+  warnings: Array<{ engineId: string; message: string }> | undefined,
+  locale: ConsolidatedLocale,
+): SonarQubeSectionData {
+  // No engineResults provided at all — section is absent
+  if (!engineResults) {
+    return { present: false, skipped: false, warning: null, qualityGate: null, qualityGatePassed: null, metrics: null, affectedFiles: null, noIssues: false };
+  }
+
+  const sonarResult = engineResults['sonarqube'];
+
+  // Engine warning (sonarqube failed with warn policy)
+  const engineWarning = warnings?.find((w) => w.engineId === 'sonarqube');
+  if (engineWarning && !sonarResult) {
+    return { present: true, skipped: false, warning: locale.sonarqube_warning(engineWarning.message), qualityGate: null, qualityGatePassed: null, metrics: null, affectedFiles: null, noIssues: false };
+  }
+
+  // SonarQube not in engineResults — skipped/absent
+  if (!sonarResult) {
+    return { present: false, skipped: false, warning: null, qualityGate: null, qualityGatePassed: null, metrics: null, affectedFiles: null, noIssues: false };
+  }
+
+  // Status = skipped
+  if (sonarResult.status === 'skipped') {
+    return { present: true, skipped: true, warning: null, qualityGate: null, qualityGatePassed: null, metrics: null, affectedFiles: null, noIssues: false };
+  }
+
+  // Status = error
+  if (sonarResult.status === 'error') {
+    const msg = sonarResult.error ?? 'scan error';
+    return { present: true, skipped: false, warning: locale.sonarqube_warning(msg), qualityGate: null, qualityGatePassed: null, metrics: null, affectedFiles: null, noIssues: false };
+  }
+
+  // Success — extract metadata
+  const meta = sonarResult.metadata ?? {};
+
+  const qualityGateStatus = meta['qualityGateStatus'] as string | undefined;
+  const qualityGatePassed = meta['qualityGatePassed'] as boolean | undefined;
+  const qualityGateLabel = qualityGateStatus
+    ? locale.sonarqube_quality_gate(qualityGateStatus === 'OK' ? '✅ OK' : qualityGateStatus === 'ERROR' ? '❌ ERROR' : qualityGateStatus)
+    : null;
+
+  const rawMetrics = meta['metrics'] as Record<string, string> | undefined;
+  const metricsForDisplay = rawMetrics
+    ? Object.entries(rawMetrics).map(([key, value]) => ({ key, value }))
+    : null;
+
+  const rawIssues = meta['issues'] as Array<{ component: string; message: string; severity: string; rule: string }> | undefined;
+  const affectedFiles = rawIssues && rawIssues.length > 0 ? extractFilePaths(rawIssues) : null;
+  const noIssues = rawIssues !== undefined && rawIssues.length === 0;
+
+  return {
+    present: true,
+    skipped: false,
+    warning: null,
+    qualityGate: qualityGateLabel,
+    qualityGatePassed: qualityGatePassed ?? null,
+    metrics: metricsForDisplay,
+    affectedFiles,
+    noIssues,
+  };
 }
 
 export function generateConsolidatedReport(data: ConsolidatedReport): string {
@@ -62,6 +156,15 @@ export function generateConsolidatedReport(data: ConsolidatedReport): string {
     };
   });
 
+  // Build SonarQube section (graceful: absent when engineResults not provided)
+  const sonarSection = buildSonarQubeConsolidatedSection(
+    data.engineResults,
+    // engineResults may carry warnings via the report data — none here, warnings
+    // are passed through CLI via engineResults presence/status
+    undefined,
+    locale.consolidated,
+  );
+
   const context: Record<string, unknown> = {
     t: {
       ...locale.consolidated,
@@ -74,6 +177,7 @@ export function generateConsolidatedReport(data: ConsolidatedReport): string {
     pendingItems: breakingPkgs.length > 0 || manualPkgs.length > 0,
     breakingPkgs: breakingPkgs.length ? breakingPkgs : null,
     manualPkgs: manualPkgs.length ? manualPkgs : null,
+    sonarSection,
   };
 
   return render(consolidatedTemplate, context);

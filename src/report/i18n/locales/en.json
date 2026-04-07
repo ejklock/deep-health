@@ -42,7 +42,12 @@
     "all_fixed": "All identified vulnerabilities have been fixed. The project is up to date and secure regarding its dependencies.",
     "pending_needs_action_intro": "All vulnerabilities that could be fixed without breaking changes have been applied. The items listed below require evaluation or major version authorization:",
     "pending_manual": "Identified vulnerabilities require manual action — no automatic fixes were applied.",
-    "fixed_version": "fixed ({{version}})"
+    "fixed_version": "fixed ({{version}})",
+    "sonarqube_section": "## Code Quality Analysis — SonarQube",
+    "sonarqube_quality_gate": "**Quality Gate:** {{status}}",
+    "sonarqube_metrics": "**Metrics:**",
+    "sonarqube_skipped": "_SonarQube: analysis not executed or disabled in this cycle._",
+    "sonarqube_warning": "_SonarQube: analysis warning — {{message}}_"
   },
   "consolidated": {
     "title": "# Security Report — {{projectName}}",
@@ -57,6 +62,13 @@
     "section_pending": "Pending — Require Manual Action",
     "breaking_title": "Require BREAKING CHANGE (awaiting per-package authorization)",
     "breaking_authorize": "To authorize: \"yes, I confirm breaking changes for [package]\"",
-    "no_safe_version_title": "No safe version within current constraint"
+    "no_safe_version_title": "No safe version within current constraint",
+    "sonarqube_section": "## Code Quality Analysis — SonarQube",
+    "sonarqube_quality_gate": "**Quality Gate:** {{status}}",
+    "sonarqube_metrics": "**Key Metrics:**",
+    "sonarqube_affected_files": "**Files with issues (sample):**",
+    "sonarqube_no_issues": "_No BLOCKER/CRITICAL/MAJOR issues found._",
+    "sonarqube_skipped": "_SonarQube: analysis not executed or disabled in this cycle._",
+    "sonarqube_warning": "_SonarQube: analysis warning — {{message}}_"
   }
 }

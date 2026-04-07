@@ -31,6 +31,12 @@ export interface ExecLocale {
   pending_needs_action_intro: string;
   pending_manual: string;
   fixed_version(version: string): string;
+  /** SonarQube executive section */
+  sonarqube_section: string;
+  sonarqube_quality_gate(status: string): string;
+  sonarqube_metrics: string;
+  sonarqube_skipped: string;
+  sonarqube_warning(message: string): string;
 }
 
 export interface ConsolidatedLocale {
@@ -47,6 +53,14 @@ export interface ConsolidatedLocale {
   breaking_title: string;
   breaking_authorize: string;
   no_safe_version_title: string;
+  /** SonarQube consolidated section */
+  sonarqube_section: string;
+  sonarqube_quality_gate(status: string): string;
+  sonarqube_metrics: string;
+  sonarqube_affected_files: string;
+  sonarqube_no_issues: string;
+  sonarqube_skipped: string;
+  sonarqube_warning(message: string): string;
 }
 
 export interface ReasonLocale {

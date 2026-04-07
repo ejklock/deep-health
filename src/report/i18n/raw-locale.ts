@@ -47,6 +47,12 @@ export interface RawLocale {
     pending_needs_action_intro: string;
     pending_manual: string;
     fixed_version: string;        // vars: version
+    /** SonarQube executive section */
+    sonarqube_section: string;
+    sonarqube_quality_gate: string;    // vars: status
+    sonarqube_metrics: string;
+    sonarqube_skipped: string;
+    sonarqube_warning: string;         // vars: message
   };
   authorization_format: string;
   consolidated: {
@@ -64,5 +70,13 @@ export interface RawLocale {
     breaking_title: string;
     breaking_authorize: string;
     no_safe_version_title: string;
+    /** SonarQube consolidated section */
+    sonarqube_section: string;
+    sonarqube_quality_gate: string;    // vars: status
+    sonarqube_metrics: string;
+    sonarqube_affected_files: string;
+    sonarqube_no_issues: string;
+    sonarqube_skipped: string;
+    sonarqube_warning: string;         // vars: message
   };
 }

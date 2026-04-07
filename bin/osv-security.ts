@@ -11,6 +11,10 @@ import {
   generateExecutiveReport,
   executiveReportFilename,
 } from "../src/report/executive.js";
+import {
+  buildSonarQubeExport,
+  sonarQubeExportFilename,
+} from "../src/report/sonarqube-export.js";
 import { runScanner } from "../src/phases/scanner.js";
 import { setLogLevel } from "../src/utils/logger.js";
 import {
@@ -338,12 +342,30 @@ async function runCommand(
           scan: result.scan,
           updates: result.updates,
           overallStatus: result.overallStatus,
+          engineResults: result.aggregated?.engineResults,
         };
 
         const output = opts.json
           ? JSON.stringify(result, null, 2)
           : generateConsolidatedReport(report);
         await writeOutput(output, opts.output);
+
+        // Save SonarQube detailed export when available
+        if (!opts.json && result.aggregated?.engineResults) {
+          const sonarExport = buildSonarQubeExport(result.aggregated.engineResults);
+          if (sonarExport) {
+            const date = report.date;
+            const exportFilename = sonarQubeExportFilename(config.project.name, date);
+            const reportsDir = resolve(opts.cwd, config.reports_dir ?? ".osv-scanner/reports");
+            try {
+              await saveReport(exportFilename, JSON.stringify(sonarExport, null, 2), reportsDir, config.cloud_storage, opts.cwd);
+            } catch (err) {
+              process.stderr.write(
+                `SonarQube export save failed: ${err instanceof Error ? err.message : String(err)}\n`,
+              );
+            }
+          }
+        }
       }
 
       if (!opts.noReport) {
@@ -354,6 +376,7 @@ async function runCommand(
           scanBefore,
           scanAfter,
           updates: result.updates,
+          engineResults: result.aggregated?.engineResults,
         });
         const filename = executiveReportFilename(config.project.client, config.project.name);
         const reportsDir = resolve(opts.cwd, config.reports_dir ?? ".osv-scanner/reports");
@@ -382,11 +405,28 @@ async function runCommand(
         scanBefore,
         scanAfter,
         updates: orchestratorResult.updates,
+        engineResults: orchestratorResult.aggregated?.engineResults,
       });
 
       const filename = executiveReportFilename(client, project);
       const reportsDir = resolve(opts.cwd, config.reports_dir ?? ".osv-scanner/reports");
       await saveReport(filename, report, reportsDir, config.cloud_storage, opts.cwd);
+
+      // Save SonarQube detailed export when available
+      if (orchestratorResult.aggregated?.engineResults) {
+        const sonarExport = buildSonarQubeExport(orchestratorResult.aggregated.engineResults);
+        if (sonarExport) {
+          const date = new Date().toISOString().split("T")[0]!;
+          const exportFilename = sonarQubeExportFilename(config.project.name, date);
+          try {
+            await saveReport(exportFilename, JSON.stringify(sonarExport, null, 2), reportsDir, config.cloud_storage, opts.cwd);
+          } catch (err) {
+            process.stderr.write(
+              `SonarQube export save failed: ${err instanceof Error ? err.message : String(err)}\n`,
+            );
+          }
+        }
+      }
     }
   } catch (err) {
     if (err instanceof ConfigLoadError) {

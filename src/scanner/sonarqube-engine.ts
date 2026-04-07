@@ -29,6 +29,20 @@ interface SonarQubeMeasuresResponse {
   };
 }
 
+interface SonarQubeIssuesResponse {
+  total?: number;
+  issues?: Array<{
+    key: string;
+    rule: string;
+    severity: string;
+    component: string;
+    line?: number;
+    message: string;
+    type: string;
+    status: string;
+  }>;
+}
+
 // ─── Metrics to collect ────────────────────────────────────────────────────────
 
 const SONAR_METRICS = [
@@ -91,6 +105,41 @@ async function fetchSonarMetrics(
     return metrics;
   } catch (err) {
     logger.warn(`SonarQube: failed to fetch metrics — ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+}
+
+/**
+ * Fetch a limited list of issues from SonarQube (best-effort, max 50).
+ * Used to produce the "affected files" section in reports.
+ * Limits to OPEN, BLOCKER/CRITICAL/MAJOR issues, capped at MAX_ISSUES_FOR_REPORT.
+ */
+const MAX_ISSUES_FOR_REPORT = 50;
+
+async function fetchSonarIssues(
+  hostUrl: string,
+  projectKey: string,
+  token: string,
+): Promise<SonarQubeIssuesResponse['issues'] | null> {
+  try {
+    const severities = 'BLOCKER,CRITICAL,MAJOR';
+    const url =
+      `${hostUrl.replace(/\/$/, '')}/api/issues/search` +
+      `?componentKeys=${encodeURIComponent(projectKey)}` +
+      `&statuses=OPEN` +
+      `&severities=${severities}` +
+      `&ps=${MAX_ISSUES_FOR_REPORT}`;
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) {
+      logger.warn(`SonarQube: issues API returned ${response.status} ${response.statusText}`);
+      return null;
+    }
+    const data = (await response.json()) as SonarQubeIssuesResponse;
+    return data.issues ?? null;
+  } catch (err) {
+    logger.warn(`SonarQube: failed to fetch issues — ${err instanceof Error ? err.message : String(err)}`);
     return null;
   }
 }
@@ -162,9 +211,10 @@ async function executeSonarScan(
   const apiToken = mode === 'managed' ? 'admin' : token;
 
   // Collect metadata from SonarQube API (best-effort; never blocks the pipeline)
-  const [qualityGate, metrics] = await Promise.all([
+  const [qualityGate, metrics, issues] = await Promise.all([
     fetchSonarQualityGate(hostUrl, projectKey, apiToken),
     fetchSonarMetrics(hostUrl, projectKey, apiToken),
+    fetchSonarIssues(hostUrl, projectKey, apiToken),
   ]);
 
   const qualityGateStatus = qualityGate?.projectStatus?.status ?? 'UNKNOWN';
@@ -183,6 +233,7 @@ async function executeSonarScan(
       ? { qualityGateConditions: qualityGate.projectStatus.conditions }
       : {}),
     ...(metrics ? { metrics } : {}),
+    ...(issues ? { issues } : {}),
   };
 
   return {

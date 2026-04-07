@@ -12,6 +12,13 @@ export interface ConsolidatedReport {
   updates: Record<string, UpdateResultJson>;
   overallStatus: PhaseStatus;
   locale?: SupportedLocale;
+  /**
+   * Per-engine raw scan results for multi-source reporting.
+   * Optional for backwards compatibility — reports gracefully omit engine
+   * sections when this map is absent or the engine is not present.
+   * Key is the engine id (e.g. 'sonarqube').
+   */
+  engineResults?: Record<string, ScanResultJson>;
 }
 
 export interface ExecutiveReportOptions {
@@ -22,4 +29,11 @@ export interface ExecutiveReportOptions {
   /** Update results keyed by plugin id (e.g. 'npm', 'composer') */
   updates: Record<string, UpdateResultJson>;
   locale?: SupportedLocale;
+  /**
+   * Per-engine raw scan results for multi-source reporting.
+   * Optional for backwards compatibility — reports gracefully omit engine
+   * sections when this map is absent or the engine is not present.
+   * Key is the engine id (e.g. 'sonarqube').
+   */
+  engineResults?: Record<string, ScanResultJson>;
 }

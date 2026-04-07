@@ -75,4 +75,25 @@ export default `\
 {{else}}
 {{t.pending_manual}}
 {{/if}}
+
+{{#if sonarSection.present}}
+---
+
+{{t.sonarqube_section}}
+
+{{#if sonarSection.skipped}}
+{{t.sonarqube_skipped}}
+{{else if sonarSection.warning}}
+{{sonarSection.warning}}
+{{else}}
+{{sonarSection.qualityGate}}
+
+{{#if sonarSection.metrics}}
+{{t.sonarqube_metrics}}
+{{#each sonarSection.metrics}}- **{{key}}:** {{value}}
+{{/each}}
+{{/if}}
+{{/if}}
+{{/if}}
 `;
+

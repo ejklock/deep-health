@@ -48,4 +48,31 @@ export default `\
 
 {{/if}}
 {{/if}}
+
+{{#if sonarSection.present}}
+{{t.sonarqube_section}}
+
+{{#if sonarSection.skipped}}
+{{t.sonarqube_skipped}}
+{{else if sonarSection.warning}}
+{{sonarSection.warning}}
+{{else}}
+{{sonarSection.qualityGate}}
+
+{{#if sonarSection.metrics}}
+{{t.sonarqube_metrics}}
+{{#each sonarSection.metrics}}- **{{key}}:** {{value}}
+{{/each}}
+{{/if}}
+
+{{#if sonarSection.noIssues}}
+{{t.sonarqube_no_issues}}
+{{else if sonarSection.affectedFiles}}
+{{t.sonarqube_affected_files}}
+{{#each sonarSection.affectedFiles}}- {{this}}
+{{/each}}
+{{/if}}
+{{/if}}
+{{/if}}
 `;
+
