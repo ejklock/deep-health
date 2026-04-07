@@ -29,6 +29,12 @@ const installHints: Record<string, Partial<Record<NodeJS.Platform | 'default', s
     win32: 'Download from: https://github.com/google/osv-scanner/releases',
     default: 'See: https://github.com/google/osv-scanner',
   },
+  'sonar-scanner': {
+    darwin: 'Install with: brew install sonar-scanner  (or download from https://docs.sonarsource.com/sonarqube/latest/analyzing-source-code/scanners/sonarscanner/)',
+    linux: 'Download from: https://docs.sonarsource.com/sonarqube/latest/analyzing-source-code/scanners/sonarscanner/',
+    win32: 'Download from: https://docs.sonarsource.com/sonarqube/latest/analyzing-source-code/scanners/sonarscanner/',
+    default: 'See: https://docs.sonarsource.com/sonarqube/latest/analyzing-source-code/scanners/sonarscanner/',
+  },
 };
 
 /**

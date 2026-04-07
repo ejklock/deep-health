@@ -27,6 +27,20 @@ export interface CloudStorageConfig {
   credentials_env?: string;
 }
 
+export interface SonarQubeConfig {
+  enabled: boolean;
+  host_url: string;
+  project_key: string;
+  /** Name of the environment variable holding the SonarQube token. Defaults to SONAR_TOKEN. */
+  token_env: string;
+  /** What to do when SonarQube scan fails: 'warn' (default) or 'fail'. */
+  on_failure: 'warn' | 'fail';
+}
+
+export interface ScannersConfig {
+  sonarqube?: SonarQubeConfig;
+}
+
 export interface SafeUpdatePolicy {
   allow_patch_and_minor_within_constraints: boolean;
   require_authorization_for_constraint_change: boolean;
@@ -49,4 +63,5 @@ export interface ProjectConfig {
   reports_dir?: string;
   report_language?: SupportedLocale;
   cloud_storage?: CloudStorageConfig;
+  scanners?: ScannersConfig;
 }

@@ -44,4 +44,10 @@ export interface ScanResultJson {
   environment: ExecutionEnv;
   ecosystems: Record<string, EcosystemScanResult>;
   error: string | null;
+  /**
+   * Engine-specific metadata. Optional — OSV does not populate this field.
+   * Phase 1+: SonarQube populates quality gate status and basic metrics here.
+   * Consumers should not rely on this for Gate A or update orchestration.
+   */
+  metadata?: Record<string, unknown>;
 }

@@ -22,6 +22,18 @@ const RuntimeConfigSchema = z.object({
   { message: 'At least one ecosystem must be configured: php or node', path: ['php'] },
 );
 
+const SonarQubeConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  host_url: z.string().url(),
+  project_key: z.string(),
+  token_env: z.string().default('SONAR_TOKEN'),
+  on_failure: z.enum(['warn', 'fail']).default('warn'),
+});
+
+const ScannersConfigSchema = z.object({
+  sonarqube: SonarQubeConfigSchema.optional(),
+});
+
 const CloudStorageConfigSchema = z.object({
   provider: z.enum(['google_drive']),
   folder_id: z.string(),
@@ -50,6 +62,7 @@ export const ProjectConfigSchema = z.object({
   reports_dir: z.string().optional(),
   report_language: z.enum(['pt-br', 'en']).optional(),
   cloud_storage: CloudStorageConfigSchema.optional(),
+  scanners: ScannersConfigSchema.optional(),
 });
 
 export type ProjectConfigInput = z.input<typeof ProjectConfigSchema>;
