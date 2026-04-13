@@ -1,6 +1,6 @@
-import type { SupportedLocale, Locale } from './types.js';
-import type { RawLocale } from './raw-locale.js';
-import { buildLocale } from './loader.js';
+import type { SupportedLocale, Locale } from './types';
+import type { RawLocale } from './raw-locale';
+import { buildLocale } from './loader';
 import ptBrRaw from './locales/pt-br.json';
 import enRaw from './locales/en.json';
 

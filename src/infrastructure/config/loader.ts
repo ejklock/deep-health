@@ -1,9 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { parse } from 'yaml';
-import { ProjectConfigSchema } from './schema.js';
-import type { ProjectConfig } from '@core/types/config.js';
-import { ConfigLoadError } from '@core/errors.js';
+import { ProjectConfigSchema } from './schema';
+import type { ProjectConfig } from '@core/types/config';
+import { ConfigLoadError } from '@core/errors';
 
 export const DEFAULT_CONFIG_PATH = 'project-config.yml';
 

@@ -1,8 +1,8 @@
-import { loadConfig } from '@infra/config/loader.js';
-import { detectEnvironment } from '@infra/environment/detector.js';
-import { setLogLevel } from '@infra/utils/logger.js';
-import type { ProjectConfig } from '@core/types/config.js';
-import type { CommandRunner } from '@core/types/common.js';
+import { loadConfig } from '@infra/config/loader';
+import { detectEnvironment } from '@infra/environment/detector';
+import { setLogLevel } from '@infra/utils/logger';
+import type { ProjectConfig } from '@core/types/config';
+import type { CommandRunner } from '@core/types/common';
 
 export interface RunContext {
   config: ProjectConfig;

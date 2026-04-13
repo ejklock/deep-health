@@ -1,10 +1,10 @@
-import type { ConsolidatedReport } from '@core/types/report.js';
-import type { EcosystemScanResult, ScanResultJson } from '@core/types/scan.js';
-import { defaultRegistry } from '@modules/ecosystem/index.js';
-import { getLocale } from './i18n/index.js';
-import type { ConsolidatedLocale } from './i18n/types.js';
-import { render } from './renderer.js';
-import consolidatedTemplate from './templates/consolidated.hbs.js';
+import type { ConsolidatedReport } from '@core/types/report';
+import type { EcosystemScanResult, ScanResultJson } from '@core/types/scan';
+import { defaultRegistry } from '@modules/ecosystem/index';
+import { getLocale } from './i18n/index';
+import type { ConsolidatedLocale } from './i18n/types';
+import { render } from './renderer';
+import consolidatedTemplate from './templates/consolidated.hbs';
 
 function emptyEcosystemResult(): EcosystemScanResult {
   return {

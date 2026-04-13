@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { generateConsolidatedReport } from '@reporting/consolidated.js';
-import type { ConsolidatedReport } from '@core/types/report.js';
-import type { ScanResultJson } from '@core/types/scan.js';
+import { generateConsolidatedReport } from '@reporting/consolidated';
+import type { ConsolidatedReport } from '@core/types/report';
+import type { ScanResultJson } from '@core/types/scan';
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────────
 

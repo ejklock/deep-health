@@ -1,5 +1,5 @@
-import type { ScanResultJson, EcosystemScanResult } from '@core/types/scan.js';
-import type { EngineWarning } from './types.js';
+import type { ScanResultJson, EcosystemScanResult } from '@core/types/scan';
+import type { EngineWarning } from './types';
 
 /**
  * The result of aggregating scan output from one or more scanner engines.

@@ -1,4 +1,4 @@
-import type { ScannerEngine } from './types.js';
+import type { ScannerEngine } from './types';
 
 /**
  * Registry for ScannerEngine implementations.

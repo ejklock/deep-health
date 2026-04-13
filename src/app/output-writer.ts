@@ -1,6 +1,6 @@
 import { writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { ScanResultJson } from "@core/types/scan.js";
+import type { ScanResultJson } from "@core/types/scan";
 
 /**
  * Format a scan result as a human-readable markdown summary.

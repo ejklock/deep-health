@@ -1,7 +1,7 @@
-import type { CommandRunner } from '@core/types/common.js';
-import type { ProjectConfig } from '@core/types/config.js';
-import type { EcosystemRegistry } from '@modules/ecosystem/registry.js';
-import type { ScanResultJson } from '@core/types/scan.js';
+import type { CommandRunner } from '@core/types/common';
+import type { ProjectConfig } from '@core/types/config';
+import type { EcosystemRegistry } from '@modules/ecosystem/registry';
+import type { ScanResultJson } from '@core/types/scan';
 
 /**
  * Context passed to every ScannerEngine at execution time.

@@ -1,7 +1,7 @@
-import type { CommandRunner } from '@core/types/common.js';
-import type { ProjectConfig, ProtectedPackage } from '@core/types/config.js';
-import type { ScanResultJson } from '@core/types/scan.js';
-import type { UpdateResultJson } from '@core/types/update.js';
+import type { CommandRunner } from '@core/types/common';
+import type { ProjectConfig, ProtectedPackage } from '@core/types/config';
+import type { ScanResultJson } from '@core/types/scan';
+import type { UpdateResultJson } from '@core/types/update';
 
 export interface EcosystemUpdaterContext {
   runner: CommandRunner;

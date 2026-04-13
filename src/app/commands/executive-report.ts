@@ -1,15 +1,15 @@
-import { runScanner } from "@modules/scanner/index.js";
-import { runOrchestrator } from "@orchestration/orchestrator.js";
+import { runScanner } from "@modules/scanner/index";
+import { runOrchestrator } from "@orchestration/orchestrator";
 import {
   generateExecutiveReport,
   executiveReportFilename,
-} from "@reporting/executive.js";
+} from "@reporting/executive";
 import {
   saveReport,
   saveSonarQubeExport,
   resolveReportsDir,
-} from "@app/report-saver.js";
-import type { RunContext } from "@app/run-context.js";
+} from "@app/report-saver";
+import type { RunContext } from "@app/run-context";
 
 export interface ExecutiveReportCommandOptions {
   config: string;

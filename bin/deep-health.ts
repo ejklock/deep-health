@@ -11,21 +11,21 @@ if (nodeMajor < 22) {
 }
 
 import { Command } from "commander";
-import { DEFAULT_CONFIG_PATH } from "@infra/config/loader.js";
+import { DEFAULT_CONFIG_PATH } from "@infra/config/loader";
 import {
   ConfigLoadError,
   GateValidationError,
   PhaseError,
-} from "@core/errors.js";
-import { runCloudSetup } from "@app/commands/cloud-setup.js";
-import { runInitCommand } from "@app/commands/init.js";
-import { createRunContext } from "@app/run-context.js";
-import { runScanCommand, type ScanCommandOptions } from "@app/commands/scan.js";
-import { runFixCommand, type FixCommandOptions } from "@app/commands/fix.js";
+} from "@core/errors";
+import { runCloudSetup } from "@app/commands/cloud-setup";
+import { runInitCommand } from "@app/commands/init";
+import { createRunContext } from "@app/run-context";
+import { runScanCommand, type ScanCommandOptions } from "@app/commands/scan";
+import { runFixCommand, type FixCommandOptions } from "@app/commands/fix";
 import {
   runExecutiveReportCommand,
   type ExecutiveReportCommandOptions,
-} from "@app/commands/executive-report.js";
+} from "@app/commands/executive-report";
 import pkg from "../package.json" with { type: "json" };
 
 const pkgVersion: string = pkg.version;

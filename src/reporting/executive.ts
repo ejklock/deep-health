@@ -1,11 +1,11 @@
-import type { ExecutiveReportOptions } from '@core/types/report.js';
-import type { ScanResultJson, VulnerabilityEntry } from '@core/types/scan.js';
-import type { Locale } from './i18n/index.js';
-import type { ExecLocale } from './i18n/types.js';
-import { defaultRegistry } from '@modules/ecosystem/index.js';
-import { getLocale } from './i18n/index.js';
-import { render } from './renderer.js';
-import executiveTemplate from './templates/executive.hbs.js';
+import type { ExecutiveReportOptions } from '@core/types/report';
+import type { ScanResultJson, VulnerabilityEntry } from '@core/types/scan';
+import type { Locale } from './i18n/index';
+import type { ExecLocale } from './i18n/types';
+import { defaultRegistry } from '@modules/ecosystem/index';
+import { getLocale } from './i18n/index';
+import { render } from './renderer';
+import executiveTemplate from './templates/executive.hbs';
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 

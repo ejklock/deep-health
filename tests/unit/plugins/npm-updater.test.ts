@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { CommandRunner, CommandResult } from '@core/types/common.js';
-import type { ProjectConfig } from '@core/types/config.js';
-import type { ScanResultJson } from '@core/types/scan.js';
+import type { CommandRunner, CommandResult } from '@core/types/common';
+import type { ProjectConfig } from '@core/types/config';
+import type { ScanResultJson } from '@core/types/scan';
 
 // ── Module-level mocks ───────────────────────────────────────────────────────
 // Hoisted so the factory runs before the module under test is imported.
@@ -32,7 +32,7 @@ vi.mock('@core/types/scan.js', async (importOriginal) => {
   };
 });
 
-import { runNpmUpdater } from '@modules/ecosystem/plugins/npm-updater.js';
+import { runNpmUpdater } from '@modules/ecosystem/plugins/npm-updater';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

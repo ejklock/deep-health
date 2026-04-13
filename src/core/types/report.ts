@@ -1,7 +1,7 @@
-import type { ScanResultJson } from './scan.js';
-import type { UpdateResultJson } from './update.js';
-import type { PhaseStatus } from './common.js';
-import type { SupportedLocale } from './locale.js';
+import type { ScanResultJson } from './scan';
+import type { UpdateResultJson } from './update';
+import type { PhaseStatus } from './common';
+import type { SupportedLocale } from './locale';
 
 export interface ConsolidatedReport {
   projectName: string;

@@ -1,6 +1,6 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
-import type { StorageProvider, UploadResult } from './provider.js';
+import type { StorageProvider, UploadResult } from './provider';
 
 export class LocalStorageProvider implements StorageProvider {
   constructor(private readonly outputDir: string) {}

@@ -1,20 +1,20 @@
-import type { CommandRunner, PhaseStatus } from '@core/types/common.js';
-import type { ProjectConfig } from '@core/types/config.js';
-import type { ScanResultJson } from '@core/types/scan.js';
-import type { UpdateResultJson } from '@core/types/update.js';
-import type { EngineWarning, ScannerEngineContext } from '@modules/scanner/types.js';
-import { validateGateA, validateEcosystemGate } from '@core/gates/validator.js';
-import { GateValidationError } from '@core/errors.js';
-import { logger } from '@infra/utils/logger.js';
+import type { CommandRunner, PhaseStatus } from '@core/types/common';
+import type { ProjectConfig } from '@core/types/config';
+import type { ScanResultJson } from '@core/types/scan';
+import type { UpdateResultJson } from '@core/types/update';
+import type { EngineWarning, ScannerEngineContext } from '@modules/scanner/types';
+import { validateGateA, validateEcosystemGate } from '@core/gates/validator';
+import { GateValidationError } from '@core/errors';
+import { logger } from '@infra/utils/logger';
 // Ecosystem registry — plugins are registered via modules/ecosystem/index.ts side-effects
-import { EcosystemRegistry, defaultRegistry } from '@modules/ecosystem/index.js';
+import { EcosystemRegistry, defaultRegistry } from '@modules/ecosystem/index';
 // Scanner registry — engines are registered via modules/scanner/index.ts side-effects
 import {
   defaultScannerRegistry,
   ScannerEngineRegistry,
   aggregateScanResults,
-} from '@modules/scanner/index.js';
-import type { AggregatedScanResult } from '@modules/scanner/index.js';
+} from '@modules/scanner/index';
+import type { AggregatedScanResult } from '@modules/scanner/index';
 
 export interface OrchestratorOptions {
   configPath: string;

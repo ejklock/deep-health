@@ -1,6 +1,6 @@
-import type { CloudStorageConfig } from '@core/types/config.js';
-import type { StorageProvider } from './provider.js';
-import { createGoogleDriveProvider } from './google-drive.js';
+import type { CloudStorageConfig } from '@core/types/config';
+import type { StorageProvider } from './provider';
+import { createGoogleDriveProvider } from './google-drive';
 
 export async function createStorageProvider(
   config: CloudStorageConfig,

@@ -1,13 +1,13 @@
-import type { ScannerEngine, ScannerEngineContext } from './types.js';
-import type { ScanResultJson, EcosystemScanResult, VulnerabilityEntry } from '@core/types/scan.js';
-import { emptyEcosystem } from '@core/types/scan.js';
-import type { ProjectConfig } from '@core/types/config.js';
-import type { EcosystemRegistry } from '@modules/ecosystem/registry.js';
-import { PhaseError, EnvironmentError } from '@core/errors.js';
-import { logger } from '@infra/utils/logger.js';
-import { buildScanCommand, OSV } from '@infra/utils/osv-commands.js';
-import { classifyPackage } from '@core/policy/safe-update.js';
-import { getPlatformInstallHint } from '@infra/utils/platform.js';
+import type { ScannerEngine, ScannerEngineContext } from './types';
+import type { ScanResultJson, EcosystemScanResult, VulnerabilityEntry } from '@core/types/scan';
+import { emptyEcosystem } from '@core/types/scan';
+import type { ProjectConfig } from '@core/types/config';
+import type { EcosystemRegistry } from '@modules/ecosystem/registry';
+import { PhaseError, EnvironmentError } from '@core/errors';
+import { logger } from '@infra/utils/logger';
+import { buildScanCommand, OSV } from '@infra/utils/osv-commands';
+import { classifyPackage } from '@core/policy/safe-update';
+import { getPlatformInstallHint } from '@infra/utils/platform';
 
 // ─── Internal types ────────────────────────────────────────────────────────────
 

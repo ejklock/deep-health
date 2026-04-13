@@ -1,7 +1,7 @@
 import Handlebars from 'handlebars';
-import { getLocale } from '@reporting/i18n/index.js';
-import type { SupportedLocale } from '@core/types/locale.js';
-import configTemplate from './templates/project-config.hbs.js';
+import { getLocale } from '@reporting/i18n/index';
+import type { SupportedLocale } from '@core/types/locale';
+import configTemplate from './templates/project-config.hbs';
 
 /**
  * Config / init scaffolding is intentionally product-scoped to php and npm.

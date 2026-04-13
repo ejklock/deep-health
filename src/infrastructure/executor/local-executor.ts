@@ -1,5 +1,5 @@
 import { execa } from 'execa';
-import type { CommandRunner, CommandRunnerOptions, CommandResult } from '@core/types/common.js';
+import type { CommandRunner, CommandRunnerOptions, CommandResult } from '@core/types/common';
 
 export class LocalExecutor implements CommandRunner {
   readonly dryRun: boolean;

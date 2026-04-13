@@ -1,5 +1,5 @@
-import type { RawLocale } from './raw-locale.js';
-import type { Locale } from './types.js';
+import type { RawLocale } from './raw-locale';
+import type { Locale } from './types';
 
 function interp(str: string, vars: Record<string, string | number>): string {
   return str.replace(/\{\{(\w+)\}\}/g, (_, k: string) => String(vars[k] ?? ''));

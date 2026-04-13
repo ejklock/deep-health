@@ -1,4 +1,4 @@
-import type { ExecutionEnv, PhaseStatus, VulnerabilityClass } from './common.js';
+import type { ExecutionEnv, PhaseStatus, VulnerabilityClass } from './common';
 
 export interface VulnerabilityEntry {
   ecosystem: string;

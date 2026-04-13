@@ -1,2 +1,2 @@
-export type { ServiceProvisioner, DockerSonarQubeProvisionerOptions } from './types.js';
-export { DockerSonarQubeProvisioner } from './docker-sonarqube.js';
+export type { ServiceProvisioner, DockerSonarQubeProvisionerOptions } from './types';
+export { DockerSonarQubeProvisioner } from './docker-sonarqube';

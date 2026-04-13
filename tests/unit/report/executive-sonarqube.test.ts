@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { generateExecutiveReport } from '@reporting/executive.js';
-import type { ExecutiveReportOptions } from '@core/types/report.js';
-import type { ScanResultJson } from '@core/types/scan.js';
+import { generateExecutiveReport } from '@reporting/executive';
+import type { ExecutiveReportOptions } from '@core/types/report';
+import type { ScanResultJson } from '@core/types/scan';
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────────
 

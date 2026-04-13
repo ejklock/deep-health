@@ -1,7 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { parse as yamlParse, stringify as yamlStringify } from 'yaml';
-import type { ProjectConfig } from '@core/types/config.js';
+import type { ProjectConfig } from '@core/types/config';
 
 interface CloudSetupOptions {
   configPath: string;

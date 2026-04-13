@@ -1,7 +1,7 @@
-import type { CommandRunner, ExecutionEnv } from '@core/types/common.js';
-import { LocalExecutor } from '../executor/local-executor.js';
-import { DockerExecutor } from '../executor/docker-executor.js';
-import { logger } from '../utils/logger.js';
+import type { CommandRunner, ExecutionEnv } from '@core/types/common';
+import { LocalExecutor } from '../executor/local-executor';
+import { DockerExecutor } from '../executor/docker-executor';
+import { logger } from '../utils/logger';
 
 export async function detectEnvironment(
   preferredEnv: ExecutionEnv,

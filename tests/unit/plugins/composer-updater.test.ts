@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { CommandRunner, CommandResult } from '@core/types/common.js';
-import type { ProjectConfig } from '@core/types/config.js';
-import type { ScanResultJson } from '@core/types/scan.js';
+import type { CommandRunner, CommandResult } from '@core/types/common';
+import type { ProjectConfig } from '@core/types/config';
+import type { ScanResultJson } from '@core/types/scan';
 
 // ── Module-level mocks ───────────────────────────────────────────────────────
 vi.mock('@infra/utils/git.js', () => ({
@@ -30,7 +30,7 @@ vi.mock('@core/types/scan.js', async (importOriginal) => {
   };
 });
 
-import { runComposerUpdater } from '@modules/ecosystem/plugins/composer-updater.js';
+import { runComposerUpdater } from '@modules/ecosystem/plugins/composer-updater';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

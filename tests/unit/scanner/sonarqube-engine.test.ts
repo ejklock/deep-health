@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { SonarQubeEngine } from '@modules/scanner/sonarqube-engine.js';
-import { EnvironmentError } from '@core/errors.js';
-import type { ScannerEngineContext } from '@modules/scanner/types.js';
-import type { CommandRunner, CommandResult, CommandRunnerOptions, ExecutionEnv } from '@core/types/common.js';
-import type { ProjectConfig } from '@core/types/config.js';
-import type { EcosystemRegistry } from '@modules/ecosystem/registry.js';
+import { SonarQubeEngine } from '@modules/scanner/sonarqube-engine';
+import { EnvironmentError } from '@core/errors';
+import type { ScannerEngineContext } from '@modules/scanner/types';
+import type { CommandRunner, CommandResult, CommandRunnerOptions, ExecutionEnv } from '@core/types/common';
+import type { ProjectConfig } from '@core/types/config';
+import type { EcosystemRegistry } from '@modules/ecosystem/registry';
 
 // ─── Mock DockerSonarQubeProvisioner for unit tests ────────────────────────────
 // We do NOT want real Docker calls in unit tests.
@@ -17,7 +17,7 @@ vi.mock('@infra/provisioner/docker-sonarqube.js', () => ({
   })),
 }));
 
-import { DockerSonarQubeProvisioner } from '@infra/provisioner/docker-sonarqube.js';
+import { DockerSonarQubeProvisioner } from '@infra/provisioner/docker-sonarqube';
 
 // ─── Minimal mocks ─────────────────────────────────────────────────────────────
 

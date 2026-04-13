@@ -1,4 +1,4 @@
-import type { ScanResultJson } from '@core/types/scan.js';
+import type { ScanResultJson } from '@core/types/scan';
 
 // ─── Export types ──────────────────────────────────────────────────────────────
 

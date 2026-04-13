@@ -8,14 +8,14 @@
  *   1. OsvScannerEngine — primary vulnerability scanner (always active)
  *   2. SonarQubeEngine  — code quality scanner (self-skips when not enabled in config)
  */
-import { defaultScannerRegistry } from './registry.js';
-import { OsvScannerEngine } from './osv-engine.js';
-import { SonarQubeEngine } from './sonarqube-engine.js';
-import type { CommandRunner } from '@core/types/common.js';
-import type { ProjectConfig } from '@core/types/config.js';
-import type { ScanResultJson } from '@core/types/scan.js';
-import type { EcosystemRegistry } from '@modules/ecosystem/registry.js';
-import { defaultRegistry } from '@modules/ecosystem/index.js';
+import { defaultScannerRegistry } from './registry';
+import { OsvScannerEngine } from './osv-engine';
+import { SonarQubeEngine } from './sonarqube-engine';
+import type { CommandRunner } from '@core/types/common';
+import type { ProjectConfig } from '@core/types/config';
+import type { ScanResultJson } from '@core/types/scan';
+import type { EcosystemRegistry } from '@modules/ecosystem/registry';
+import { defaultRegistry } from '@modules/ecosystem/index';
 
 // Register OSV scanner engine as the primary engine
 defaultScannerRegistry.register(new OsvScannerEngine());
@@ -24,13 +24,13 @@ defaultScannerRegistry.register(new OsvScannerEngine());
 defaultScannerRegistry.register(new SonarQubeEngine());
 
 // Re-export for convenient single-import access
-export { defaultScannerRegistry, ScannerEngineRegistry } from './registry.js';
-export type { ScannerEngine, ScannerEngineContext, EngineWarning } from './types.js';
-export type { AggregatedScanResult } from './aggregator.js';
-export { aggregateScanResults } from './aggregator.js';
-export { OsvScannerEngine } from './osv-engine.js';
-export { emptyEcosystem } from '@core/types/scan.js';
-export { SonarQubeEngine } from './sonarqube-engine.js';
+export { defaultScannerRegistry, ScannerEngineRegistry } from './registry';
+export type { ScannerEngine, ScannerEngineContext, EngineWarning } from './types';
+export type { AggregatedScanResult } from './aggregator';
+export { aggregateScanResults } from './aggregator';
+export { OsvScannerEngine } from './osv-engine';
+export { emptyEcosystem } from '@core/types/scan';
+export { SonarQubeEngine } from './sonarqube-engine';
 
 // Convenience wrapper: run only the OSV engine (used by bin commands needing a quick scan)
 const _osvEngine = new OsvScannerEngine();

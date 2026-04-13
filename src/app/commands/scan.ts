@@ -1,6 +1,6 @@
-import { runScanner } from "@modules/scanner/index.js";
-import { writeOutput, formatScanSummary } from "@app/output-writer.js";
-import type { RunContext } from "@app/run-context.js";
+import { runScanner } from "@modules/scanner/index";
+import { writeOutput, formatScanSummary } from "@app/output-writer";
+import type { RunContext } from "@app/run-context";
 
 export interface ScanCommandOptions {
   config: string;

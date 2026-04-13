@@ -1,4 +1,4 @@
-import type { PhaseStatus } from './common.js';
+import type { PhaseStatus } from './common';
 
 /**
  * A single validation step entry in the canonical validation model.

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { generateConsolidatedReport } from '@reporting/consolidated.js';
-import type { ConsolidatedReport } from '@core/types/report.js';
+import { generateConsolidatedReport } from '@reporting/consolidated';
+import type { ConsolidatedReport } from '@core/types/report';
 
 const mockReport: ConsolidatedReport = {
   projectName: 'Test Project',

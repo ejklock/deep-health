@@ -1,7 +1,7 @@
-import type { EcosystemPlugin, EcosystemUpdaterContext } from '../types.js';
-import type { ProjectConfig, ProtectedPackage } from '@core/types/config.js';
-import type { UpdateResultJson } from '@core/types/update.js';
-import { runNpmUpdater } from './npm-updater.js';
+import type { EcosystemPlugin, EcosystemUpdaterContext } from '../types';
+import type { ProjectConfig, ProtectedPackage } from '@core/types/config';
+import type { UpdateResultJson } from '@core/types/update';
+import { runNpmUpdater } from './npm-updater';
 
 export const npmPlugin: EcosystemPlugin = {
   id: 'npm',

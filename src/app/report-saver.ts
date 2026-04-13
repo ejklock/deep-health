@@ -1,13 +1,13 @@
 import { resolve } from "node:path";
-import { LocalStorageProvider } from "@infra/storage/local.js";
-import { createStorageProvider } from "@infra/storage/factory.js";
+import { LocalStorageProvider } from "@infra/storage/local";
+import { createStorageProvider } from "@infra/storage/factory";
 import {
   buildSonarQubeExport,
   sonarQubeExportFilename,
-} from "@reporting/sonarqube-export.js";
-import type { CloudStorageConfig } from "@core/types/config.js";
-import type { StorageProvider } from "@infra/storage/provider.js";
-import type { ScanResultJson } from "@core/types/scan.js";
+} from "@reporting/sonarqube-export";
+import type { CloudStorageConfig } from "@core/types/config";
+import type { StorageProvider } from "@infra/storage/provider";
+import type { ScanResultJson } from "@core/types/scan";
 
 /**
  * Save a report to local storage and optionally to cloud storage.

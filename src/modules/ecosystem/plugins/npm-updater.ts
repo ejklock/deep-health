@@ -1,11 +1,11 @@
-import type { CommandRunner, CommandResult } from '@core/types/common.js';
-import type { ProjectConfig } from '@core/types/config.js';
-import type { UpdateResultJson, ValidationEntry } from '@core/types/update.js';
-import type { ScanResultJson } from '@core/types/scan.js';
-import { emptyEcosystem } from '@core/types/scan.js';
-import { PhaseError } from '@core/errors.js';
-import { backupFiles, restoreFiles } from '@infra/utils/git.js';
-import { logger } from '@infra/utils/logger.js';
+import type { CommandRunner, CommandResult } from '@core/types/common';
+import type { ProjectConfig } from '@core/types/config';
+import type { UpdateResultJson, ValidationEntry } from '@core/types/update';
+import type { ScanResultJson } from '@core/types/scan';
+import { emptyEcosystem } from '@core/types/scan';
+import { PhaseError } from '@core/errors';
+import { backupFiles, restoreFiles } from '@infra/utils/git';
+import { logger } from '@infra/utils/logger';
 
 const NPM_FILES = ['package.json', 'package-lock.json'];
 

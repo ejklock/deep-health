@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { loadConfig } from '@infra/config/loader.js';
-import { ConfigLoadError } from '@core/errors.js';
+import { loadConfig } from '@infra/config/loader';
+import { ConfigLoadError } from '@core/errors';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 

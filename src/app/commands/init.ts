@@ -1,8 +1,8 @@
 import { writeFile, access, mkdir } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
-import { DEFAULT_CONFIG_PATH } from '@infra/config/loader.js';
-import { generateConfigYaml } from '@infra/config/generator.js';
-import { prompt } from '@infra/utils/prompt.js';
+import { DEFAULT_CONFIG_PATH } from '@infra/config/loader';
+import { generateConfigYaml } from '@infra/config/generator';
+import { prompt } from '@infra/utils/prompt';
 
 export interface InitCommandOptions {
   projectName?: string;

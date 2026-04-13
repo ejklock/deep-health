@@ -1,9 +1,9 @@
-import type { ScannerEngine, ScannerEngineContext } from './types.js';
-import type { ScanResultJson } from '@core/types/scan.js';
-import { DockerSonarQubeProvisioner } from '@infra/provisioner/docker-sonarqube.js';
-import { EnvironmentError } from '@core/errors.js';
-import { logger } from '@infra/utils/logger.js';
-import { getPlatformInstallHint } from '@infra/utils/platform.js';
+import type { ScannerEngine, ScannerEngineContext } from './types';
+import type { ScanResultJson } from '@core/types/scan';
+import { DockerSonarQubeProvisioner } from '@infra/provisioner/docker-sonarqube';
+import { EnvironmentError } from '@core/errors';
+import { logger } from '@infra/utils/logger';
+import { getPlatformInstallHint } from '@infra/utils/platform';
 
 // ─── SonarQube API types (minimal) ─────────────────────────────────────────────
 

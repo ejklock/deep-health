@@ -1,19 +1,19 @@
-import { runScanner } from "@modules/scanner/index.js";
-import { runOrchestrator } from "@orchestration/orchestrator.js";
-import { generateConsolidatedReport } from "@reporting/consolidated.js";
+import { runScanner } from "@modules/scanner/index";
+import { runOrchestrator } from "@orchestration/orchestrator";
+import { generateConsolidatedReport } from "@reporting/consolidated";
 import {
   generateExecutiveReport,
   executiveReportFilename,
-} from "@reporting/executive.js";
-import { defaultRegistry } from "@modules/ecosystem/index.js";
-import { writeOutput } from "@app/output-writer.js";
+} from "@reporting/executive";
+import { defaultRegistry } from "@modules/ecosystem/index";
+import { writeOutput } from "@app/output-writer";
 import {
   saveReport,
   saveSonarQubeExport,
   resolveReportsDir,
-} from "@app/report-saver.js";
-import type { RunContext } from "@app/run-context.js";
-import type { ConsolidatedReport } from "@core/types/report.js";
+} from "@app/report-saver";
+import type { RunContext } from "@app/run-context";
+import type { ConsolidatedReport } from "@core/types/report";
 
 export interface FixCommandOptions {
   config: string;

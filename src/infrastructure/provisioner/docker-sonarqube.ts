@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createServer } from 'node:net';
-import type { ServiceProvisioner, DockerSonarQubeProvisionerOptions } from './types.js';
-import { logger } from '../utils/logger.js';
+import type { ServiceProvisioner, DockerSonarQubeProvisionerOptions } from './types';
+import { logger } from '../utils/logger';
 
 const execFileAsync = promisify(execFile);
 

@@ -1,5 +1,5 @@
 // Re-exported from the neutral types layer so reporting/i18n internals stay self-consistent.
-export type { SupportedLocale } from '@core/types/locale.js';
+export type { SupportedLocale } from '@core/types/locale';
 
 export interface ExecLocale {
   label_client: string;

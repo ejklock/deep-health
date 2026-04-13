@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { generateConfigYaml } from '@infra/config/generator.js';
+import { generateConfigYaml } from '@infra/config/generator';
 import { parse } from 'yaml';
-import { ProjectConfigSchema } from '@infra/config/schema.js';
+import { ProjectConfigSchema } from '@infra/config/schema';
 
 describe('generateConfigYaml', () => {
   it('generates valid YAML that passes schema validation', () => {

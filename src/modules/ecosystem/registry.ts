@@ -1,5 +1,5 @@
-import type { ProjectConfig } from '@core/types/config.js';
-import type { EcosystemPlugin } from './types.js';
+import type { ProjectConfig } from '@core/types/config';
+import type { EcosystemPlugin } from './types';
 
 export class EcosystemRegistry {
   private readonly plugins = new Map<string, EcosystemPlugin>();

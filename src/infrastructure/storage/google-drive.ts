@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import type { StorageProvider, UploadResult } from './provider.js';
-import type { CloudStorageConfig } from '@core/types/config.js';
+import type { StorageProvider, UploadResult } from './provider';
+import type { CloudStorageConfig } from '@core/types/config';
 
 export class GoogleDriveProvider implements StorageProvider {
   constructor(
