@@ -42,7 +42,7 @@ describe('generateConfigYaml', () => {
 
   it('includes a header comment', () => {
     const yaml = generateConfigYaml();
-    expect(yaml).toContain('# OSV Security CLI');
+    expect(yaml).toContain('# deep-health');
   });
 
   it('generates valid YAML with custom PHP version', () => {

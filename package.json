@@ -1,10 +1,10 @@
 {
-  "name": "osv-security-cli",
+  "name": "deep-health",
   "version": "0.1.6",
-  "description": "CLI tool for automated OSV vulnerability scanning and safe dependency updates",
+  "description": "CLI tool for automated vulnerability scanning and safe dependency updates",
   "type": "module",
   "bin": {
-    "osv-security": "./dist/bin/osv-security.js"
+    "deep-health": "./dist/bin/deep-health.js"
   },
   "exports": {
     ".": "./dist/index.js"
@@ -13,7 +13,7 @@
     "dist"
   ],
   "scripts": {
-    "dev": "tsx bin/osv-security.ts",
+    "dev": "tsx bin/deep-health.ts",
     "build": "tsup",
     "test": "vitest run",
     "test:watch": "vitest",

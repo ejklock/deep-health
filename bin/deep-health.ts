@@ -4,7 +4,7 @@
 const [nodeMajor] = process.versions.node.split(".").map(Number);
 if (nodeMajor < 22) {
   process.stderr.write(
-    `osv-security-cli requires Node.js >=22. Detected: v${process.versions.node}\n` +
+    `deep-health requires Node.js >=22. Detected: v${process.versions.node}\n` +
       `Please upgrade Node.js and try again.\n`,
   );
   process.exit(1);
@@ -50,7 +50,7 @@ const { version: pkgVersion } = _require("../package.json") as {
 const program = new Command();
 
 program
-  .name("osv-security")
+  .name("deep-health")
   .description("OSV vulnerability scanning and safe dependency update CLI")
   .version(pkgVersion);
 
@@ -154,7 +154,7 @@ program
       `  2. Review protected_packages — add any packages that must not be auto-upgraded\n`,
     );
     process.stdout.write(
-      `  3. Run: osv-security scan --cwd <your-project-dir>\n`,
+      `  3. Run: deep-health scan --cwd <your-project-dir>\n`,
     );
     process.stdout.write(
       `     (config will be loaded from project-config.yml at project root by default)\n`,
