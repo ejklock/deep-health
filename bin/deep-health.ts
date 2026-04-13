@@ -11,11 +11,7 @@ if (nodeMajor < 22) {
 }
 
 import { Command } from "commander";
-import { writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
-import { loadConfig, DEFAULT_CONFIG_PATH } from "@infra/config/loader.js";
-import { generateConfigYaml } from "@infra/config/generator.js";
-import { detectEnvironment } from "@infra/environment/detector.js";
+import { DEFAULT_CONFIG_PATH } from "@infra/config/loader.js";
 import { runOrchestrator } from "@orchestration/orchestrator.js";
 import { generateConsolidatedReport } from "@reporting/consolidated.js";
 import {
@@ -23,14 +19,14 @@ import {
   executiveReportFilename,
 } from "@reporting/executive.js";
 import { runScanner } from "@modules/scanner/index.js";
-import { setLogLevel } from "@infra/utils/logger.js";
 import {
   ConfigLoadError,
   GateValidationError,
   PhaseError,
 } from "@core/errors.js";
-import { prompt } from "@infra/utils/prompt.js";
 import { runCloudSetup } from "@app/commands/cloud-setup.js";
+import { runInitCommand } from "@app/commands/init.js";
+import { createRunContext } from "@app/run-context.js";
 import { defaultRegistry } from "@modules/ecosystem/index.js";
 import { writeOutput, formatScanSummary } from "@app/output-writer.js";
 import {
@@ -102,59 +98,7 @@ program
   .option("--output <path>", "Output path (default: ./project-config.yml)")
   .option("--force", "Overwrite existing file", false)
   .action(async (opts) => {
-    const { access, mkdir } = await import("node:fs/promises");
-    const { dirname } = await import("node:path");
-
-    const outputPath = opts.output
-      ? resolve(opts.cwd, opts.output)
-      : resolve(opts.cwd, DEFAULT_CONFIG_PATH);
-
-    // Check if file already exists
-    if (!opts.force) {
-      try {
-        await access(outputPath);
-        process.stderr.write(
-          `File already exists: ${outputPath}\nUse --force to overwrite.\n`,
-        );
-        process.exit(3);
-      } catch {
-        // File doesn't exist — proceed
-      }
-    }
-
-    const projectName =
-      opts.projectName ?? (await prompt("Project name", "Project"));
-    const client = opts.client ?? (await prompt("Client name", "Client Name"));
-
-    const yaml = generateConfigYaml({
-      projectName,
-      client,
-      execution: opts.execution as "docker" | "local",
-      dockerService: opts.dockerService,
-      dockerWorkdir: opts.dockerWorkdir,
-      ecosystems: (opts.ecosystems as string)
-        .split(",")
-        .map((s: string) => s.trim()) as ("php" | "npm")[],
-      phpVersion: opts.phpVersion,
-      nodeVersion: opts.nodeVersion,
-      testCommand: opts.testCommand,
-      reportLanguage: opts.reportLanguage as "pt-br" | "en",
-    });
-
-    await mkdir(dirname(outputPath), { recursive: true });
-    await writeFile(outputPath, yaml, "utf-8");
-    process.stdout.write(`Created: ${outputPath}\n`);
-    process.stdout.write(`\nNext steps:\n`);
-    process.stdout.write(`  1. Edit ${outputPath} to match your project\n`);
-    process.stdout.write(
-      `  2. Review protected_packages — add any packages that must not be auto-upgraded\n`,
-    );
-    process.stdout.write(
-      `  3. Run: deep-health scan --cwd <your-project-dir>\n`,
-    );
-    process.stdout.write(
-      `     (config will be loaded from project-config.yml at project root by default)\n`,
-    );
+    await runInitCommand(opts);
   });
 
 // scan command
@@ -239,20 +183,10 @@ async function runCommand(
     authorizeBreaking?: string[];
   },
 ): Promise<void> {
-  if (opts.verbose) setLogLevel("debug");
-  if (opts.quiet) setLogLevel("error");
-
   let exitCode = 0;
 
   try {
-    const config = await loadConfig(opts.config, opts.cwd);
-    const runner = await detectEnvironment(
-      config.runtime.execution,
-      config.runtime.docker_service,
-      opts.cwd,
-      opts.dryRun,
-      config.runtime.docker_workdir,
-    );
+    const { config, runner } = await createRunContext(opts);
 
     if (command === "scan") {
       const scanResult = await runScanner(runner, config, opts.cwd);

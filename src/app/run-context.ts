@@ -1,0 +1,41 @@
+import { loadConfig } from '@infra/config/loader.js';
+import { detectEnvironment } from '@infra/environment/detector.js';
+import { setLogLevel } from '@infra/utils/logger.js';
+import type { ProjectConfig } from '@core/types/config.js';
+import type { CommandRunner } from '@core/types/common.js';
+
+export interface RunContext {
+  config: ProjectConfig;
+  runner: CommandRunner;
+}
+
+export interface RunContextOptions {
+  config: string;
+  cwd: string;
+  dryRun: boolean;
+  verbose: boolean;
+  quiet: boolean;
+}
+
+/**
+ * Bootstraps config + runner from common CLI options.
+ * Applies log level, loads config, and detects the execution environment.
+ * Errors are intentionally allowed to bubble to the caller.
+ */
+export async function createRunContext(
+  opts: RunContextOptions,
+): Promise<RunContext> {
+  if (opts.verbose) setLogLevel('debug');
+  if (opts.quiet) setLogLevel('error');
+
+  const config = await loadConfig(opts.config, opts.cwd);
+  const runner = await detectEnvironment(
+    config.runtime.execution,
+    config.runtime.docker_service,
+    opts.cwd,
+    opts.dryRun,
+    config.runtime.docker_workdir,
+  );
+
+  return { config, runner };
+}
