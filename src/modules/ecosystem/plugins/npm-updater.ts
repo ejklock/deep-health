@@ -29,42 +29,6 @@ async function applyOsvFix(runner: CommandRunner, cwd: string): Promise<void> {
   }
 }
 
-/**
- * Installs auto-safe packages using targeted `npm install <pkg@safeVersion>` commands.
- * Derives install specs from OSV vulnerability entries where classification === 'auto_safe'
- * and a safeVersion is available. Deduplicates by package name (first safeVersion wins).
- * Returns an error string if any targeted install fails, null on success.
- */
-async function installAutoSafePackages(
-  runner: CommandRunner,
-  scanResult: ScanResultJson,
-  cwd: string,
-): Promise<string | null> {
-  const npmEcosystem = scanResult.ecosystems['npm'] ?? emptyEcosystem();
-  const pkgs = npmEcosystem.vulnerabilities
-    .filter((v) => v.classification === 'auto_safe' && v.safeVersion)
-    .reduce<Map<string, string>>((map, v) => {
-      if (!map.has(v.package)) map.set(v.package, v.safeVersion!);
-      return map;
-    }, new Map());
-
-  if (pkgs.size === 0) {
-    logger.info('No auto-safe packages with a known safeVersion — skipping targeted installs.');
-    return null;
-  }
-
-  for (const [name, ver] of pkgs.entries()) {
-    const spec = `${name}@${ver}`;
-    logger.info(`Installing auto-safe package: npm install ${spec}`);
-    const result = await runner.run(`npm install ${spec}`, { cwd, stream: true });
-    if (result.exitCode !== 0) {
-      return `npm install ${spec} failed: ${result.stderr}`;
-    }
-  }
-
-  return null;
-}
-
 async function installBreakingPackages(
   runner: CommandRunner,
   scanResult: ScanResultJson,
@@ -139,7 +103,6 @@ export async function runNpmUpdater(
 
   if (runner.dryRun) {
     logger.info(`[DRY-RUN] Would execute: ${OSV_FIX_NPM}`);
-    logger.info('[DRY-RUN] Would execute: npm install <pkg@safeVersion> (per OSV auto-safe package)');
     if (authorizeBreaking) logger.info('[DRY-RUN] Would install authorized breaking-change packages');
     if (config.runtime.build_commands) {
       logger.info(`[DRY-RUN] Would execute: ${config.runtime.build_commands.frontend}`);
@@ -157,16 +120,6 @@ export async function runNpmUpdater(
 
     await checkCurrentState(runner, cwd);
     await applyOsvFix(runner, cwd);
-
-    const autoSafeError = await installAutoSafePackages(runner, scanResult, cwd);
-    if (autoSafeError) {
-      return {
-        ...base,
-        status: 'error',
-        validations: [{ name: 'build', status: 'fail', detail: autoSafeError }],
-        error: autoSafeError,
-      };
-    }
 
     if (authorizeBreaking) {
       const breakingError = await installBreakingPackages(runner, scanResult, cwd);
