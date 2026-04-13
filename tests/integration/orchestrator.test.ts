@@ -1,14 +1,14 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { runOrchestrator } from '../../src/phases/orchestrator.js';
-import { loadConfig } from '../../src/config/loader.js';
-import { GateValidationError } from '../../src/utils/errors.js';
-import { ScannerEngineRegistry } from '../../src/scanner/registry.js';
-import { OsvScannerEngine } from '../../src/scanner/osv-engine.js';
-import { SonarQubeEngine } from '../../src/scanner/sonarqube-engine.js';
-import type { CommandRunner, CommandResult, CommandRunnerOptions, ExecutionEnv } from '../../src/types/common.js';
-import type { ProjectConfig } from '../../src/types/config.js';
-import type { ScannerEngineContext, ScannerEngine } from '../../src/scanner/types.js';
-import type { ScanResultJson } from '../../src/types/scan.js';
+import { runOrchestrator } from '@orchestration/orchestrator.js';
+import { loadConfig } from '@infra/config/loader.js';
+import { GateValidationError } from '@core/errors.js';
+import { ScannerEngineRegistry } from '@modules/scanner/registry.js';
+import { OsvScannerEngine } from '@modules/scanner/osv-engine.js';
+import { SonarQubeEngine } from '@modules/scanner/sonarqube-engine.js';
+import type { CommandRunner, CommandResult, CommandRunnerOptions, ExecutionEnv } from '@core/types/common.js';
+import type { ProjectConfig } from '@core/types/config.js';
+import type { ScannerEngineContext, ScannerEngine } from '@modules/scanner/types.js';
+import type { ScanResultJson } from '@core/types/scan.js';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 

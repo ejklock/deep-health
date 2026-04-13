@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateGateA, validateEcosystemGate } from '../../../src/gates/validator.js';
+import { validateGateA, validateEcosystemGate } from '@core/gates/validator.js';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';

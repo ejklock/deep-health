@@ -1,15 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { SonarQubeEngine } from '../../../src/scanner/sonarqube-engine.js';
-import { EnvironmentError } from '../../../src/utils/errors.js';
-import type { ScannerEngineContext } from '../../../src/scanner/types.js';
-import type { CommandRunner, CommandResult, CommandRunnerOptions, ExecutionEnv } from '../../../src/types/common.js';
-import type { ProjectConfig } from '../../../src/types/config.js';
-import type { EcosystemRegistry } from '../../../src/ecosystem/registry.js';
+import { SonarQubeEngine } from '@modules/scanner/sonarqube-engine.js';
+import { EnvironmentError } from '@core/errors.js';
+import type { ScannerEngineContext } from '@modules/scanner/types.js';
+import type { CommandRunner, CommandResult, CommandRunnerOptions, ExecutionEnv } from '@core/types/common.js';
+import type { ProjectConfig } from '@core/types/config.js';
+import type { EcosystemRegistry } from '@modules/ecosystem/registry.js';
 
 // ─── Mock DockerSonarQubeProvisioner for unit tests ────────────────────────────
 // We do NOT want real Docker calls in unit tests.
 
-vi.mock('../../../src/provisioner/docker-sonarqube.js', () => ({
+vi.mock('@infra/provisioner/docker-sonarqube.js', () => ({
   DockerSonarQubeProvisioner: vi.fn().mockImplementation(() => ({
     provision: vi.fn().mockResolvedValue({ baseUrl: 'http://localhost:19999' }),
     waitReady: vi.fn().mockResolvedValue(undefined),
@@ -17,7 +17,7 @@ vi.mock('../../../src/provisioner/docker-sonarqube.js', () => ({
   })),
 }));
 
-import { DockerSonarQubeProvisioner } from '../../../src/provisioner/docker-sonarqube.js';
+import { DockerSonarQubeProvisioner } from '@infra/provisioner/docker-sonarqube.js';
 
 // ─── Minimal mocks ─────────────────────────────────────────────────────────────
 

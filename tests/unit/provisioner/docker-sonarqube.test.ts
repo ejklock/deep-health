@@ -6,7 +6,7 @@
  * All tests are pure unit tests — no Docker required.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { DockerSonarQubeProvisioner } from '../../../src/provisioner/docker-sonarqube.js';
+import { DockerSonarQubeProvisioner } from '@infra/provisioner/docker-sonarqube.js';
 
 // ─── Mock execFile (docker commands) ──────────────────────────────────────────
 

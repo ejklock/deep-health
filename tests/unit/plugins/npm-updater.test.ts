@@ -1,21 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { CommandRunner, CommandResult } from '../../../src/types/common.js';
-import type { ProjectConfig } from '../../../src/types/config.js';
-import type { ScanResultJson } from '../../../src/types/scan.js';
+import type { CommandRunner, CommandResult } from '@core/types/common.js';
+import type { ProjectConfig } from '@core/types/config.js';
+import type { ScanResultJson } from '@core/types/scan.js';
 
 // ── Module-level mocks ───────────────────────────────────────────────────────
 // Hoisted so the factory runs before the module under test is imported.
-vi.mock('../../../src/utils/git.js', () => ({
+vi.mock('@infra/utils/git.js', () => ({
   backupFiles: vi.fn().mockResolvedValue(new Map()),
   restoreFiles: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../../../src/utils/logger.js', () => ({
+vi.mock('@infra/utils/logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
 // scanner.emptyEcosystem is used when 'npm' key is absent from scanResult
-vi.mock('../../../src/phases/scanner.js', () => ({
+vi.mock('@modules/scanner/index.js', () => ({
   emptyEcosystem: vi.fn(() => ({
     vulnerabilities_total: 0,
     auto_safe: 0,
@@ -28,7 +28,7 @@ vi.mock('../../../src/phases/scanner.js', () => ({
   })),
 }));
 
-import { runNpmUpdater } from '../../../src/ecosystem/plugins/npm-updater.js';
+import { runNpmUpdater } from '@modules/ecosystem/plugins/npm-updater.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

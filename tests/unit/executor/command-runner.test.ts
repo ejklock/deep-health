@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { LocalExecutor } from '../../../src/executor/local-executor.js';
-import { DockerExecutor } from '../../../src/executor/docker-executor.js';
+import { LocalExecutor } from '@infra/executor/local-executor.js';
+import { DockerExecutor } from '@infra/executor/docker-executor.js';
 
 describe('LocalExecutor', () => {
   it('returns dry-run result without executing', async () => {

@@ -13,33 +13,33 @@ if (nodeMajor < 22) {
 import { Command, Option } from "commander";
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { loadConfig, DEFAULT_CONFIG_PATH } from "../src/config/loader.js";
-import { generateConfigYaml } from "../src/config/generator.js";
-import { detectEnvironment } from "../src/environment/detector.js";
-import { runOrchestrator } from "../src/phases/orchestrator.js";
-import { generateConsolidatedReport } from "../src/report/consolidated.js";
+import { loadConfig, DEFAULT_CONFIG_PATH } from "@infra/config/loader.js";
+import { generateConfigYaml } from "@infra/config/generator.js";
+import { detectEnvironment } from "@infra/environment/detector.js";
+import { runOrchestrator } from "@orchestration/orchestrator.js";
+import { generateConsolidatedReport } from "@reporting/consolidated.js";
 import {
   generateExecutiveReport,
   executiveReportFilename,
-} from "../src/report/executive.js";
+} from "@reporting/executive.js";
 import {
   buildSonarQubeExport,
   sonarQubeExportFilename,
-} from "../src/report/sonarqube-export.js";
-import { runScanner } from "../src/phases/scanner.js";
-import { setLogLevel } from "../src/utils/logger.js";
+} from "@reporting/sonarqube-export.js";
+import { runScanner } from "@modules/scanner/index.js";
+import { setLogLevel } from "@infra/utils/logger.js";
 import {
   ConfigLoadError,
   GateValidationError,
   PhaseError,
-} from "../src/utils/errors.js";
-import { prompt, promptConfirm, isInteractive } from "../src/utils/prompt.js";
-import { LocalStorageProvider } from "../src/storage/local.js";
-import { createStorageProvider } from "../src/storage/factory.js";
-import { runCloudSetup } from "../src/commands/cloud-setup.js";
-import { defaultRegistry } from "../src/ecosystem/index.js";
-import type { StorageProvider } from "../src/storage/provider.js";
-import type { ConsolidatedReport } from "../src/types/report.js";
+} from "@core/errors.js";
+import { prompt, promptConfirm, isInteractive } from "@infra/utils/prompt.js";
+import { LocalStorageProvider } from "@infra/storage/local.js";
+import { createStorageProvider } from "@infra/storage/factory.js";
+import { runCloudSetup } from "@app/commands/cloud-setup.js";
+import { defaultRegistry } from "@modules/ecosystem/index.js";
+import type { StorageProvider } from "@infra/storage/provider.js";
+import type { ConsolidatedReport } from "@core/types/report.js";
 import pkg from "../package.json" with { type: "json" };
 
 const pkgVersion: string = pkg.version;
@@ -237,7 +237,7 @@ async function saveReport(
   content: string,
   reportsDir: string,
   cloudStorageConfig:
-    | import("../src/types/config.js").CloudStorageConfig
+    | import("@core/types/config.js").CloudStorageConfig
     | undefined,
   cwd: string,
 ): Promise<void> {

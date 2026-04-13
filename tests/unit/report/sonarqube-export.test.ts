@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   buildSonarQubeExport,
   sonarQubeExportFilename,
-} from '../../../src/report/sonarqube-export.js';
-import type { ScanResultJson } from '../../../src/types/scan.js';
+} from '@reporting/sonarqube-export.js';
+import type { ScanResultJson } from '@core/types/scan.js';
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────────
 
