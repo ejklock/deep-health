@@ -12,13 +12,6 @@ if (nodeMajor < 22) {
 
 import { Command } from "commander";
 import { DEFAULT_CONFIG_PATH } from "@infra/config/loader.js";
-import { runOrchestrator } from "@orchestration/orchestrator.js";
-import { generateConsolidatedReport } from "@reporting/consolidated.js";
-import {
-  generateExecutiveReport,
-  executiveReportFilename,
-} from "@reporting/executive.js";
-import { runScanner } from "@modules/scanner/index.js";
 import {
   ConfigLoadError,
   GateValidationError,
@@ -27,14 +20,9 @@ import {
 import { runCloudSetup } from "@app/commands/cloud-setup.js";
 import { runInitCommand } from "@app/commands/init.js";
 import { createRunContext } from "@app/run-context.js";
-import { defaultRegistry } from "@modules/ecosystem/index.js";
-import { writeOutput, formatScanSummary } from "@app/output-writer.js";
-import {
-  saveReport,
-  saveSonarQubeExport,
-  resolveReportsDir,
-} from "@app/report-saver.js";
-import type { ConsolidatedReport } from "@core/types/report.js";
+import { runScanCommand } from "@app/commands/scan.js";
+import { runFixCommand } from "@app/commands/fix.js";
+import { runExecutiveReportCommand } from "@app/commands/executive-report.js";
 import pkg from "../package.json" with { type: "json" };
 
 const pkgVersion: string = pkg.version;
@@ -186,162 +174,14 @@ async function runCommand(
   let exitCode = 0;
 
   try {
-    const { config, runner } = await createRunContext(opts);
+    const ctx = await createRunContext(opts);
 
     if (command === "scan") {
-      const scanResult = await runScanner(runner, config, opts.cwd);
-      const output = opts.json
-        ? JSON.stringify(scanResult, null, 2)
-        : formatScanSummary(scanResult);
-      await writeOutput(output, opts.output);
-      if (scanResult.status === "error") exitCode = 2;
-      else if (Object.values(scanResult.ecosystems).some((e) => e.breaking > 0))
-        exitCode = 1;
+      exitCode = await runScanCommand(ctx, opts);
     } else if (command === "fix") {
-      const phases = opts.phases
-        ? (opts.phases.split(",") as ("scan" | "npm" | "composer" | "report")[])
-        : undefined;
-
-      const scanBefore = await runScanner(runner, config, opts.cwd);
-
-      // Build authorizeBreaking set from --authorize-breaking <id...>
-      const authorizedIds = new Set<string>(opts.authorizeBreaking ?? []);
-
-      // Emit non-blocking warnings for ecosystems with breaking vulns and no authorization
-      const activePlugins = defaultRegistry.getActive(config);
-      for (const plugin of activePlugins) {
-        const breaking = scanBefore.ecosystems[plugin.id]?.breaking ?? 0;
-        if (breaking > 0 && !authorizedIds.has(plugin.id)) {
-          const pkgs = (
-            scanBefore.ecosystems[plugin.id]?.breaking_packages ?? []
-          ).join(", ");
-          process.stderr.write(
-            `[deep-health] Breaking-change updates skipped for ${plugin.name} (${breaking} package(s): ${pkgs || "unknown"}).\n` +
-            `  To authorize: deep-health fix --authorize-breaking ${plugin.id}\n`,
-          );
-        }
-      }
-
-      // Translate to authorizeBreaking record for orchestrator
-      const authorizeBreakingRecord: Record<string, boolean> = {};
-      for (const plugin of defaultRegistry.getAll()) {
-        authorizeBreakingRecord[plugin.id] = authorizedIds.has(plugin.id);
-      }
-
-      const result = await runOrchestrator(runner, config, {
-        configPath: opts.config,
-        cwd: opts.cwd,
-        dryRun: opts.dryRun,
-        verbose: opts.verbose,
-        phases,
-        authorizeBreaking: authorizeBreakingRecord,
-      });
-
-      if (result.scan) {
-        const report: ConsolidatedReport = {
-          projectName: config.project.name,
-          date: new Date().toISOString().split("T")[0]!,
-          environment: runner.environment,
-          scan: result.scan,
-          updates: result.updates,
-          overallStatus: result.overallStatus,
-          engineResults: result.aggregated?.engineResults,
-        };
-
-        const output = opts.json
-          ? JSON.stringify(result, null, 2)
-          : generateConsolidatedReport(report);
-        await writeOutput(output, opts.output);
-
-        // Save SonarQube detailed export when available
-        if (!opts.json && result.aggregated?.engineResults) {
-          const date = report.date;
-          const reportsDir = resolveReportsDir(
-            opts.cwd,
-            config.reports_dir,
-          );
-          await saveSonarQubeExport(
-            result.aggregated.engineResults,
-            config.project.name,
-            date,
-            reportsDir,
-            config.cloud_storage,
-            opts.cwd,
-          );
-        }
-      }
-
-      if (!opts.noReport) {
-        const scanAfter = await runScanner(runner, config, opts.cwd);
-        const execReport = generateExecutiveReport({
-          client: config.project.client,
-          project: config.project.name,
-          scanBefore,
-          scanAfter,
-          updates: result.updates,
-          engineResults: result.aggregated?.engineResults,
-        });
-        const filename = executiveReportFilename(
-          config.project.client,
-          config.project.name,
-        );
-        const reportsDir = resolveReportsDir(opts.cwd, config.reports_dir);
-        await saveReport(
-          filename,
-          execReport,
-          reportsDir,
-          config.cloud_storage,
-          opts.cwd,
-        );
-      }
-
-      if (result.overallStatus === "error") exitCode = 1;
+      exitCode = await runFixCommand(ctx, opts);
     } else if (command === "executive-report") {
-      const client = opts.client ?? config.project.client;
-      const project = opts.project ?? config.project.name;
-
-      const scanBefore = await runScanner(runner, config, opts.cwd);
-
-      const orchestratorResult = await runOrchestrator(runner, config, {
-        configPath: opts.config,
-        cwd: opts.cwd,
-        dryRun: opts.dryRun,
-        verbose: opts.verbose,
-      });
-
-      const scanAfter = await runScanner(runner, config, opts.cwd);
-
-      const report = generateExecutiveReport({
-        client,
-        project,
-        scanBefore,
-        scanAfter,
-        updates: orchestratorResult.updates,
-        engineResults: orchestratorResult.aggregated?.engineResults,
-      });
-
-      const filename = executiveReportFilename(client, project);
-      const reportsDir = resolveReportsDir(opts.cwd, config.reports_dir);
-      await saveReport(
-        filename,
-        report,
-        reportsDir,
-        config.cloud_storage,
-        opts.cwd,
-      );
-
-      // Save SonarQube detailed export when available
-      if (orchestratorResult.aggregated?.engineResults) {
-        const date = new Date().toISOString().split("T")[0]!;
-        await saveSonarQubeExport(
-          orchestratorResult.aggregated.engineResults,
-          config.project.name,
-          date,
-          reportsDir,
-          config.cloud_storage,
-          opts.cwd,
-        );
-      }
+      exitCode = await runExecutiveReportCommand(ctx, opts);
     }
   } catch (err) {
     if (err instanceof ConfigLoadError) {
