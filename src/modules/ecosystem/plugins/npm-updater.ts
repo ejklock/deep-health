@@ -29,16 +29,47 @@ async function applyOsvFix(runner: CommandRunner, cwd: string): Promise<void> {
   }
 }
 
-async function runNpmUpdate(runner: CommandRunner, cwd: string): Promise<CommandResult> {
-  logger.info('Running npm update...');
-  return runner.run('npm update', { cwd, stream: true });
+/**
+ * Installs auto-safe packages using targeted `npm install <pkg@safeVersion>` commands.
+ * Derives install specs from OSV vulnerability entries where classification === 'auto_safe'
+ * and a safeVersion is available. Deduplicates by package name (first safeVersion wins).
+ * Returns an error string if any targeted install fails, null on success.
+ */
+async function installAutoSafePackages(
+  runner: CommandRunner,
+  scanResult: ScanResultJson,
+  cwd: string,
+): Promise<string | null> {
+  const npmEcosystem = scanResult.ecosystems['npm'] ?? emptyEcosystem();
+  const pkgs = npmEcosystem.vulnerabilities
+    .filter((v) => v.classification === 'auto_safe' && v.safeVersion)
+    .reduce<Map<string, string>>((map, v) => {
+      if (!map.has(v.package)) map.set(v.package, v.safeVersion!);
+      return map;
+    }, new Map());
+
+  if (pkgs.size === 0) {
+    logger.info('No auto-safe packages with a known safeVersion — skipping targeted installs.');
+    return null;
+  }
+
+  for (const [name, ver] of pkgs.entries()) {
+    const spec = `${name}@${ver}`;
+    logger.info(`Installing auto-safe package: npm install ${spec}`);
+    const result = await runner.run(`npm install ${spec}`, { cwd, stream: true });
+    if (result.exitCode !== 0) {
+      return `npm install ${spec} failed: ${result.stderr}`;
+    }
+  }
+
+  return null;
 }
 
 async function installBreakingPackages(
   runner: CommandRunner,
   scanResult: ScanResultJson,
   cwd: string,
-): Promise<void> {
+): Promise<string | null> {
   const npmEcosystem = scanResult.ecosystems['npm'] ?? emptyEcosystem();
   const pkgs = npmEcosystem.vulnerabilities
     .filter((v) => v.classification === 'breaking' && v.safeVersion)
@@ -47,11 +78,15 @@ async function installBreakingPackages(
       return map;
     }, new Map());
 
-  if (pkgs.size === 0) return;
+  if (pkgs.size === 0) return null;
 
   const specs = [...pkgs.entries()].map(([name, ver]) => `${name}@${ver}`).join(' ');
   logger.info(`Installing authorized breaking-change packages: ${specs}`);
-  await runner.run(`npm install ${specs}`, { cwd, stream: true });
+  const result = await runner.run(`npm install ${specs}`, { cwd, stream: true });
+  if (result.exitCode !== 0) {
+    return `npm install ${specs} failed: ${result.stderr}`;
+  }
+  return null;
 }
 
 async function validateBuilds(
@@ -104,7 +139,7 @@ export async function runNpmUpdater(
 
   if (runner.dryRun) {
     logger.info(`[DRY-RUN] Would execute: ${OSV_FIX_NPM}`);
-    logger.info('[DRY-RUN] Would execute: npm update');
+    logger.info('[DRY-RUN] Would execute: npm install <pkg@safeVersion> (per OSV auto-safe package)');
     if (authorizeBreaking) logger.info('[DRY-RUN] Would install authorized breaking-change packages');
     if (config.runtime.build_commands) {
       logger.info(`[DRY-RUN] Would execute: ${config.runtime.build_commands.frontend}`);
@@ -123,18 +158,26 @@ export async function runNpmUpdater(
     await checkCurrentState(runner, cwd);
     await applyOsvFix(runner, cwd);
 
-    const updateResult = await runNpmUpdate(runner, cwd);
-    if (updateResult.exitCode !== 0) {
+    const autoSafeError = await installAutoSafePackages(runner, scanResult, cwd);
+    if (autoSafeError) {
       return {
         ...base,
         status: 'error',
-        validations: [{ name: 'build', status: 'fail', detail: `npm update failed: ${updateResult.stderr}` }],
-        error: `npm update failed: ${updateResult.stderr}`,
+        validations: [{ name: 'build', status: 'fail', detail: autoSafeError }],
+        error: autoSafeError,
       };
     }
 
     if (authorizeBreaking) {
-      await installBreakingPackages(runner, scanResult, cwd);
+      const breakingError = await installBreakingPackages(runner, scanResult, cwd);
+      if (breakingError) {
+        return {
+          ...base,
+          status: 'error',
+          validations: [{ name: 'build', status: 'fail', detail: breakingError }],
+          error: breakingError,
+        };
+      }
     }
 
     let buildValidation: ValidationEntry = { name: 'build', status: 'skipped', detail: 'No build_commands configured — skipped' };

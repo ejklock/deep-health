@@ -68,7 +68,42 @@ function baseConfig(overrides: Partial<ProjectConfig['runtime']> = {}): ProjectC
   };
 }
 
-function baseScan(npmPackages: string[] = ['lodash@4.17.21']): ScanResultJson {
+/**
+ * Builds a ScanResultJson for npm.
+ * `autoSafeVulns` is a list of {pkg, safeVersion} for auto_safe vulnerabilities.
+ * `breakingVulns` is a list of {pkg, safeVersion} for breaking vulnerabilities.
+ * `auto_safe_packages` is set to the legacy string[] format (e.g. 'lodash@4.17.21').
+ */
+function baseScan(
+  autoSafeVulns: { pkg: string; safeVersion: string }[] = [{ pkg: 'lodash', safeVersion: '4.17.21' }],
+  breakingVulns: { pkg: string; safeVersion: string }[] = [],
+): ScanResultJson {
+  const auto_safe_packages = autoSafeVulns.map((v) => `${v.pkg}@${v.safeVersion}`);
+  const breaking_packages = breakingVulns.map((v) => `${v.pkg}@${v.safeVersion}`);
+  const vulnerabilities = [
+    ...autoSafeVulns.map((v) => ({
+      ecosystem: 'npm',
+      package: v.pkg,
+      currentVersion: '1.0.0',
+      safeVersion: v.safeVersion,
+      cvss: '7.5',
+      ghsaId: 'GHSA-test-auto',
+      risk: 'high',
+      classification: 'auto_safe' as const,
+      reason: 'patch update within constraint',
+    })),
+    ...breakingVulns.map((v) => ({
+      ecosystem: 'npm',
+      package: v.pkg,
+      currentVersion: '1.0.0',
+      safeVersion: v.safeVersion,
+      cvss: '8.0',
+      ghsaId: 'GHSA-test-breaking',
+      risk: 'critical',
+      classification: 'breaking' as const,
+      reason: 'major version bump required',
+    })),
+  ];
   return {
     $schema: 'osv-scan-result/v1',
     agent: 'osv-scanner',
@@ -76,18 +111,23 @@ function baseScan(npmPackages: string[] = ['lodash@4.17.21']): ScanResultJson {
     environment: 'local',
     ecosystems: {
       npm: {
-        vulnerabilities_total: 1,
-        auto_safe: 1,
-        breaking: 0,
+        vulnerabilities_total: vulnerabilities.length,
+        auto_safe: autoSafeVulns.length,
+        breaking: breakingVulns.length,
         manual: 0,
-        auto_safe_packages: npmPackages,
-        breaking_packages: [],
+        auto_safe_packages,
+        breaking_packages,
         manual_packages: [],
-        vulnerabilities: [],
+        vulnerabilities,
       },
     },
     error: null,
   };
+}
+
+/** Scan with no packages in any category (nothing to update) */
+function emptyScan(): ScanResultJson {
+  return baseScan([], []);
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -130,47 +170,246 @@ describe('runNpmUpdater — dry-run paths', () => {
     expect(result.$schema).toBe('osv-update-result/v1');
     expect(result.agent).toBe('npm-safe-update');
   });
+
+  it('dry-run does NOT mention "npm update" in any log call', async () => {
+    const runner = makeRunner({ dryRun: true });
+    const { logger } = await import('@infra/utils/logger.js');
+    const infoSpy = logger.info as ReturnType<typeof vi.fn>;
+    infoSpy.mockClear();
+
+    await runNpmUpdater(runner, baseConfig(), baseScan(), '/tmp/project');
+
+    const allInfoCalls: string[] = infoSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(allInfoCalls.some((msg) => msg.includes('npm update'))).toBe(false);
+  });
 });
 
-describe('runNpmUpdater — update failure path', () => {
+describe('runNpmUpdater — targeted auto-safe install', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('npm update failure => status is "error" and validation detail contains the stderr', async () => {
-    // Sequence: npm outdated (ok), npm audit (ok), osv fix (ok), npm update (FAIL)
+  it('calls npm install with the specific package@safeVersion from OSV vulnerabilities', async () => {
+    // Sequence: npm outdated, npm audit, osv fix, npm install lodash@4.17.21, osv scan
     const runner = makeRunner();
     const runMock = runner.run as ReturnType<typeof vi.fn>;
-    runMock
-      .mockResolvedValueOnce(ok()) // npm outdated
-      .mockResolvedValueOnce(ok()) // npm audit
-      .mockResolvedValueOnce(ok()) // osv-scanner fix
-      .mockResolvedValueOnce(fail('ERESOLVE unable to resolve dependency tree')); // npm update
 
-    const config = baseConfig();
+    await runNpmUpdater(runner, baseConfig(), baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]), '/tmp/project');
 
-    const result = await runNpmUpdater(runner, config, baseScan(), '/tmp/project');
-
-    expect(result.status).toBe('error');
-    expect(result.error).toContain('npm update failed');
-    expect(result.validations).toHaveLength(1);
-    const v = result.validations[0];
-    expect(v.status).toBe('fail');
-    expect(v.detail).toContain('npm update failed');
-    expect(v.detail).toContain('ERESOLVE unable to resolve dependency tree');
+    const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(calledCommands).toContain('npm install lodash@4.17.21');
+    expect(calledCommands.some((cmd) => cmd === 'npm update')).toBe(false);
   });
 
-  it('npm update failure => validation name is "build"', async () => {
+  it('calls npm install once per unique package (deduplicates same package)', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    // Two vulnerability entries for the same package — should only install once
+    const scan = baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]);
+    // Manually add a duplicate vulnerability entry for lodash
+    scan.ecosystems['npm']!.vulnerabilities.push({
+      ecosystem: 'npm',
+      package: 'lodash',
+      currentVersion: '1.0.0',
+      safeVersion: '4.17.21',
+      cvss: '7.5',
+      ghsaId: 'GHSA-test-dup',
+      risk: 'high',
+      classification: 'auto_safe',
+      reason: 'duplicate entry',
+    });
+
+    await runNpmUpdater(runner, baseConfig(), scan, '/tmp/project');
+
+    const installCalls: string[] = runMock.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .filter((cmd) => cmd.startsWith('npm install lodash'));
+    expect(installCalls).toHaveLength(1);
+  });
+
+  it('installs each auto-safe package individually (separate npm install calls per package)', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([
+        { pkg: 'lodash', safeVersion: '4.17.21' },
+        { pkg: 'axios', safeVersion: '1.7.9' },
+      ]),
+      '/tmp/project',
+    );
+
+    const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(calledCommands).toContain('npm install lodash@4.17.21');
+    expect(calledCommands).toContain('npm install axios@1.7.9');
+  });
+
+  it('skips targeted installs when no auto-safe packages have a safeVersion', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    // Scan with no auto_safe packages
+    await runNpmUpdater(runner, baseConfig(), emptyScan(), '/tmp/project');
+
+    const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(calledCommands.some((cmd) => cmd.startsWith('npm install ') && cmd !== 'npm install')).toBe(false);
+  });
+
+  it('targeted install failure => status is "error" with descriptive message', async () => {
+    // Sequence: npm outdated (ok), npm audit (ok), osv fix (ok), npm install lodash@4.17.21 (FAIL)
     const runner = makeRunner();
     const runMock = runner.run as ReturnType<typeof vi.fn>;
     runMock
       .mockResolvedValueOnce(ok()) // npm outdated
       .mockResolvedValueOnce(ok()) // npm audit
       .mockResolvedValueOnce(ok()) // osv-scanner fix
-      .mockResolvedValueOnce(fail('network error')); // npm update
+      .mockResolvedValueOnce(fail('ERESOLVE unable to resolve dependency tree')); // npm install lodash@4.17.21
 
-    const result = await runNpmUpdater(runner, baseConfig(), baseScan(), '/tmp/project');
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+    );
 
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('npm install lodash@4.17.21 failed');
+    expect(result.error).toContain('ERESOLVE unable to resolve dependency tree');
+    expect(result.validations).toHaveLength(1);
+    expect(result.validations[0].status).toBe('fail');
+    expect(result.validations[0].detail).toContain('npm install lodash@4.17.21 failed');
     expect(result.validations[0].name).toBe('build');
+  });
+
+  it('returns status "success" and packages_updated from auto_safe_packages on happy path', async () => {
+    const runner = makeRunner();
+
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+    );
+
+    expect(result.status).toBe('success');
+    expect(result.packages_updated).toContain('lodash@4.17.21');
+  });
+});
+
+describe('runNpmUpdater — breaking package installs (authorized)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('installs breaking packages when authorizeBreaking=true', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    const scan = baseScan([], [{ pkg: 'react', safeVersion: '18.0.0' }]);
+    await runNpmUpdater(runner, baseConfig(), scan, '/tmp/project', true);
+
+    const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(calledCommands).toContain('npm install react@18.0.0');
+  });
+
+  it('does NOT install breaking packages when authorizeBreaking=false (default)', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    const scan = baseScan([], [{ pkg: 'react', safeVersion: '18.0.0' }]);
+    await runNpmUpdater(runner, baseConfig(), scan, '/tmp/project'); // default: false
+
+    const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(calledCommands.some((cmd) => cmd.includes('react@18.0.0'))).toBe(false);
+  });
+
+  it('breaking install failure => status is "error"', async () => {
+    // Sequence: npm outdated (ok), npm audit (ok), osv fix (ok), npm install react@18.0.0 (FAIL)
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+    runMock
+      .mockResolvedValueOnce(ok()) // npm outdated
+      .mockResolvedValueOnce(ok()) // npm audit
+      .mockResolvedValueOnce(ok()) // osv fix
+      // no auto_safe installs (empty auto-safe list)
+      .mockResolvedValueOnce(fail('peer dep conflict')); // npm install react@18.0.0
+
+    const scan = baseScan([], [{ pkg: 'react', safeVersion: '18.0.0' }]);
+    const result = await runNpmUpdater(runner, baseConfig(), scan, '/tmp/project', true);
+
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('npm install react@18.0.0 failed');
+  });
+});
+
+describe('runNpmUpdater — build validation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('frontend build failure => reverts changes and returns error', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+    const config = baseConfig({
+      build_commands: { frontend: 'npm run build:fe', backend: 'npm run build:be' },
+    });
+    runMock
+      .mockResolvedValueOnce(ok()) // npm outdated
+      .mockResolvedValueOnce(ok()) // npm audit
+      .mockResolvedValueOnce(ok()) // osv fix
+      .mockResolvedValueOnce(ok()) // npm install lodash@4.17.21
+      .mockResolvedValueOnce(fail('build error')) // frontend build
+      .mockResolvedValueOnce(ok()) // backend build (won't be reached, but safe)
+      .mockResolvedValueOnce(ok()); // npm install (revert)
+
+    const result = await runNpmUpdater(runner, config, baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]), '/tmp/project');
+
+    expect(result.status).toBe('error');
+    expect(result.validations[0].detail).toContain('Frontend build failed');
+  });
+
+  it('backend build failure => reverts changes and returns error', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+    const config = baseConfig({
+      build_commands: { frontend: 'npm run build:fe', backend: 'npm run build:be' },
+    });
+    runMock
+      .mockResolvedValueOnce(ok()) // npm outdated
+      .mockResolvedValueOnce(ok()) // npm audit
+      .mockResolvedValueOnce(ok()) // osv fix
+      .mockResolvedValueOnce(ok()) // npm install lodash@4.17.21
+      .mockResolvedValueOnce(ok()) // frontend build (passes)
+      .mockResolvedValueOnce(fail('backend error')) // backend build
+      .mockResolvedValueOnce(ok()); // npm install (revert)
+
+    const result = await runNpmUpdater(runner, config, baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]), '/tmp/project');
+
+    expect(result.status).toBe('error');
+    expect(result.validations[0].detail).toContain('Backend build failed');
+  });
+
+  it('both builds pass => buildValidation status is "pass"', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+    const config = baseConfig({
+      build_commands: { frontend: 'npm run build:fe', backend: 'npm run build:be' },
+    });
+    runMock
+      .mockResolvedValueOnce(ok()) // npm outdated
+      .mockResolvedValueOnce(ok()) // npm audit
+      .mockResolvedValueOnce(ok()) // osv fix
+      .mockResolvedValueOnce(ok()) // npm install lodash@4.17.21
+      .mockResolvedValueOnce(ok()) // frontend build
+      .mockResolvedValueOnce(ok()) // backend build
+      .mockResolvedValueOnce(ok()); // osv scan
+
+    const result = await runNpmUpdater(runner, config, baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]), '/tmp/project');
+
+    expect(result.status).toBe('success');
+    expect(result.validations[0].status).toBe('pass');
   });
 });
