@@ -192,7 +192,7 @@ export async function runNpmUpdater(
           ...base,
           status: 'error',
           validations: [{ name: 'build', status: 'fail', detail: `Frontend build failed: ${frontend.stderr}` }],
-          error: 'Frontend build failed after npm update — changes reverted',
+          error: 'Frontend build failed after package installs — changes reverted',
         };
       }
 
@@ -203,7 +203,7 @@ export async function runNpmUpdater(
           ...base,
           status: 'error',
           validations: [{ name: 'build', status: 'fail', detail: `Backend build failed: ${backend.stderr}` }],
-          error: 'Backend build failed after npm update — changes reverted',
+          error: 'Backend build failed after package installs — changes reverted',
         };
       }
 
