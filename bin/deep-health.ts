@@ -10,7 +10,7 @@ if (nodeMajor < 22) {
   process.exit(1);
 }
 
-import { Command, Option } from "commander";
+import { Command } from "commander";
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { loadConfig, DEFAULT_CONFIG_PATH } from "@infra/config/loader.js";
@@ -33,7 +33,7 @@ import {
   GateValidationError,
   PhaseError,
 } from "@core/errors.js";
-import { prompt, promptConfirm, isInteractive } from "@infra/utils/prompt.js";
+import { prompt } from "@infra/utils/prompt.js";
 import { LocalStorageProvider } from "@infra/storage/local.js";
 import { createStorageProvider } from "@infra/storage/factory.js";
 import { runCloudSetup } from "@app/commands/cloud-setup.js";
@@ -182,19 +182,6 @@ commonOptions(
     .option(
       "--authorize-breaking <ecosystemId...>",
       "Authorize breaking-change updates for the given ecosystem id(s). Example: --authorize-breaking composer npm",
-    )
-    // Legacy aliases — kept for backward compatibility, hidden from help
-    .addOption(
-      new Option(
-        "--authorize-breaking-php",
-        "Authorize breaking-change updates for PHP/Composer (alias for --authorize-breaking composer)",
-      ).hideHelp(),
-    )
-    .addOption(
-      new Option(
-        "--authorize-breaking-npm",
-        "Authorize breaking-change updates for npm (alias for --authorize-breaking npm)",
-      ).hideHelp(),
     ),
 ).action(async (opts) => {
   await runCommand("fix", opts);
@@ -291,16 +278,6 @@ async function runCommand(
      * Populated by --authorize-breaking <id...>
      */
     authorizeBreaking?: string[];
-    /**
-     * Legacy hidden aliases — translated to authorizeBreaking entries.
-     * @deprecated Use --authorize-breaking composer instead.
-     */
-    authorizeBreakingPhp?: boolean;
-    /**
-     * Legacy hidden aliases — translated to authorizeBreaking entries.
-     * @deprecated Use --authorize-breaking npm instead.
-     */
-    authorizeBreakingNpm?: boolean;
   },
 ): Promise<void> {
   if (opts.verbose) setLogLevel("debug");
@@ -334,30 +311,21 @@ async function runCommand(
 
       const scanBefore = await runScanner(runner, config, opts.cwd);
 
-      // Build authorizeBreaking record:
-      // 1. Start from the generic --authorize-breaking <id...> list
-      // 2. Merge legacy aliases (--authorize-breaking-php → composer, --authorize-breaking-npm → npm)
+      // Build authorizeBreaking set from --authorize-breaking <id...>
       const authorizedIds = new Set<string>(opts.authorizeBreaking ?? []);
-      if (opts.authorizeBreakingPhp) authorizedIds.add("composer");
-      if (opts.authorizeBreakingNpm) authorizedIds.add("npm");
 
-      // Interactive: iterate registry plugins that are active and have breaking vulns
-      if (!opts.dryRun && isInteractive()) {
-        const activePlugins = defaultRegistry.getActive(config);
-        for (const plugin of activePlugins) {
-          const breaking = scanBefore.ecosystems[plugin.id]?.breaking ?? 0;
-          if (breaking > 0 && !authorizedIds.has(plugin.id)) {
-            const pkgs = (
-              scanBefore.ecosystems[plugin.id]?.breaking_packages ?? []
-            ).join(", ");
-            process.stdout.write(
-              `\n${plugin.name} breaking-change packages found: ${pkgs}\n`,
-            );
-            const confirmed = await promptConfirm(
-              `Authorize breaking-change updates for ${plugin.name}?`,
-            );
-            if (confirmed) authorizedIds.add(plugin.id);
-          }
+      // Emit non-blocking warnings for ecosystems with breaking vulns and no authorization
+      const activePlugins = defaultRegistry.getActive(config);
+      for (const plugin of activePlugins) {
+        const breaking = scanBefore.ecosystems[plugin.id]?.breaking ?? 0;
+        if (breaking > 0 && !authorizedIds.has(plugin.id)) {
+          const pkgs = (
+            scanBefore.ecosystems[plugin.id]?.breaking_packages ?? []
+          ).join(", ");
+          process.stderr.write(
+            `[deep-health] Breaking-change updates skipped for ${plugin.name} (${breaking} package(s): ${pkgs || "unknown"}).\n` +
+            `  To authorize: deep-health fix --authorize-breaking ${plugin.id}\n`,
+          );
         }
       }
 
