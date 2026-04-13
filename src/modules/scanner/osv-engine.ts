@@ -1,5 +1,6 @@
 import type { ScannerEngine, ScannerEngineContext } from './types.js';
 import type { ScanResultJson, EcosystemScanResult, VulnerabilityEntry } from '@core/types/scan.js';
+import { emptyEcosystem } from '@core/types/scan.js';
 import type { ProjectConfig } from '@core/types/config.js';
 import type { EcosystemRegistry } from '@modules/ecosystem/registry.js';
 import { PhaseError, EnvironmentError } from '@core/errors.js';
@@ -100,19 +101,6 @@ function extractSafeVersionFromVuln(vuln: {
 }
 
 // ─── Parse helpers ─────────────────────────────────────────────────────────────
-
-export function emptyEcosystem(): EcosystemScanResult {
-  return {
-    vulnerabilities_total: 0,
-    auto_safe: 0,
-    breaking: 0,
-    manual: 0,
-    auto_safe_packages: [],
-    breaking_packages: [],
-    manual_packages: [],
-    vulnerabilities: [],
-  };
-}
 
 function parseOsvJsonOutput(
   stdout: string,
@@ -238,7 +226,7 @@ export class OsvScannerEngine implements ScannerEngine {
   async scan(ctx: ScannerEngineContext): Promise<ScanResultJson> {
     const { runner, config, cwd, ecosystemRegistry } = ctx;
 
-    logger.info('Phase 1: Running OSV vulnerability scan...');
+    logger.info('Running OSV vulnerability scan...');
 
     const base: ScanResultJson = {
       $schema: 'osv-scan-result/v1',

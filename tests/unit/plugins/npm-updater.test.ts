@@ -15,18 +15,22 @@ vi.mock('@infra/utils/logger.js', () => ({
 }));
 
 // scanner.emptyEcosystem is used when 'npm' key is absent from scanResult
-vi.mock('@modules/scanner/index.js', () => ({
-  emptyEcosystem: vi.fn(() => ({
-    vulnerabilities_total: 0,
-    auto_safe: 0,
-    breaking: 0,
-    manual: 0,
-    auto_safe_packages: [],
-    breaking_packages: [],
-    manual_packages: [],
-    vulnerabilities: [],
-  })),
-}));
+vi.mock('@core/types/scan.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@core/types/scan.js')>();
+  return {
+    ...actual,
+    emptyEcosystem: vi.fn(() => ({
+      vulnerabilities_total: 0,
+      auto_safe: 0,
+      breaking: 0,
+      manual: 0,
+      auto_safe_packages: [],
+      breaking_packages: [],
+      manual_packages: [],
+      vulnerabilities: [],
+    })),
+  };
+});
 
 import { runNpmUpdater } from '@modules/ecosystem/plugins/npm-updater.js';
 

@@ -150,13 +150,12 @@ async function fetchSonarIssues(
  * Build auth args for sonar-scanner.
  *
  * External mode: uses the configured token from env.
- * Managed mode (MVP): uses default admin/admin credentials of the ephemeral container.
+ * Managed mode: uses default admin/admin credentials of the ephemeral container.
  * This is acceptable because the container is fully ephemeral and immediately torn down.
  */
 function buildAuthArg(mode: 'external' | 'managed', token: string): string {
   if (mode === 'managed') {
-    // Ephemeral container — default admin credentials. Phase 3 may introduce
-    // token injection via the SonarQube API after provisioning.
+    // Ephemeral container — default admin credentials.
     return `-Dsonar.login=admin -Dsonar.password=admin`;
   }
   return `-Dsonar.token=${token}`;
@@ -248,18 +247,18 @@ async function executeSonarScan(
 /**
  * Scanner engine wrapping the sonar-scanner CLI + SonarQube REST API.
  *
- * Phase 1 (external mode):
+ * External mode (default):
  * - sonar-scanner CLI must be pre-installed
  * - Connects to an existing SonarQube instance at host_url
  * - Token via env var (token_env, defaults to SONAR_TOKEN)
  *
- * Phase 2 (managed mode):
+ * Managed mode:
  * - Provisions an ephemeral SonarQube Community Edition Docker container
  * - Waits for readiness via API polling
  * - Runs sonar-scanner against the ephemeral instance
  * - Collects quality gate + metrics as in external mode
  * - Tears down the container in a finally block (guaranteed cleanup)
- * - MVP: uses default admin/admin credentials (ephemeral container only)
+ * - Uses default admin/admin credentials (ephemeral container only)
  *
  * on_failure: 'warn' (default) — failure emits a warning and continues
  * on_failure: 'fail' — failure propagates as an error
@@ -322,7 +321,7 @@ export class SonarQubeEngine implements ScannerEngine {
       return this._scanManaged(ctx, project_key, base);
     }
 
-    // ─── External mode (Phase 1 path, preserved) ─────────────────────────────
+    // ─── External mode ────────────────────────────────────────────────────────
     const token = process.env[token_env] ?? '';
 
     if (!token) {

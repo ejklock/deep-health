@@ -39,8 +39,6 @@ export interface ScannerEngine {
   /**
    * Check whether this engine is available in the current environment.
    * Should throw EnvironmentError with install instructions if not available.
-   *
-   * In Phase 0, only OsvScannerEngine implements this.
    */
   assertAvailable(ctx: ScannerEngineContext): Promise<void>;
 
@@ -53,7 +51,7 @@ export interface ScannerEngine {
 
 /**
  * Warning emitted by an engine when it fails non-fatally.
- * Phase 0: always empty. Prepared for SonarQube's warn-only policy in Phase 1+.
+ * Used by engines configured with on_failure='warn' to continue the pipeline.
  */
 export interface EngineWarning {
   engineId: string;

@@ -30,7 +30,7 @@ const SonarQubeConfigSchema = z.object({
    *            runs the scan, then tears it down automatically.
    *
    * When mode is 'managed', host_url is ignored (the provisioner sets it dynamically).
-   * Phase 1 behaviour is preserved: omitting mode is equivalent to 'external'.
+   * Omitting mode is equivalent to 'external'.
    */
   mode: z.enum(['external', 'managed']).default('external'),
   host_url: z.string().url().optional().default('http://localhost:9000'),

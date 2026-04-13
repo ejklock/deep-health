@@ -14,9 +14,8 @@ export interface ConsolidatedReport {
   locale?: SupportedLocale;
   /**
    * Per-engine raw scan results for multi-source reporting.
-   * Optional for backwards compatibility — reports gracefully omit engine
-   * sections when this map is absent or the engine is not present.
-   * Key is the engine id (e.g. 'sonarqube').
+   * Optional — reports gracefully omit engine sections when this map is absent
+   * or the engine is not present. Key is the engine id (e.g. 'sonarqube').
    */
   engineResults?: Record<string, ScanResultJson>;
 }
@@ -31,9 +30,8 @@ export interface ExecutiveReportOptions {
   locale?: SupportedLocale;
   /**
    * Per-engine raw scan results for multi-source reporting.
-   * Optional for backwards compatibility — reports gracefully omit engine
-   * sections when this map is absent or the engine is not present.
-   * Key is the engine id (e.g. 'sonarqube').
+   * Optional — reports gracefully omit engine sections when this map is absent
+   * or the engine is not present. Key is the engine id (e.g. 'sonarqube').
    */
   engineResults?: Record<string, ScanResultJson>;
 }

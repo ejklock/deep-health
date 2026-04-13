@@ -93,11 +93,11 @@ function sleep(ms: number): Promise<void> {
  *   `docker stop` to trigger graceful shutdown before `rm`; instead we remove explicitly).
  * - SonarQube stores no state — container is fully ephemeral.
  *
- * Known limitation (MVP):
+ * Known limitation:
  * - No auth token is pre-configured in the managed container.
  *   The managed mode passes `sonar.login=admin` (default admin credentials) when
  *   running sonar-scanner. This is safe for ephemeral containers that are immediately
- *   torn down. Production-grade token injection is a Phase 3 concern.
+ *   torn down. Production-grade token injection is a future concern.
  */
 export class DockerSonarQubeProvisioner implements ServiceProvisioner {
   private readonly image: string;

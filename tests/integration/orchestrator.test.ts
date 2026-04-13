@@ -156,10 +156,10 @@ describe('runOrchestrator — full pipeline', () => {
     });
 
     expect(result.scan).not.toBeNull();
-    // In dry-run, scan is executed but returns empty results
-    // No update phases should have caused real side effects
+    // In dry-run, the updater returns early without issuing any runner.run() calls.
+    // Neither osv-scanner fix nor npm install should appear in calledCommands.
     const updateCommands = runner.calledCommands.filter(
-      (cmd) => cmd.includes('npm update') || cmd.includes('composer update'),
+      (cmd) => cmd.includes('osv-scanner fix') || cmd.includes('npm install'),
     );
     expect(updateCommands).toHaveLength(0);
   });
@@ -189,7 +189,7 @@ describe('runOrchestrator — full pipeline', () => {
     expect(result.updates['composer']).toBeUndefined();
   });
 
-  it('revert not called on successful npm update', async () => {
+  it('no update commands issued when scan finds no vulnerabilities', async () => {
     const config = await loadTestConfig();
     const runner = new MockCommandRunner({
       '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
@@ -199,7 +199,6 @@ describe('runOrchestrator — full pipeline', () => {
         exitCode: 0,
       },
       'git status': { stdout: '', exitCode: 0 },
-      'npm update': { stdout: 'updated', exitCode: 0 },
       'development-frontend': { stdout: 'built', exitCode: 0 },
       'development-backend': { stdout: 'built', exitCode: 0 },
       '--lockfile package-lock.json --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
@@ -213,8 +212,12 @@ describe('runOrchestrator — full pipeline', () => {
       scannerRegistry: makeOsvOnlyRegistry(),
     });
 
-    const revertCalls = runner.calledCommands.filter((cmd) => cmd.includes('git checkout'));
-    expect(revertCalls).toHaveLength(0);
+    // With no vulnerabilities the orchestrator skips the updater entirely —
+    // neither osv-scanner fix nor npm install (for updates or revert) should be called.
+    const updateOrRevertCalls = runner.calledCommands.filter(
+      (cmd) => cmd.includes('osv-scanner fix') || cmd.includes('npm install'),
+    );
+    expect(updateOrRevertCalls).toHaveLength(0);
   });
 });
 

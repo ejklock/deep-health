@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyPackage, classifyPackages } from '@core/policy/safe-update.js';
+import { classifyPackage } from '@core/policy/safe-update.js';
 import type { ProtectedPackage } from '@core/types/config.js';
 
 const protectedPackages: ProtectedPackage[] = [
@@ -55,19 +55,5 @@ describe('classifyPackage', () => {
       protectedPackages,
     );
     expect(result.classification).toBe('manual');
-  });
-});
-
-describe('classifyPackages', () => {
-  it('classifies multiple packages', () => {
-    const packages = [
-      { name: 'safe/pkg', currentVersion: '1.0.0', safeVersion: '1.0.1' },
-      { name: 'laravel/framework', currentVersion: '10.0.0', safeVersion: '11.0.0' },
-      { name: 'no-fix/pkg', currentVersion: '2.0.0', safeVersion: null },
-    ];
-    const results = classifyPackages(packages, protectedPackages);
-    expect(results[0]!.classification).toBe('auto_safe');
-    expect(results[1]!.classification).toBe('breaking');
-    expect(results[2]!.classification).toBe('manual');
   });
 });

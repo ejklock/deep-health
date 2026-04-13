@@ -2,7 +2,7 @@ import type { CommandRunner, CommandResult } from '@core/types/common.js';
 import type { ProjectConfig } from '@core/types/config.js';
 import type { UpdateResultJson, ValidationEntry } from '@core/types/update.js';
 import type { ScanResultJson } from '@core/types/scan.js';
-import { emptyEcosystem } from '@modules/scanner/osv-engine.js';
+import { emptyEcosystem } from '@core/types/scan.js';
 import { PhaseError } from '@core/errors.js';
 import { backupFiles, restoreFiles } from '@infra/utils/git.js';
 import { logger } from '@infra/utils/logger.js';
@@ -64,7 +64,7 @@ export async function runComposerUpdater(
   cwd: string,
   authorizeBreaking = false,
 ): Promise<UpdateResultJson> {
-  logger.info('Phase 3: Running Composer safe updates...');
+  logger.info('Running Composer safe updates...');
 
   const composerEcosystem = scanResult.ecosystems['composer'] ?? emptyEcosystem();
 

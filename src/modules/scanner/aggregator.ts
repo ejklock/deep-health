@@ -4,12 +4,9 @@ import type { EngineWarning } from './types.js';
 /**
  * The result of aggregating scan output from one or more scanner engines.
  *
- * Phase 0: always contains exactly one engine result (OSV).
- * Phase 1+: multiple engine results are merged — ecosystems across engines are
- * combined by plugin id, with per-engine warnings attached.
- *
  * The `primary` field points to the canonical result used for Gate A validation
- * and downstream update orchestration. In Phase 0 this is always the OSV result.
+ * and downstream update orchestration. It is always driven by the OSV engine.
+ * Additional engines contribute their results to `engineResults` for reporting.
  */
 export interface AggregatedScanResult {
   /**
@@ -20,7 +17,6 @@ export interface AggregatedScanResult {
 
   /**
    * Non-fatal warnings from engines that ran but did not block the pipeline.
-   * Phase 0: always empty.
    */
   warnings: EngineWarning[];
 
@@ -34,12 +30,10 @@ export interface AggregatedScanResult {
 /**
  * Merge per-ecosystem results from multiple engines into a single ecosystems map.
  *
- * Strategy (Phase 0 safe — designed for single engine):
+ * Strategy:
  * - Each engine's ecosystem entries are included as-is.
  * - If two engines emit the same ecosystem key, their vulnerability lists are
  *   concatenated and counters are summed. Package ref sets are union-merged.
- *   This keeps behaviour correct for Phase 0 (single engine, no conflicts) and
- *   safe for a naive multi-engine future before dedup logic is needed.
  */
 function mergeEcosystems(
   engineResults: ScanResultJson[],
@@ -90,10 +84,7 @@ function mergeEcosystems(
  *
  * The first engine in `engineResults` is treated as the primary (drives Gate A).
  * Warnings are passed through from the caller — engines that fail non-fatally
- * emit an EngineWarning instead of throwing (Phase 1+ pattern).
- *
- * Phase 0: engineResults always has exactly one entry (OSV). The merged result
- * is identical to the single engine result.
+ * emit an EngineWarning instead of throwing.
  */
 export function aggregateScanResults(
   engineResults: Array<{ engineId: string; result: ScanResultJson }>,

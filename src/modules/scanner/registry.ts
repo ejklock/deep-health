@@ -4,8 +4,7 @@ import type { ScannerEngine } from './types.js';
  * Registry for ScannerEngine implementations.
  *
  * Engines are registered in priority order (first-registered = first-executed).
- * Phase 0: only OsvScannerEngine is registered.
- * Phase 1+: SonarQube and others can be added without touching existing code.
+ * Additional engines can be registered without modifying existing code.
  */
 export class ScannerEngineRegistry {
   private engines: Map<string, ScannerEngine> = new Map();

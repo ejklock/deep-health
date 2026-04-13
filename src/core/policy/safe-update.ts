@@ -62,7 +62,7 @@ export function classifyPackage(
   return { ...pkg, classification: 'auto_safe' };
 }
 
-export function classifyPackages(
+function classifyPackages(
   packages: PackageVulnerability[],
   protectedPackages: ProtectedPackage[],
 ): ClassifiedPackage[] {

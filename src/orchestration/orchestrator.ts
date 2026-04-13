@@ -41,10 +41,6 @@ export interface OrchestratorOptions {
    * Defaults to defaultScannerRegistry (OSV + SonarQube registered).
    */
   scannerRegistry?: ScannerEngineRegistry;
-  executiveReport?: {
-    client: string;
-    project: string;
-  };
 }
 
 export interface OrchestratorResult {
@@ -87,7 +83,7 @@ function resolveOnFailure(engineId: string, config: ProjectConfig): 'warn' | 'fa
   if (engineId === 'sonarqube') {
     return config.scanners?.sonarqube?.on_failure ?? 'warn';
   }
-  // Unknown secondary engine — fail by default (safe hardening, Phase 2)
+  // Unknown secondary engine — fail by default (safe hardening)
   logger.warn(
     `Engine "${engineId}" is not a recognised secondary engine. ` +
     `Defaulting on_failure to "fail" for safety. ` +
@@ -177,14 +173,14 @@ export async function runOrchestrator(
     warnings: [],
   };
 
-  // Phase 1 — Scan (hard precondition)
+  // Scan — hard precondition for all update steps
   if (!shouldRunPhase('scan', options)) {
     logger.warn('Skipping scan phase — phases option does not include "scan"');
     result.overallStatus = 'skipped';
     return result;
   }
 
-  logger.info('=== Phase 1: Vulnerability Scan ===');
+  logger.info('=== Vulnerability Scan ===');
 
   const ecosystemRegistry = options.registry ?? defaultRegistry;
   const engineRegistry = options.scannerRegistry ?? defaultScannerRegistry;

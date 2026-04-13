@@ -13,18 +13,22 @@ vi.mock('@infra/utils/logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock('@modules/scanner/index.js', () => ({
-  emptyEcosystem: vi.fn(() => ({
-    vulnerabilities_total: 0,
-    auto_safe: 0,
-    breaking: 0,
-    manual: 0,
-    auto_safe_packages: [],
-    breaking_packages: [],
-    manual_packages: [],
-    vulnerabilities: [],
-  })),
-}));
+vi.mock('@core/types/scan.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@core/types/scan.js')>();
+  return {
+    ...actual,
+    emptyEcosystem: vi.fn(() => ({
+      vulnerabilities_total: 0,
+      auto_safe: 0,
+      breaking: 0,
+      manual: 0,
+      auto_safe_packages: [],
+      breaking_packages: [],
+      manual_packages: [],
+      vulnerabilities: [],
+    })),
+  };
+});
 
 import { runComposerUpdater } from '@modules/ecosystem/plugins/composer-updater.js';
 

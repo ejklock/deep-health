@@ -4,9 +4,9 @@
  * Import this module via side-effect to register all scanner engines
  * into defaultScannerRegistry. The orchestrator imports this before running.
  *
- * Phase 0: only OsvScannerEngine is registered.
- * Phase 1: SonarQubeEngine is registered after OSV (always — it skips itself
- *   when not enabled in config, so registration is unconditional).
+ * Registered engines (in execution order):
+ *   1. OsvScannerEngine — primary vulnerability scanner (always active)
+ *   2. SonarQubeEngine  — code quality scanner (self-skips when not enabled in config)
  */
 import { defaultScannerRegistry } from './registry.js';
 import { OsvScannerEngine } from './osv-engine.js';
@@ -29,7 +29,7 @@ export type { ScannerEngine, ScannerEngineContext, EngineWarning } from './types
 export type { AggregatedScanResult } from './aggregator.js';
 export { aggregateScanResults } from './aggregator.js';
 export { OsvScannerEngine } from './osv-engine.js';
-export { emptyEcosystem } from './osv-engine.js';
+export { emptyEcosystem } from '@core/types/scan.js';
 export { SonarQubeEngine } from './sonarqube-engine.js';
 
 // Convenience wrapper: run only the OSV engine (used by bin commands needing a quick scan)
