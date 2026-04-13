@@ -22,10 +22,6 @@ import {
   generateExecutiveReport,
   executiveReportFilename,
 } from "@reporting/executive.js";
-import {
-  buildSonarQubeExport,
-  sonarQubeExportFilename,
-} from "@reporting/sonarqube-export.js";
 import { runScanner } from "@modules/scanner/index.js";
 import { setLogLevel } from "@infra/utils/logger.js";
 import {
@@ -34,11 +30,14 @@ import {
   PhaseError,
 } from "@core/errors.js";
 import { prompt } from "@infra/utils/prompt.js";
-import { LocalStorageProvider } from "@infra/storage/local.js";
-import { createStorageProvider } from "@infra/storage/factory.js";
 import { runCloudSetup } from "@app/commands/cloud-setup.js";
 import { defaultRegistry } from "@modules/ecosystem/index.js";
-import type { StorageProvider } from "@infra/storage/provider.js";
+import { writeOutput, formatScanSummary } from "@app/output-writer.js";
+import {
+  saveReport,
+  saveSonarQubeExport,
+  resolveReportsDir,
+} from "@app/report-saver.js";
 import type { ConsolidatedReport } from "@core/types/report.js";
 import pkg from "../package.json" with { type: "json" };
 
@@ -219,46 +218,6 @@ program
     await runCloudSetup({ configPath: opts.config, cwd: opts.cwd });
   });
 
-async function saveReport(
-  filename: string,
-  content: string,
-  reportsDir: string,
-  cloudStorageConfig:
-    | import("@core/types/config.js").CloudStorageConfig
-    | undefined,
-  cwd: string,
-): Promise<void> {
-  const providers: StorageProvider[] = [new LocalStorageProvider(reportsDir)];
-  if (cloudStorageConfig) {
-    try {
-      providers.push(await createStorageProvider(cloudStorageConfig, cwd));
-    } catch (err) {
-      process.stderr.write(
-        `Cloud storage init failed: ${err instanceof Error ? err.message : String(err)}\n`,
-      );
-    }
-  }
-
-  let localSaved = false;
-  for (const provider of providers) {
-    try {
-      const result = await provider.upload(filename, content);
-      process.stdout.write(
-        `Report saved [${result.provider}]: ${result.url}\n`,
-      );
-      if (result.provider === "local") localSaved = true;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!localSaved) {
-        // Local save failure is fatal
-        throw new Error(`Failed to save report locally: ${msg}`);
-      }
-      // Cloud failure is non-fatal
-      process.stderr.write(`Cloud upload failed: ${msg}\n`);
-    }
-  }
-}
-
 async function runCommand(
   command: string,
   opts: {
@@ -362,33 +321,19 @@ async function runCommand(
 
         // Save SonarQube detailed export when available
         if (!opts.json && result.aggregated?.engineResults) {
-          const sonarExport = buildSonarQubeExport(
-            result.aggregated.engineResults,
+          const date = report.date;
+          const reportsDir = resolveReportsDir(
+            opts.cwd,
+            config.reports_dir,
           );
-          if (sonarExport) {
-            const date = report.date;
-            const exportFilename = sonarQubeExportFilename(
-              config.project.name,
-              date,
-            );
-            const reportsDir = resolve(
-              opts.cwd,
-              config.reports_dir ?? ".osv-scanner/reports",
-            );
-            try {
-              await saveReport(
-                exportFilename,
-                JSON.stringify(sonarExport, null, 2),
-                reportsDir,
-                config.cloud_storage,
-                opts.cwd,
-              );
-            } catch (err) {
-              process.stderr.write(
-                `SonarQube export save failed: ${err instanceof Error ? err.message : String(err)}\n`,
-              );
-            }
-          }
+          await saveSonarQubeExport(
+            result.aggregated.engineResults,
+            config.project.name,
+            date,
+            reportsDir,
+            config.cloud_storage,
+            opts.cwd,
+          );
         }
       }
 
@@ -406,10 +351,7 @@ async function runCommand(
           config.project.client,
           config.project.name,
         );
-        const reportsDir = resolve(
-          opts.cwd,
-          config.reports_dir ?? ".osv-scanner/reports",
-        );
+        const reportsDir = resolveReportsDir(opts.cwd, config.reports_dir);
         await saveReport(
           filename,
           execReport,
@@ -445,10 +387,7 @@ async function runCommand(
       });
 
       const filename = executiveReportFilename(client, project);
-      const reportsDir = resolve(
-        opts.cwd,
-        config.reports_dir ?? ".osv-scanner/reports",
-      );
+      const reportsDir = resolveReportsDir(opts.cwd, config.reports_dir);
       await saveReport(
         filename,
         report,
@@ -459,29 +398,15 @@ async function runCommand(
 
       // Save SonarQube detailed export when available
       if (orchestratorResult.aggregated?.engineResults) {
-        const sonarExport = buildSonarQubeExport(
+        const date = new Date().toISOString().split("T")[0]!;
+        await saveSonarQubeExport(
           orchestratorResult.aggregated.engineResults,
+          config.project.name,
+          date,
+          reportsDir,
+          config.cloud_storage,
+          opts.cwd,
         );
-        if (sonarExport) {
-          const date = new Date().toISOString().split("T")[0]!;
-          const exportFilename = sonarQubeExportFilename(
-            config.project.name,
-            date,
-          );
-          try {
-            await saveReport(
-              exportFilename,
-              JSON.stringify(sonarExport, null, 2),
-              reportsDir,
-              config.cloud_storage,
-              opts.cwd,
-            );
-          } catch (err) {
-            process.stderr.write(
-              `SonarQube export save failed: ${err instanceof Error ? err.message : String(err)}\n`,
-            );
-          }
-        }
       }
     }
   } catch (err) {
@@ -504,47 +429,6 @@ async function runCommand(
   }
 
   process.exit(exitCode);
-}
-
-function formatScanSummary(
-  scan: Awaited<ReturnType<typeof runScanner>>,
-): string {
-  const lines: string[] = [
-    `## OSV Scan Report — ${new Date().toISOString().split("T")[0]}`,
-    `**Environment:** ${scan.environment}`,
-    "",
-  ];
-
-  for (const [id, eco] of Object.entries(scan.ecosystems)) {
-    lines.push(
-      `### ${id}`,
-      `- Total: ${eco.vulnerabilities_total}`,
-      `- Auto-safe: ${eco.auto_safe}`,
-      `- Breaking: ${eco.breaking}`,
-      `- Manual: ${eco.manual}`,
-      "",
-    );
-  }
-
-  if (scan.error) {
-    lines.push(`**Warning:** ${scan.error}`);
-  }
-
-  return lines.join("\n");
-}
-
-async function writeOutput(
-  content: string,
-  outputPath?: string,
-): Promise<void> {
-  if (outputPath) {
-    const { mkdir } = await import("node:fs/promises");
-    const { dirname } = await import("node:path");
-    await mkdir(dirname(outputPath), { recursive: true });
-    await writeFile(outputPath, content, "utf-8");
-  } else {
-    process.stdout.write(content + "\n");
-  }
 }
 
 program.parse();
