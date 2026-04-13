@@ -1,7 +1,19 @@
 #!/usr/bin/env node
+
+// Runtime Node.js version guard — must run before any other imports.
+const [nodeMajor] = process.versions.node.split(".").map(Number);
+if (nodeMajor < 22) {
+  process.stderr.write(
+    `osv-security-cli requires Node.js >=22. Detected: v${process.versions.node}\n` +
+      `Please upgrade Node.js and try again.\n`,
+  );
+  process.exit(1);
+}
+
 import { Command, Option } from "commander";
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { createRequire } from "node:module";
 import { loadConfig, DEFAULT_CONFIG_PATH } from "../src/config/loader.js";
 import { generateConfigYaml } from "../src/config/generator.js";
 import { detectEnvironment } from "../src/environment/detector.js";
@@ -30,12 +42,17 @@ import { defaultRegistry } from "../src/ecosystem/index.js";
 import type { StorageProvider } from "../src/storage/provider.js";
 import type { ConsolidatedReport } from "../src/types/report.js";
 
+const _require = createRequire(import.meta.url);
+const { version: pkgVersion } = _require("../package.json") as {
+  version: string;
+};
+
 const program = new Command();
 
 program
   .name("osv-security")
   .description("OSV vulnerability scanning and safe dependency update CLI")
-  .version("0.1.5");
+  .version(pkgVersion);
 
 const commonOptions = (cmd: Command) =>
   cmd
@@ -72,16 +89,21 @@ program
     "--docker-workdir <path>",
     "Working directory inside the container (e.g. /var/www/html)",
   )
-  .option("--ecosystems <list>", "Comma-separated ecosystems: php,npm (default: php,npm)", "php,npm")
+  .option(
+    "--ecosystems <list>",
+    "Comma-separated ecosystems: php,npm (default: php,npm)",
+    "php,npm",
+  )
   .option("--php-version <version>", "PHP version", "8.2")
   .option("--node-version <version>", "Node.js version", "20.x")
   .option("--test-command <cmd>", "Test command", "php artisan test --compact")
-  .option("--report-language <lang>", "Report language: pt-br (default) or en", "pt-br")
-  .option("--cwd <path>", "Working directory", process.cwd())
   .option(
-    "--output <path>",
-    "Output path (default: .github/agents/project-config.yml)",
+    "--report-language <lang>",
+    "Report language: pt-br (default) or en",
+    "pt-br",
   )
+  .option("--cwd <path>", "Working directory", process.cwd())
+  .option("--output <path>", "Output path (default: ./project-config.yml)")
   .option("--force", "Overwrite existing file", false)
   .action(async (opts) => {
     const { access, mkdir } = await import("node:fs/promises");
@@ -105,7 +127,7 @@ program
     }
 
     const projectName =
-      opts.projectName ?? (await prompt("Project name", "My PHP Project"));
+      opts.projectName ?? (await prompt("Project name", "Project"));
     const client = opts.client ?? (await prompt("Client name", "Client Name"));
 
     const yaml = generateConfigYaml({
@@ -114,11 +136,13 @@ program
       execution: opts.execution as "docker" | "local",
       dockerService: opts.dockerService,
       dockerWorkdir: opts.dockerWorkdir,
-      ecosystems: (opts.ecosystems as string).split(',').map((s: string) => s.trim()) as ('php' | 'npm')[],
+      ecosystems: (opts.ecosystems as string)
+        .split(",")
+        .map((s: string) => s.trim()) as ("php" | "npm")[],
       phpVersion: opts.phpVersion,
       nodeVersion: opts.nodeVersion,
       testCommand: opts.testCommand,
-      reportLanguage: opts.reportLanguage as 'pt-br' | 'en',
+      reportLanguage: opts.reportLanguage as "pt-br" | "en",
     });
 
     await mkdir(dirname(outputPath), { recursive: true });
@@ -148,7 +172,9 @@ commonOptions(
 commonOptions(
   program
     .command("fix")
-    .description("Run full workflow: scan + ecosystem updates + executive report")
+    .description(
+      "Run full workflow: scan + ecosystem updates + executive report",
+    )
     .option(
       "--phases <phases>",
       "Comma-separated phases: scan,npm,composer,report",
@@ -181,9 +207,14 @@ commonOptions(
 commonOptions(
   program
     .command("executive-report")
-    .description("Generate executive report (reads client/project from config by default)")
+    .description(
+      "Generate executive report (reads client/project from config by default)",
+    )
     .option("--client <name>", "Client name (default: from project-config.yml)")
-    .option("--project <name>", "Project name (default: from project-config.yml)"),
+    .option(
+      "--project <name>",
+      "Project name (default: from project-config.yml)",
+    ),
 ).action(async (opts) => {
   await runCommand("executive-report", opts);
 });
@@ -191,8 +222,14 @@ commonOptions(
 // cloud-setup command
 program
   .command("cloud-setup")
-  .description("Interactive Google Drive folder picker — saves folder_id to project-config.yml")
-  .option("-c, --config <path>", "Path to project-config.yml", DEFAULT_CONFIG_PATH)
+  .description(
+    "Interactive Google Drive folder picker — saves folder_id to project-config.yml",
+  )
+  .option(
+    "-c, --config <path>",
+    "Path to project-config.yml",
+    DEFAULT_CONFIG_PATH,
+  )
   .option("--cwd <path>", "Working directory", process.cwd())
   .action(async (opts: { config: string; cwd: string }) => {
     await runCloudSetup({ configPath: opts.config, cwd: opts.cwd });
@@ -202,7 +239,9 @@ async function saveReport(
   filename: string,
   content: string,
   reportsDir: string,
-  cloudStorageConfig: import("../src/types/config.js").CloudStorageConfig | undefined,
+  cloudStorageConfig:
+    | import("../src/types/config.js").CloudStorageConfig
+    | undefined,
   cwd: string,
 ): Promise<void> {
   const providers: StorageProvider[] = [new LocalStorageProvider(reportsDir)];
@@ -220,8 +259,10 @@ async function saveReport(
   for (const provider of providers) {
     try {
       const result = await provider.upload(filename, content);
-      process.stdout.write(`Report saved [${result.provider}]: ${result.url}\n`);
-      if (result.provider === 'local') localSaved = true;
+      process.stdout.write(
+        `Report saved [${result.provider}]: ${result.url}\n`,
+      );
+      if (result.provider === "local") localSaved = true;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (!localSaved) {
@@ -300,8 +341,8 @@ async function runCommand(
       // 1. Start from the generic --authorize-breaking <id...> list
       // 2. Merge legacy aliases (--authorize-breaking-php → composer, --authorize-breaking-npm → npm)
       const authorizedIds = new Set<string>(opts.authorizeBreaking ?? []);
-      if (opts.authorizeBreakingPhp) authorizedIds.add('composer');
-      if (opts.authorizeBreakingNpm) authorizedIds.add('npm');
+      if (opts.authorizeBreakingPhp) authorizedIds.add("composer");
+      if (opts.authorizeBreakingNpm) authorizedIds.add("npm");
 
       // Interactive: iterate registry plugins that are active and have breaking vulns
       if (!opts.dryRun && isInteractive()) {
@@ -309,8 +350,12 @@ async function runCommand(
         for (const plugin of activePlugins) {
           const breaking = scanBefore.ecosystems[plugin.id]?.breaking ?? 0;
           if (breaking > 0 && !authorizedIds.has(plugin.id)) {
-            const pkgs = (scanBefore.ecosystems[plugin.id]?.breaking_packages ?? []).join(', ');
-            process.stdout.write(`\n${plugin.name} breaking-change packages found: ${pkgs}\n`);
+            const pkgs = (
+              scanBefore.ecosystems[plugin.id]?.breaking_packages ?? []
+            ).join(", ");
+            process.stdout.write(
+              `\n${plugin.name} breaking-change packages found: ${pkgs}\n`,
+            );
             const confirmed = await promptConfirm(
               `Authorize breaking-change updates for ${plugin.name}?`,
             );
@@ -352,13 +397,27 @@ async function runCommand(
 
         // Save SonarQube detailed export when available
         if (!opts.json && result.aggregated?.engineResults) {
-          const sonarExport = buildSonarQubeExport(result.aggregated.engineResults);
+          const sonarExport = buildSonarQubeExport(
+            result.aggregated.engineResults,
+          );
           if (sonarExport) {
             const date = report.date;
-            const exportFilename = sonarQubeExportFilename(config.project.name, date);
-            const reportsDir = resolve(opts.cwd, config.reports_dir ?? ".osv-scanner/reports");
+            const exportFilename = sonarQubeExportFilename(
+              config.project.name,
+              date,
+            );
+            const reportsDir = resolve(
+              opts.cwd,
+              config.reports_dir ?? ".osv-scanner/reports",
+            );
             try {
-              await saveReport(exportFilename, JSON.stringify(sonarExport, null, 2), reportsDir, config.cloud_storage, opts.cwd);
+              await saveReport(
+                exportFilename,
+                JSON.stringify(sonarExport, null, 2),
+                reportsDir,
+                config.cloud_storage,
+                opts.cwd,
+              );
             } catch (err) {
               process.stderr.write(
                 `SonarQube export save failed: ${err instanceof Error ? err.message : String(err)}\n`,
@@ -378,9 +437,21 @@ async function runCommand(
           updates: result.updates,
           engineResults: result.aggregated?.engineResults,
         });
-        const filename = executiveReportFilename(config.project.client, config.project.name);
-        const reportsDir = resolve(opts.cwd, config.reports_dir ?? ".osv-scanner/reports");
-        await saveReport(filename, execReport, reportsDir, config.cloud_storage, opts.cwd);
+        const filename = executiveReportFilename(
+          config.project.client,
+          config.project.name,
+        );
+        const reportsDir = resolve(
+          opts.cwd,
+          config.reports_dir ?? ".osv-scanner/reports",
+        );
+        await saveReport(
+          filename,
+          execReport,
+          reportsDir,
+          config.cloud_storage,
+          opts.cwd,
+        );
       }
 
       if (result.overallStatus === "error") exitCode = 1;
@@ -409,17 +480,37 @@ async function runCommand(
       });
 
       const filename = executiveReportFilename(client, project);
-      const reportsDir = resolve(opts.cwd, config.reports_dir ?? ".osv-scanner/reports");
-      await saveReport(filename, report, reportsDir, config.cloud_storage, opts.cwd);
+      const reportsDir = resolve(
+        opts.cwd,
+        config.reports_dir ?? ".osv-scanner/reports",
+      );
+      await saveReport(
+        filename,
+        report,
+        reportsDir,
+        config.cloud_storage,
+        opts.cwd,
+      );
 
       // Save SonarQube detailed export when available
       if (orchestratorResult.aggregated?.engineResults) {
-        const sonarExport = buildSonarQubeExport(orchestratorResult.aggregated.engineResults);
+        const sonarExport = buildSonarQubeExport(
+          orchestratorResult.aggregated.engineResults,
+        );
         if (sonarExport) {
           const date = new Date().toISOString().split("T")[0]!;
-          const exportFilename = sonarQubeExportFilename(config.project.name, date);
+          const exportFilename = sonarQubeExportFilename(
+            config.project.name,
+            date,
+          );
           try {
-            await saveReport(exportFilename, JSON.stringify(sonarExport, null, 2), reportsDir, config.cloud_storage, opts.cwd);
+            await saveReport(
+              exportFilename,
+              JSON.stringify(sonarExport, null, 2),
+              reportsDir,
+              config.cloud_storage,
+              opts.cwd,
+            );
           } catch (err) {
             process.stderr.write(
               `SonarQube export save failed: ${err instanceof Error ? err.message : String(err)}\n`,
