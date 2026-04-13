@@ -20,9 +20,12 @@ import {
 import { runCloudSetup } from "@app/commands/cloud-setup.js";
 import { runInitCommand } from "@app/commands/init.js";
 import { createRunContext } from "@app/run-context.js";
-import { runScanCommand } from "@app/commands/scan.js";
-import { runFixCommand } from "@app/commands/fix.js";
-import { runExecutiveReportCommand } from "@app/commands/executive-report.js";
+import { runScanCommand, type ScanCommandOptions } from "@app/commands/scan.js";
+import { runFixCommand, type FixCommandOptions } from "@app/commands/fix.js";
+import {
+  runExecutiveReportCommand,
+  type ExecutiveReportCommandOptions,
+} from "@app/commands/executive-report.js";
 import pkg from "../package.json" with { type: "json" };
 
 const pkgVersion: string = pkg.version;
@@ -92,8 +95,8 @@ program
 // scan command
 commonOptions(
   program.command("scan").description("Run vulnerability scan only (Phase 1)"),
-).action(async (opts) => {
-  await runCommand("scan", opts);
+).action(async (opts: ScanCommandOptions) => {
+  await runCliAction(() => createRunContext(opts).then((ctx) => runScanCommand(ctx, opts)));
 });
 
 // fix command
@@ -114,8 +117,8 @@ commonOptions(
       "--authorize-breaking <ecosystemId...>",
       "Authorize breaking-change updates for the given ecosystem id(s). Example: --authorize-breaking composer npm",
     ),
-).action(async (opts) => {
-  await runCommand("fix", opts);
+).action(async (opts: FixCommandOptions) => {
+  await runCliAction(() => createRunContext(opts).then((ctx) => runFixCommand(ctx, opts)));
 });
 
 // executive-report command
@@ -130,8 +133,8 @@ commonOptions(
       "--project <name>",
       "Project name (default: from project-config.yml)",
     ),
-).action(async (opts) => {
-  await runCommand("executive-report", opts);
+).action(async (opts: ExecutiveReportCommandOptions) => {
+  await runCliAction(() => createRunContext(opts).then((ctx) => runExecutiveReportCommand(ctx, opts)));
 });
 
 // cloud-setup command
@@ -150,39 +153,21 @@ program
     await runCloudSetup({ configPath: opts.config, cwd: opts.cwd });
   });
 
-async function runCommand(
-  command: string,
-  opts: {
-    config: string;
-    cwd: string;
-    dryRun: boolean;
-    verbose: boolean;
-    quiet: boolean;
-    json: boolean;
-    output?: string;
-    phases?: string;
-    client?: string;
-    project?: string;
-    noReport?: boolean;
-    /**
-     * Generic: ecosystem ids to authorize breaking changes for.
-     * Populated by --authorize-breaking <id...>
-     */
-    authorizeBreaking?: string[];
-  },
-): Promise<void> {
+/**
+ * Shared error/exit wrapper for all main CLI actions.
+ * Invokes `fn`, maps known error types to exit codes, then exits.
+ *
+ * Exit codes:
+ *   0 — success
+ *   1 — vulnerabilities / update errors (returned by handler)
+ *   2 — GateValidationError | PhaseError | unexpected error
+ *   3 — ConfigLoadError
+ */
+async function runCliAction(fn: () => Promise<number>): Promise<void> {
   let exitCode = 0;
 
   try {
-    const ctx = await createRunContext(opts);
-
-    if (command === "scan") {
-      exitCode = await runScanCommand(ctx, opts);
-    } else if (command === "fix") {
-      exitCode = await runFixCommand(ctx, opts);
-    } else if (command === "executive-report") {
-      exitCode = await runExecutiveReportCommand(ctx, opts);
-    }
+    exitCode = await fn();
   } catch (err) {
     if (err instanceof ConfigLoadError) {
       process.stderr.write(`Configuration error: ${err.message}\n`);
