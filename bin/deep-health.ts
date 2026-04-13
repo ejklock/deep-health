@@ -13,7 +13,6 @@ if (nodeMajor < 22) {
 import { Command, Option } from "commander";
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { createRequire } from "node:module";
 import { loadConfig, DEFAULT_CONFIG_PATH } from "../src/config/loader.js";
 import { generateConfigYaml } from "../src/config/generator.js";
 import { detectEnvironment } from "../src/environment/detector.js";
@@ -41,11 +40,9 @@ import { runCloudSetup } from "../src/commands/cloud-setup.js";
 import { defaultRegistry } from "../src/ecosystem/index.js";
 import type { StorageProvider } from "../src/storage/provider.js";
 import type { ConsolidatedReport } from "../src/types/report.js";
+import pkg from "../package.json" with { type: "json" };
 
-const _require = createRequire(import.meta.url);
-const { version: pkgVersion } = _require("../package.json") as {
-  version: string;
-};
+const pkgVersion: string = pkg.version;
 
 const program = new Command();
 
