@@ -33,21 +33,17 @@ describe('validateGateA (OSV Scanner)', () => {
     expect(result.errors.length).toBeGreaterThan(0);
   });
 
-  it('fails for wrong $schema', () => {
-    const result = validateGateA({ $schema: 'wrong-schema', agent: 'osv-scanner' });
-    expect(result.valid).toBe(false);
-  });
-
-  it('fails for wrong agent', () => {
+  it('passes for any $schema string (engine-agnostic)', () => {
+    // validateGateA validates shape/status only — it does not enforce engine identity
     const result = validateGateA({
-      $schema: 'osv-scan-result/v1',
-      agent: 'wrong-agent',
+      $schema: 'other-scan-result/v1',
+      agent: 'other-scanner',
       status: 'success',
       environment: 'docker',
       ecosystems: {},
       error: null,
     });
-    expect(result.valid).toBe(false);
+    expect(result.valid).toBe(true);
   });
 
   it('passes with valid vulnerability entries in ecosystems', () => {

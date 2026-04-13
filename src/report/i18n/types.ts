@@ -1,4 +1,5 @@
-export type SupportedLocale = 'pt-br' | 'en';
+// Re-exported from the neutral types layer so report/i18n internals stay self-consistent.
+export type { SupportedLocale } from '../../types/locale.js';
 
 export interface ExecLocale {
   label_client: string;

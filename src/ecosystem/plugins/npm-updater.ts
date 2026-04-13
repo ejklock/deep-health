@@ -2,7 +2,7 @@ import type { CommandRunner, CommandResult } from '../../types/common.js';
 import type { ProjectConfig } from '../../types/config.js';
 import type { UpdateResultJson, ValidationEntry } from '../../types/update.js';
 import type { ScanResultJson } from '../../types/scan.js';
-import { emptyEcosystem } from '../../phases/scanner.js';
+import { emptyEcosystem } from '../../scanner/osv-engine.js';
 import { PhaseError } from '../../utils/errors.js';
 import { backupFiles, restoreFiles } from '../../utils/git.js';
 import { logger } from '../../utils/logger.js';

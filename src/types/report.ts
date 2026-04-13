@@ -1,7 +1,7 @@
 import type { ScanResultJson } from './scan.js';
 import type { UpdateResultJson } from './update.js';
 import type { PhaseStatus } from './common.js';
-import type { SupportedLocale } from '../report/i18n/index.js';
+import type { SupportedLocale } from './locale.js';
 
 export interface ConsolidatedReport {
   projectName: string;

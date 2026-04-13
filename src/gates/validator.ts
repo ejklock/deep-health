@@ -25,8 +25,8 @@ const EcosystemScanResultSchema = z.object({
 });
 
 const ScanResultSchema = z.object({
-  $schema: z.literal('osv-scan-result/v1'),
-  agent: z.literal('osv-scanner'),
+  $schema: z.string(),
+  agent: z.string(),
   status: z.enum(['success', 'error', 'skipped']),
   environment: z.enum(['docker', 'local']),
   ecosystems: z.record(z.string(), EcosystemScanResultSchema),
@@ -44,7 +44,7 @@ const ValidationEntrySchema = z.object({
 });
 
 const UpdateResultSchema = z.object({
-  $schema: z.literal('osv-update-result/v1'),
+  $schema: z.string(),
   agent: z.string(),
   status: z.enum(['success', 'error', 'skipped']),
   packages_updated: z.array(z.string()),

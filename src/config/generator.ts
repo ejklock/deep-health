@@ -1,6 +1,6 @@
 import Handlebars from 'handlebars';
 import { getLocale } from '../report/i18n/index.js';
-import type { SupportedLocale } from '../report/i18n/index.js';
+import type { SupportedLocale } from '../types/locale.js';
 import configTemplate from './templates/project-config.hbs.js';
 
 /**

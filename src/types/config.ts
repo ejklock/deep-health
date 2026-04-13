@@ -1,5 +1,5 @@
 import type { ExecutionEnv } from './common.js';
-import type { SupportedLocale } from '../report/i18n/index.js';
+import type { SupportedLocale } from './locale.js';
 
 export interface ProtectedPackage {
   package: string;
