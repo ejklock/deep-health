@@ -50,7 +50,6 @@ const scanResult = {
 
 const baseConfig: ProjectConfig = {
   project: { name: 'Demo App', client: 'Client' },
-  runtime: { execution: 'local', docker_service: 'app' },
   ecosystems: [{ id: 'npm' }],
   protected_packages: { npm: [] },
   safe_update_policy: {

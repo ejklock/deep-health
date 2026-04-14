@@ -5,9 +5,14 @@ import type { ProjectConfig } from '@core/types/config';
 import type { EcosystemRegistry } from '@modules/ecosystem/registry';
 import { PhaseError, EnvironmentError } from '@core/errors';
 import { logger } from '@infra/utils/logger';
-import { buildScanCommand, OSV } from '@infra/utils/osv-commands';
+import {
+  buildScanCommand,
+  OSV,
+  OSV_DEFAULT_IMAGE,
+} from '@infra/utils/osv-commands';
 import { classifyPackage } from '@core/policy/safe-update';
 import { getPlatformInstallHint } from '@infra/utils/platform';
+import { OsvDockerRunner } from '@infra/provisioner/osv-runner';
 
 // ─── Internal types ────────────────────────────────────────────────────────────
 
@@ -27,7 +32,7 @@ type OsvJsonOutput = {
   }>;
 };
 
-// ─── CVSS helpers (moved from scanner.ts) ─────────────────────────────────────
+// ─── CVSS helpers ─────────────────────────────────────────────────────────────
 
 function parseCvssBaseScore(score: string): string {
   try {
@@ -208,20 +213,75 @@ function parseOsvJsonOutput(
  *
  * Encapsulates: availability assertion, command construction, JSON parsing,
  * and result normalization into ScanResultJson.
+ *
+ * Runner selection (from config.scanners.osv.runner):
+ * - 'local'  — always use the local binary; fail if not installed.
+ * - 'docker' — always run via an ephemeral OsvDockerRunner container.
+ * - 'auto'   — try local first; fall back to Docker if local is unavailable.
  */
 export class OsvScannerEngine implements ScannerEngine {
   readonly id = 'osv';
   readonly name = 'OSV Scanner';
 
-  async assertAvailable(ctx: ScannerEngineContext): Promise<void> {
-    const result = await ctx.runner.run(OSV.checkAvailable, { cwd: ctx.cwd });
-    if (result.exitCode !== 0) {
-      const hint = getPlatformInstallHint('osv-scanner');
-      throw new EnvironmentError(
-        `osv-scanner not found. ${hint}`,
-      );
+  // ── Availability helpers ─────────────────────────────────────────────────────
+
+  /** Returns true when the local osv-scanner binary responds to --version. */
+  private async isLocalAvailable(ctx: ScannerEngineContext): Promise<boolean> {
+    try {
+      const result = await ctx.runner.run(OSV.checkAvailable, { cwd: ctx.cwd });
+      return result.exitCode === 0;
+    } catch {
+      return false;
     }
   }
+
+  /** Returns true when the `docker` CLI is accessible (basic smoke test). */
+  private async isDockerAvailable(ctx: ScannerEngineContext): Promise<boolean> {
+    try {
+      const result = await ctx.runner.run('docker --version', { cwd: ctx.cwd });
+      return result.exitCode === 0;
+    } catch {
+      return false;
+    }
+  }
+
+  async assertAvailable(ctx: ScannerEngineContext): Promise<void> {
+    const runner = ctx.config.scanners?.osv?.runner ?? 'auto';
+
+    if (runner === 'local') {
+      const ok = await this.isLocalAvailable(ctx);
+      if (!ok) {
+        const hint = getPlatformInstallHint('osv-scanner');
+        throw new EnvironmentError(`osv-scanner not found (runner: local). ${hint}`);
+      }
+      return;
+    }
+
+    if (runner === 'docker') {
+      const ok = await this.isDockerAvailable(ctx);
+      if (!ok) {
+        throw new EnvironmentError(
+          'Docker is not available (runner: docker). Install Docker to use the osv-scanner container.',
+        );
+      }
+      return;
+    }
+
+    // 'auto': local is preferred; Docker is the fallback.
+    const localOk = await this.isLocalAvailable(ctx);
+    if (localOk) return;
+
+    const dockerOk = await this.isDockerAvailable(ctx);
+    if (dockerOk) return;
+
+    const hint = getPlatformInstallHint('osv-scanner');
+    throw new EnvironmentError(
+      `osv-scanner is not available locally and Docker is not available either (runner: auto). ` +
+      `${hint} or install Docker to use the container fallback.`,
+    );
+  }
+
+  // ── Scan ─────────────────────────────────────────────────────────────────────
 
   async scan(ctx: ScannerEngineContext): Promise<ScanResultJson> {
     const { runner, config, cwd, ecosystemRegistry } = ctx;
@@ -245,24 +305,58 @@ export class OsvScannerEngine implements ScannerEngine {
         config.ecosystems.some((e) => e.id === p.id),
       );
 
+      const runnerMode = config.scanners?.osv?.runner ?? 'auto';
+
+      // Determine effective runner: for 'auto' re-check local to pick path.
+      const useDocker = runnerMode === 'docker' ||
+        (runnerMode === 'auto' && !(await this.isLocalAvailable(ctx)));
+
       if (runner.dryRun) {
-        logger.info(`[DRY-RUN] Would execute: ${buildScanCommand(activePlugins)}`);
+        if (useDocker) {
+          logger.info(`[DRY-RUN] Would execute osv-scanner via Docker container`);
+        } else {
+          logger.info(`[DRY-RUN] Would execute: ${buildScanCommand(activePlugins)}`);
+        }
         return base;
       }
 
-      const cmd = buildScanCommand(activePlugins);
-      logger.debug(`Running: ${cmd}`);
-      const scanResult = await runner.run(cmd, { cwd });
+      let stdout: string;
+      let exitCode: number;
+      let stderr: string;
 
-      if (scanResult.exitCode !== 0 && !scanResult.stdout) {
+      if (useDocker) {
+        // ── Docker path ────────────────────────────────────────────────────────
+        // Raw plugin args are passed directly — no path translation needed.
+        // `OsvDockerRunner` sets `--workdir /project` so relative paths from
+        // plugin.buildScanArgs() resolve correctly inside the container.
+        const image = config.scanners?.osv?.image ?? OSV_DEFAULT_IMAGE;
+        const rawArgs = activePlugins.flatMap((p) => p.buildScanArgs());
+
+        logger.debug(`Running OSV scan via Docker (image: ${image})`);
+        const dockerRunner = new OsvDockerRunner({ projectDir: cwd, image });
+        const result = await dockerRunner.run(rawArgs);
+        stdout = result.stdout;
+        exitCode = result.exitCode;
+        stderr = result.stderr;
+      } else {
+        // ── Local path ─────────────────────────────────────────────────────────
+        const cmd = buildScanCommand(activePlugins);
+        logger.debug(`Running: ${cmd}`);
+        const result = await runner.run(cmd, { cwd });
+        stdout = result.stdout;
+        exitCode = result.exitCode;
+        stderr = result.stderr;
+      }
+
+      if (exitCode !== 0 && !stdout) {
         return {
           ...base,
           status: 'error',
-          error: `Scan failed (exit ${scanResult.exitCode}): ${scanResult.stderr}`,
+          error: `Scan failed (exit ${exitCode}): ${stderr}`,
         };
       }
 
-      const parsed = parseOsvJsonOutput(scanResult.stdout, config, ecosystemRegistry);
+      const parsed = parseOsvJsonOutput(stdout, config, ecosystemRegistry);
       return { ...base, ...parsed };
     } catch (err) {
       if (err instanceof EnvironmentError) throw err;

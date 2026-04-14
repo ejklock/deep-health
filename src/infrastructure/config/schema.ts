@@ -7,17 +7,6 @@ const ProtectedPackageSchema = z.object({
   reason: z.string(),
 });
 
-/**
- * RuntimeConfig — stripped to execution env only.
- * Language-specific settings (php, node) moved to ecosystems[].
- * No refine() needed since there are no optional exclusivity constraints here.
- */
-const RuntimeConfigSchema = z.object({
-  execution: z.enum(['docker', 'local']),
-  docker_service: z.string(),
-  docker_workdir: z.string().optional(),
-});
-
 /** Fixer strategy identifier */
 const FixerStrategyIdSchema = z.enum(['osv', 'npm-audit']);
 
@@ -36,6 +25,18 @@ const ValidationCommandConfigSchema = z.object({
 /** OSV scanner engine config */
 const OsvScannerConfigSchema = z.object({
   args: z.array(z.string()).optional(),
+  /**
+   * Runner selection:
+   * - 'auto' (default): try local osv-scanner, fall back to Docker.
+   * - 'local': require a locally installed osv-scanner binary.
+   * - 'docker': always use an ephemeral Docker container.
+   */
+  runner: z.enum(['auto', 'local', 'docker']).default('auto'),
+  /**
+   * Docker image for the OSV container (used when runner is 'docker' or auto-fallback).
+   * Defaults to 'ghcr.io/google/osv-scanner:latest'.
+   */
+  image: z.string().optional(),
 });
 
 /** Output format — markdown for reports */
@@ -104,7 +105,6 @@ export const ProjectConfigSchema = z.object({
     name: z.string(),
     client: z.string(),
   }),
-  runtime: RuntimeConfigSchema,
   /**
    * At least one ecosystem must be declared.
    * Each entry must have a unique id (validated at runtime by the plugin registry).

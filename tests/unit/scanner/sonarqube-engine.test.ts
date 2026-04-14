@@ -59,7 +59,6 @@ class MockRunner implements CommandRunner {
 function makeConfig(sonarEnabled = false, onFailure: 'warn' | 'fail' = 'warn', mode: 'external' | 'managed' = 'external'): ProjectConfig {
   return {
     project: { name: 'test', client: 'client' },
-    runtime: { node: '20.x', execution: 'local', docker_service: 'app' },
     protected_packages: { composer: [], npm: [] },
     safe_update_policy: {
       allow_patch_and_minor_within_constraints: true,
@@ -747,7 +746,6 @@ describe('SonarQubeEngine — project_key runtime guard', () => {
   function makeConfigWithKey(projectKey: string): ProjectConfig {
     return {
       project: { name: 'test', client: 'client' },
-      runtime: { execution: 'local', docker_service: 'app' },
       protected_packages: {},
       safe_update_policy: {
         allow_patch_and_minor_within_constraints: true,

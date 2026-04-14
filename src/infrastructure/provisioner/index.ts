@@ -2,7 +2,10 @@ export type {
   ServiceProvisioner,
   DockerSonarQubeProvisionerOptions,
   DockerSonarScannerRunnerOptions,
-  DockerSonarScanRunResult,
+  ContainerRunResult,
+  EphemeralContainerRunner,
 } from './types';
 export { DockerSonarQubeProvisioner } from './docker-sonarqube';
 export { DockerSonarScannerRunner } from './docker-sonar-scanner';
+export { OsvDockerRunner } from './osv-runner';
+export type { OsvDockerRunnerOptions } from './osv-runner';

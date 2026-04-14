@@ -21,7 +21,6 @@ function makeRegistry(): EcosystemRegistry {
 function baseConfig(overrides: Partial<ProjectConfig> = {}): ProjectConfig {
   return {
     project: { name: 'test', client: 'test' },
-    runtime: { execution: 'local', docker_service: '' },
     ecosystems: [{ id: 'npm' }, { id: 'composer' }],
     protected_packages: {},
     safe_update_policy: {
@@ -38,8 +37,6 @@ describe('loadConfig', () => {
     const config = await loadConfig('project-config.yml', fixturesDir);
     expect(config.project.name).toBe('Test PHP Project');
     expect(config.project.client).toBe('Test Client');
-    expect(config.runtime.execution).toBe('docker');
-    expect(config.runtime.docker_service).toBe('app');
     expect(config.protected_packages['composer']).toHaveLength(2);
     expect(config.protected_packages['npm']).toHaveLength(2);
   });
@@ -76,7 +73,7 @@ describe('loadConfig', () => {
     const tempPath = resolve(fixturesDir, '_temp_no_ecosystems.yml');
     await writeFile(
       tempPath,
-      `project:\n  name: test\n  client: test\nruntime:\n  execution: local\n  docker_service: app\necosystems: []\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: true\nconflict_resolution: stop_and_ask\n`,
+      `project:\n  name: test\n  client: test\necosystems: []\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: true\nconflict_resolution: stop_and_ask\n`,
     );
     try {
       await expect(loadConfig('_temp_no_ecosystems.yml', fixturesDir)).rejects.toThrow(
@@ -108,7 +105,7 @@ describe('loadConfig', () => {
     const tempPath = resolve(fixturesDir, '_temp_unknown_eco.yml');
     await writeFile(
       tempPath,
-      `project:\n  name: test\n  client: test\nruntime:\n  execution: local\n  docker_service: app\necosystems:\n  - id: 'unknown-eco'\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\n`,
+      `project:\n  name: test\n  client: test\necosystems:\n  - id: 'unknown-eco'\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\n`,
     );
     try {
       const registry = makeRegistry();
@@ -181,13 +178,109 @@ describe('validateEcosystemsAgainstRegistry', () => {
   });
 });
 
+describe('OSV scanner config schema — runner + image fields', () => {
+  it('accepts osv.runner: docker with a custom image', async () => {
+    const { writeFile, unlink } = await import('node:fs/promises');
+    const tempPath = resolve(fixturesDir, '_temp_osv_docker_runner.yml');
+    await writeFile(
+      tempPath,
+      `project:\n  name: test\n  client: test\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nscanners:\n  osv:\n    runner: docker\n    image: 'ghcr.io/google/osv-scanner:v1.9.0'\n`,
+    );
+    try {
+      const config = await loadConfig('_temp_osv_docker_runner.yml', fixturesDir);
+      expect(config.scanners?.osv?.runner).toBe('docker');
+      expect(config.scanners?.osv?.image).toBe('ghcr.io/google/osv-scanner:v1.9.0');
+    } finally {
+      await unlink(tempPath).catch(() => {});
+    }
+  });
+
+  it('accepts osv.runner: local', async () => {
+    const { writeFile, unlink } = await import('node:fs/promises');
+    const tempPath = resolve(fixturesDir, '_temp_osv_local_runner.yml');
+    await writeFile(
+      tempPath,
+      `project:\n  name: test\n  client: test\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nscanners:\n  osv:\n    runner: local\n`,
+    );
+    try {
+      const config = await loadConfig('_temp_osv_local_runner.yml', fixturesDir);
+      expect(config.scanners?.osv?.runner).toBe('local');
+    } finally {
+      await unlink(tempPath).catch(() => {});
+    }
+  });
+
+  it('accepts osv.runner: auto', async () => {
+    const { writeFile, unlink } = await import('node:fs/promises');
+    const tempPath = resolve(fixturesDir, '_temp_osv_auto_runner.yml');
+    await writeFile(
+      tempPath,
+      `project:\n  name: test\n  client: test\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nscanners:\n  osv:\n    runner: auto\n`,
+    );
+    try {
+      const config = await loadConfig('_temp_osv_auto_runner.yml', fixturesDir);
+      expect(config.scanners?.osv?.runner).toBe('auto');
+    } finally {
+      await unlink(tempPath).catch(() => {});
+    }
+  });
+
+  it('defaults osv.runner to auto when not specified', async () => {
+    const { writeFile, unlink } = await import('node:fs/promises');
+    const tempPath = resolve(fixturesDir, '_temp_osv_no_runner.yml');
+    await writeFile(
+      tempPath,
+      `project:\n  name: test\n  client: test\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nscanners:\n  osv: {}\n`,
+    );
+    try {
+      const config = await loadConfig('_temp_osv_no_runner.yml', fixturesDir);
+      expect(config.scanners?.osv?.runner).toBe('auto');
+    } finally {
+      await unlink(tempPath).catch(() => {});
+    }
+  });
+
+  it('rejects an invalid osv.runner value', async () => {
+    const { writeFile, unlink } = await import('node:fs/promises');
+    const tempPath = resolve(fixturesDir, '_temp_osv_bad_runner.yml');
+    await writeFile(
+      tempPath,
+      `project:\n  name: test\n  client: test\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nscanners:\n  osv:\n    runner: kubernetes\n`,
+    );
+    try {
+      await expect(loadConfig('_temp_osv_bad_runner.yml', fixturesDir)).rejects.toThrow(
+        ConfigLoadError,
+      );
+    } finally {
+      await unlink(tempPath).catch(() => {});
+    }
+  });
+
+  it('accepts image field without runner (image is optional)', async () => {
+    const { writeFile, unlink } = await import('node:fs/promises');
+    const tempPath = resolve(fixturesDir, '_temp_osv_image_only.yml');
+    await writeFile(
+      tempPath,
+      `project:\n  name: test\n  client: test\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nscanners:\n  osv:\n    image: 'ghcr.io/google/osv-scanner:v1.9.0'\n`,
+    );
+    try {
+      const config = await loadConfig('_temp_osv_image_only.yml', fixturesDir);
+      expect(config.scanners?.osv?.image).toBe('ghcr.io/google/osv-scanner:v1.9.0');
+      // runner defaults to 'auto'
+      expect(config.scanners?.osv?.runner).toBe('auto');
+    } finally {
+      await unlink(tempPath).catch(() => {});
+    }
+  });
+});
+
 describe('SonarQube project_key schema validation', () => {
   it('rejects an invalid project_key containing spaces', async () => {
     const { writeFile, unlink } = await import('node:fs/promises');
     const tempPath = resolve(fixturesDir, '_temp_invalid_sonar_key.yml');
     await writeFile(
       tempPath,
-      `project:\n  name: test\n  client: test\nruntime:\n  execution: local\n  docker_service: app\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nscanners:\n  sonarqube:\n    enabled: true\n    project_key: 'My Invalid Key'\n`,
+      `project:\n  name: test\n  client: test\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nscanners:\n  sonarqube:\n    enabled: true\n    project_key: 'My Invalid Key'\n`,
     );
     try {
       await expect(loadConfig('_temp_invalid_sonar_key.yml', fixturesDir)).rejects.toThrow(
@@ -203,7 +296,7 @@ describe('SonarQube project_key schema validation', () => {
     const tempPath = resolve(fixturesDir, '_temp_invalid_sonar_key2.yml');
     await writeFile(
       tempPath,
-      `project:\n  name: test\n  client: test\nruntime:\n  execution: local\n  docker_service: app\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nscanners:\n  sonarqube:\n    enabled: true\n    project_key: 'my project!'\n`,
+      `project:\n  name: test\n  client: test\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nscanners:\n  sonarqube:\n    enabled: true\n    project_key: 'my project!'\n`,
     );
     try {
       await expect(loadConfig('_temp_invalid_sonar_key2.yml', fixturesDir)).rejects.toThrow(
@@ -219,7 +312,7 @@ describe('SonarQube project_key schema validation', () => {
     const tempPath = resolve(fixturesDir, '_temp_valid_sonar_key.yml');
     await writeFile(
       tempPath,
-      `project:\n  name: test\n  client: test\nruntime:\n  execution: local\n  docker_service: app\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nscanners:\n  sonarqube:\n    enabled: true\n    project_key: 'org:my-project_v2'\n`,
+      `project:\n  name: test\n  client: test\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nscanners:\n  sonarqube:\n    enabled: true\n    project_key: 'org:my-project_v2'\n`,
     );
     try {
       const config = await loadConfig('_temp_valid_sonar_key.yml', fixturesDir);

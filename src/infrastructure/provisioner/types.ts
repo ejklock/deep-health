@@ -1,3 +1,34 @@
+// ─── EphemeralContainerRunner contract ─────────────────────────────────────────
+
+/**
+ * Canonical result type for a one-shot ephemeral container execution.
+ *
+ * Both `DockerSonarScannerRunner` and `OsvDockerRunner` produce this shape.
+ * The `exitCode` reflects the container's exit code (0 = success).
+ */
+export interface ContainerRunResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
+/**
+ * EphemeralContainerRunner — contract for one-shot container execution.
+ *
+ * An ephemeral runner starts a container, executes a tool, captures output,
+ * removes the container (via `--rm`), and returns the result.
+ *
+ * There is no persistent lifecycle: each `run()` call is self-contained.
+ *
+ * @typeParam TArgs - The type of tool-specific arguments passed to `run()`.
+ *   Defaults to `string[]` (a flat args array, no shell quoting hazards).
+ */
+export interface EphemeralContainerRunner<TArgs = string[]> {
+  run(args: TArgs): Promise<ContainerRunResult>;
+}
+
+// ─── ServiceProvisioner contract ────────────────────────────────────────────────
+
 /**
  * ServiceProvisioner — contract for ephemeral service lifecycle management.
  *
@@ -64,15 +95,6 @@ export interface DockerSonarScannerRunnerOptions {
    * Set to an empty string '' to suppress the auto-detection and omit --platform entirely.
    */
   platform?: string;
-}
-
-/**
- * Result returned by DockerSonarScannerRunner.run().
- */
-export interface DockerSonarScanRunResult {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
 }
 
 // ─── DockerSonarQubeProvisionerOptions ─────────────────────────────────────────

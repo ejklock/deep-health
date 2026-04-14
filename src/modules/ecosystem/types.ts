@@ -66,4 +66,17 @@ export interface EcosystemPlugin {
 
   /** Runs the update phase for this ecosystem */
   runUpdater(ctx: EcosystemUpdaterContext): Promise<UpdateResultJson>;
+
+  /**
+   * Optional file-based runtime version inference for this ecosystem.
+   *
+   * Reads project files in `cwd` to infer a reasonable runtime version hint
+   * (e.g. "20" for Node.js, "8.2" for PHP).
+   *
+   * Rules:
+   * - Must never throw.
+   * - Returns `undefined` when no usable version can be inferred.
+   * - Async to allow file I/O.
+   */
+  inferVersion?(cwd: string): Promise<string | undefined>;
 }

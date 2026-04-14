@@ -8,9 +8,6 @@ import { defaultRegistry } from '@modules/ecosystem/index';
 export interface InitCommandOptions {
   projectName?: string;
   client?: string;
-  execution: string;
-  dockerService: string;
-  dockerWorkdir?: string;
   cwd: string;
   output?: string;
   force: boolean;
@@ -126,7 +123,26 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
       advisors.push(...plugin.defaultAdvisors);
     }
 
-    ecosystemConfigs.push({ id, fixerStrategy, validationCommands, advisors });
+    // ── Version inference (plugin-native, scoped to selected ecosystems) ──
+    const inferredVersion = plugin.inferVersion
+      ? await plugin.inferVersion(opts.cwd)
+      : undefined;
+    let version: string | undefined;
+
+    if (!opts.nonInteractive) {
+      // Interactive: show inferred version as default; blank input → omit
+      const versionDefault = inferredVersion ?? '';
+      const versionPrompt = inferredVersion
+        ? `  [${plugin.name}] Runtime version (inferred: ${inferredVersion}, blank to skip)`
+        : `  [${plugin.name}] Runtime version (blank to skip)`;
+      const versionAnswer = await prompt(versionPrompt, versionDefault);
+      version = versionAnswer.trim() || undefined;
+    } else {
+      // Non-interactive: use inferred value if available, otherwise omit
+      version = inferredVersion;
+    }
+
+    ecosystemConfigs.push({ id, fixerStrategy, validationCommands, advisors, version });
   }
 
   // ─── Scanner options ─────────────────────────────────────────────────────────
@@ -163,9 +179,6 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   const yaml = generateConfigYaml({
     projectName,
     client,
-    execution: opts.execution as 'docker' | 'local',
-    dockerService: opts.dockerService,
-    dockerWorkdir: opts.dockerWorkdir,
     reportLanguage,
     ecosystemConfigs,
     enableSonarQube,

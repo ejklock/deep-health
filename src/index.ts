@@ -11,8 +11,6 @@ export {
 } from '@reporting/executive';
 export { validateGateA, validateEcosystemGate } from '@core/gates/validator';
 export { LocalExecutor } from '@infra/executor/local-executor';
-export { DockerExecutor } from '@infra/executor/docker-executor';
-export { detectEnvironment } from '@infra/environment/detector';
 export { resolveReportsDir, saveReport } from '@app/report-saver';
 export type { OrchestratorOptions, OrchestratorResult } from '@orchestration/orchestrator';
 export type {
@@ -24,7 +22,6 @@ export type {
   AdvisorConfig,
   ValidationCommandConfig,
   OsvScannerConfig,
-  RuntimeConfig,
   CloudStorageConfig,
   SonarQubeConfig,
   ScannersConfig,

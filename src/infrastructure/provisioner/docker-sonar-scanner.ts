@@ -1,8 +1,12 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { platform, arch } from 'node:os';
 import { logger } from '../utils/logger';
-import type { DockerSonarScannerRunnerOptions, DockerSonarScanRunResult } from './types';
+import { needsHostGateway, resolvePlatform } from '../utils/docker-platform';
+import type {
+  DockerSonarScannerRunnerOptions,
+  EphemeralContainerRunner,
+  ContainerRunResult,
+} from './types';
 
 const execFileAsync = promisify(execFile);
 
@@ -10,55 +14,19 @@ const execFileAsync = promisify(execFile);
 
 const DEFAULT_IMAGE = 'sonarsource/sonar-scanner-cli:latest';
 
-// ─── Linux host-gateway detection ──────────────────────────────────────────────
-
 /**
- * On Linux, `host.docker.internal` is not automatically resolved by Docker.
- * We add `--add-host=host.docker.internal:host-gateway` to enable it.
- * On macOS/Windows, Docker Desktop handles this natively.
+ * Platform fallback for `sonarsource/sonar-scanner-cli`.
+ * The image only publishes `linux/amd64`; on arm64 hosts Docker must emulate it.
  */
-function needsHostGateway(): boolean {
-  return platform() === 'linux';
-}
-
-// ─── Platform detection ─────────────────────────────────────────────────────────
-
-/**
- * Resolve the Docker `--platform` value to use for the scanner container.
- *
- * `sonarsource/sonar-scanner-cli` only publishes `linux/amd64` images.
- * On Apple Silicon (arm64) Docker will emit a platform mismatch warning and may
- * fail to pull unless we explicitly request `linux/amd64` via Rosetta emulation.
- *
- * Explicit override rules (highest priority first):
- *  1. If `platformOverride` is the empty string '' → omit --platform entirely.
- *  2. If `platformOverride` is a non-empty string → use that value as-is.
- *  3. Auto-detect: arm64 host → 'linux/amd64'; anything else → undefined (omit).
- *
- * @param platformOverride - Value from DockerSonarScannerRunnerOptions.platform.
- * @returns The platform string to pass to `--platform`, or `undefined` to omit it.
- */
-export function resolvePlatform(platformOverride?: string): string | undefined {
-  // Explicit empty string → caller wants no --platform flag
-  if (platformOverride === '') {
-    return undefined;
-  }
-  // Explicit non-empty override
-  if (platformOverride !== undefined) {
-    return platformOverride;
-  }
-  // Auto-detect: sonar-scanner-cli has no arm64 image; force amd64 on arm64 hosts
-  if (arch() === 'arm64') {
-    return 'linux/amd64';
-  }
-  return undefined;
-}
+const SONAR_SCANNER_DEFAULT_PLATFORM = 'linux/amd64';
 
 // ─── DockerSonarScannerRunner ──────────────────────────────────────────────────
 
 /**
  * One-shot runner that executes `sonar-scanner` inside an ephemeral
  * `sonarsource/sonar-scanner-cli` container.
+ *
+ * Implements `EphemeralContainerRunner<string[]>`.
  *
  * This is NOT a `ServiceProvisioner` — it has no persistent lifecycle.
  * Each `run()` call starts a container, runs sonar-scanner, and removes it.
@@ -79,7 +47,7 @@ export function resolvePlatform(platformOverride?: string): string | undefined {
  *   `sonarsource/sonar-scanner-cli` only publishes amd64 images.
  * - Container is always removed after execution (`--rm`).
  */
-export class DockerSonarScannerRunner {
+export class DockerSonarScannerRunner implements EphemeralContainerRunner<string[]> {
   private readonly image: string;
   private readonly projectDir: string;
   private readonly sonarHostUrl: string;
@@ -89,7 +57,7 @@ export class DockerSonarScannerRunner {
     this.image = options.image ?? DEFAULT_IMAGE;
     this.projectDir = options.projectDir;
     this.sonarHostUrl = options.sonarHostUrl;
-    this.resolvedPlatform = resolvePlatform(options.platform);
+    this.resolvedPlatform = resolvePlatform(options.platform, SONAR_SCANNER_DEFAULT_PLATFORM);
   }
 
   /**
@@ -97,9 +65,9 @@ export class DockerSonarScannerRunner {
    *
    * @param extraArgs - Additional `-Dsonar.*` args (e.g. projectKey, token).
    *   Do NOT include `-Dsonar.host.url` — it is injected automatically.
-   * @returns `DockerSonarScanRunResult` with exitCode and combined output.
+   * @returns `ContainerRunResult` with exitCode and combined output.
    */
-  async run(extraArgs: string[]): Promise<DockerSonarScanRunResult> {
+  async run(extraArgs: string[]): Promise<ContainerRunResult> {
     // Translate localhost/127.0.0.1 → host.docker.internal so the container
     // can reach the ephemeral SonarQube service on the Docker host.
     const containerHostUrl = this._translateHostUrl(this.sonarHostUrl);
@@ -169,3 +137,4 @@ export class DockerSonarScannerRunner {
     return args;
   }
 }
+

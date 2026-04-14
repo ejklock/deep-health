@@ -1,5 +1,5 @@
 import type { ConsolidatedReport } from '@core/types/report';
-import type { AdvisorResult } from '@core/types/config';
+import type { AdvisorResult } from '@core/types/report';
 import type { EcosystemScanResult, ScanResultJson } from '@core/types/scan';
 import { defaultRegistry } from '@modules/ecosystem/index';
 import { getLocale } from './i18n/index';

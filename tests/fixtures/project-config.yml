@@ -2,10 +2,6 @@ project:
   name: 'Test PHP Project'
   client: 'Test Client'
 
-runtime:
-  execution: 'docker'
-  docker_service: 'app'
-
 ecosystems:
   - id: 'composer'
     version: '8.1'

@@ -1,5 +1,5 @@
 import type { ExecutiveReportOptions } from '@core/types/report';
-import type { AdvisorResult } from '@core/types/config';
+import type { AdvisorResult } from '@core/types/report';
 import type { ScanResultJson, VulnerabilityEntry } from '@core/types/scan';
 import type { Locale } from './i18n/index';
 import type { ExecLocale } from './i18n/types';

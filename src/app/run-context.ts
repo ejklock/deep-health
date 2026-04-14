@@ -1,5 +1,5 @@
 import { loadConfig } from '@infra/config/loader';
-import { detectEnvironment } from '@infra/environment/detector';
+import { LocalExecutor } from '@infra/executor/local-executor';
 import { setLogLevel } from '@infra/utils/logger';
 import { defaultRegistry } from '@modules/ecosystem/index';
 import type { ProjectConfig } from '@core/types/config';
@@ -20,7 +20,7 @@ export interface RunContextOptions {
 
 /**
  * Bootstraps config + runner from common CLI options.
- * Applies log level, loads config, and detects the execution environment.
+ * Applies log level, loads config, and creates a LocalExecutor.
  * Errors are intentionally allowed to bubble to the caller.
  */
 export async function createRunContext(
@@ -30,13 +30,7 @@ export async function createRunContext(
   if (opts.quiet) setLogLevel('error');
 
   const config = await loadConfig(opts.config, opts.cwd, defaultRegistry);
-  const runner = await detectEnvironment(
-    config.runtime.execution,
-    config.runtime.docker_service,
-    opts.cwd,
-    opts.dryRun,
-    config.runtime.docker_workdir,
-  );
+  const runner = new LocalExecutor({ dryRun: opts.dryRun });
 
   return { config, runner };
 }

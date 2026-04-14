@@ -20,6 +20,8 @@ import configTemplate from './templates/project-config.hbs';
 
 export interface EcosystemConfigEntry {
   id: string;
+  /** Runtime version hint inferred from project files (e.g. '20.11', '8.2'). */
+  version?: string;
   fixerStrategy?: string;
   validationCommands?: Array<{ name: string; command: string }>;
   advisors?: Array<{ name: string; command: string }>;
@@ -28,9 +30,6 @@ export interface EcosystemConfigEntry {
 export interface GenerateConfigOptions {
   projectName?: string;
   client?: string;
-  execution?: 'docker' | 'local';
-  dockerService?: string;
-  dockerWorkdir?: string;
   reportLanguage?: SupportedLocale;
   /**
    * Rich ecosystem config entries (registry-driven from init command).
@@ -157,9 +156,6 @@ export function generateConfigYaml(opts: GenerateConfigOptions = {}): string {
   return compiled({
     projectName: rawProjectName,
     client: opts.client ?? 'Client Name',
-    execution: opts.execution ?? 'docker',
-    dockerService: opts.dockerService ?? 'app',
-    dockerWorkdir: opts.dockerWorkdir,
     ecosystems,
     reportLanguage: opts.reportLanguage ?? 'pt-br',
     protectedPackageEcosystems,

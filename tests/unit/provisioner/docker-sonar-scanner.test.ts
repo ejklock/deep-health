@@ -1,11 +1,16 @@
 /**
- * Unit tests for DockerSonarScannerRunner and resolvePlatform.
+ * Unit tests for DockerSonarScannerRunner and the sonar-specific resolvePlatform usage.
  *
  * Strategy: mock `node:child_process.execFile` to avoid real Docker calls.
  * All tests are pure unit tests — no Docker required.
+ *
+ * `resolvePlatform` is the shared helper from `@infra/utils/docker-platform`.
+ * Tests verify the sonar-scanner-specific call signature (with 'linux/amd64' default).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { DockerSonarScannerRunner, resolvePlatform } from '@infra/provisioner/docker-sonar-scanner';
+import { DockerSonarScannerRunner } from '@infra/provisioner/docker-sonar-scanner';
+import { resolvePlatform } from '@infra/utils/docker-platform';
+import type { EphemeralContainerRunner, ContainerRunResult } from '@infra/provisioner/types';
 
 // ─── Mock execFile ─────────────────────────────────────────────────────────────
 
@@ -65,41 +70,45 @@ function rejectExecFile(exitCode: number, stdout = '', stderr = '') {
   );
 }
 
-// ─── resolvePlatform tests ─────────────────────────────────────────────────────
+// ─── resolvePlatform tests (sonar-scanner-cli call signature) ─────────────────
+// DockerSonarScannerRunner calls resolvePlatform(platform, 'linux/amd64').
+// These tests verify the behaviour for that specific invocation pattern.
 
-describe('resolvePlatform()', () => {
+const SONAR_DEFAULT = 'linux/amd64';
+
+describe('resolvePlatform() — sonar-scanner-cli call signature', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
   it('returns "linux/amd64" when arch is arm64 and no override is provided', () => {
     mockArch.mockReturnValue('arm64');
-    expect(resolvePlatform()).toBe('linux/amd64');
+    expect(resolvePlatform(undefined, SONAR_DEFAULT)).toBe('linux/amd64');
   });
 
   it('returns undefined when arch is x64 and no override is provided', () => {
     mockArch.mockReturnValue('x64');
-    expect(resolvePlatform()).toBeUndefined();
+    expect(resolvePlatform(undefined, SONAR_DEFAULT)).toBeUndefined();
   });
 
   it('returns undefined when arch is ia32 and no override is provided', () => {
     mockArch.mockReturnValue('ia32');
-    expect(resolvePlatform()).toBeUndefined();
+    expect(resolvePlatform(undefined, SONAR_DEFAULT)).toBeUndefined();
   });
 
   it('returns the explicit override string regardless of arch', () => {
     mockArch.mockReturnValue('arm64');
-    expect(resolvePlatform('linux/arm64')).toBe('linux/arm64');
+    expect(resolvePlatform('linux/arm64', SONAR_DEFAULT)).toBe('linux/arm64');
   });
 
   it('returns undefined when override is empty string (suppresses auto-detection)', () => {
     mockArch.mockReturnValue('arm64');
-    expect(resolvePlatform('')).toBeUndefined();
+    expect(resolvePlatform('', SONAR_DEFAULT)).toBeUndefined();
   });
 
   it('returns custom platform string when provided', () => {
     mockArch.mockReturnValue('x64');
-    expect(resolvePlatform('linux/amd64')).toBe('linux/amd64');
+    expect(resolvePlatform('linux/amd64', SONAR_DEFAULT)).toBe('linux/amd64');
   });
 });
 
@@ -422,5 +431,55 @@ describe('DockerSonarScannerRunner', () => {
       const [, dockerArgs] = mockExecFile.mock.calls[0]!;
       expect(dockerArgs as string[]).not.toContain('--platform');
     });
+  });
+});
+
+// ─── EphemeralContainerRunner contract conformance ────────────────────────────
+
+describe('DockerSonarScannerRunner — EphemeralContainerRunner contract', () => {
+  beforeEach(() => {
+    resolveExecFile('INFO: ANALYSIS SUCCESSFUL', '');
+    mockArch.mockReturnValue('x64');
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('satisfies EphemeralContainerRunner<string[]> at the type level', () => {
+    const runner = new DockerSonarScannerRunner({
+      projectDir: '/app',
+      sonarHostUrl: 'http://localhost:9000',
+    });
+    // TypeScript will fail at compile time if the contract is not satisfied.
+    const typed: EphemeralContainerRunner<string[]> = runner;
+    expect(typed).toBeDefined();
+  });
+
+  it('run() returns a ContainerRunResult with exitCode, stdout, stderr on success', async () => {
+    resolveExecFile('INFO: ANALYSIS SUCCESSFUL', '');
+    const runner = new DockerSonarScannerRunner({
+      projectDir: '/app',
+      sonarHostUrl: 'http://localhost:9000',
+    });
+    const result: ContainerRunResult = await runner.run(['-Dsonar.projectKey=test']);
+    expect(result).toHaveProperty('exitCode', 0);
+    expect(result).toHaveProperty('stdout');
+    expect(result).toHaveProperty('stderr');
+    expect(typeof result.exitCode).toBe('number');
+    expect(typeof result.stdout).toBe('string');
+    expect(typeof result.stderr).toBe('string');
+  });
+
+  it('run() returns a ContainerRunResult with non-zero exitCode on failure', async () => {
+    rejectExecFile(1, '', 'ANALYSIS FAILED');
+    const runner = new DockerSonarScannerRunner({
+      projectDir: '/app',
+      sonarHostUrl: 'http://localhost:9000',
+    });
+    const result: ContainerRunResult = await runner.run(['-Dsonar.projectKey=test']);
+    expect(result.exitCode).toBe(1);
+    expect(result).toHaveProperty('stderr');
+    expect(result).toHaveProperty('stdout');
   });
 });

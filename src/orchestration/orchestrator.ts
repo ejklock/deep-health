@@ -2,7 +2,7 @@ import type { CommandRunner, PhaseStatus } from '@core/types/common';
 import type { ProjectConfig, AdvisorConfig } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
-import type { AdvisorResult } from '@core/types/config';
+import type { AdvisorResult } from '@core/types/report';
 import type { EngineWarning, ScannerEngineContext } from '@modules/scanner/types';
 import { validateGateA, validateEcosystemGate } from '@core/gates/validator';
 import { GateValidationError } from '@core/errors';

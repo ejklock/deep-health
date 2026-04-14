@@ -65,12 +65,6 @@ program
   .description("Generate a project-config.yml template in the current project")
   .option("--project-name <name>", "Project name")
   .option("--client <name>", "Client name")
-  .option("--execution <mode>", "Execution mode: docker or local", "docker")
-  .option("--docker-service <service>", "Docker Compose service name", "app")
-  .option(
-    "--docker-workdir <path>",
-    "Working directory inside the container (e.g. /var/www/html)",
-  )
   .option("--cwd <path>", "Working directory", process.cwd())
   .option("--output <path>", "Output path (default: ./project-config.yml)")
   .option("--force", "Overwrite existing file", false)

@@ -6,8 +6,12 @@ vi.mock('@infra/config/loader', () => ({
   loadConfig: vi.fn(),
 }));
 
-vi.mock('@infra/environment/detector', () => ({
-  detectEnvironment: vi.fn(),
+vi.mock('@infra/executor/local-executor', () => ({
+  LocalExecutor: vi.fn().mockImplementation(() => ({
+    environment: 'local',
+    dryRun: false,
+    run: vi.fn(),
+  })),
 }));
 
 vi.mock('@infra/utils/logger', () => ({
@@ -15,13 +19,12 @@ vi.mock('@infra/utils/logger', () => ({
 }));
 
 import { loadConfig } from '@infra/config/loader';
-import { detectEnvironment } from '@infra/environment/detector';
+import { LocalExecutor } from '@infra/executor/local-executor';
 import { setLogLevel } from '@infra/utils/logger';
 import { createRunContext } from '@app/run-context';
 
 const baseConfig: ProjectConfig = {
   project: { name: 'Test Project', client: 'Test Client' },
-  runtime: { execution: 'local', docker_service: 'app' },
   ecosystems: [{ id: 'npm' }],
   protected_packages: { npm: [] },
   safe_update_policy: {
@@ -36,10 +39,8 @@ describe('createRunContext', () => {
     vi.clearAllMocks();
   });
 
-  it('loads config with default registry and builds runner', async () => {
-    const runner = { environment: 'local', run: vi.fn() };
+  it('loads config with default registry and creates a LocalExecutor', async () => {
     vi.mocked(loadConfig).mockResolvedValue(baseConfig);
-    vi.mocked(detectEnvironment).mockResolvedValue(runner as never);
 
     const result = await createRunContext({
       config: 'project-config.yml',
@@ -50,14 +51,27 @@ describe('createRunContext', () => {
     });
 
     expect(loadConfig).toHaveBeenCalledWith('project-config.yml', '/repo', defaultRegistry);
-    expect(detectEnvironment).toHaveBeenCalledWith('local', 'app', '/repo', false, undefined);
-    expect(result).toEqual({ config: baseConfig, runner });
+    expect(LocalExecutor).toHaveBeenCalledWith({ dryRun: false });
+    expect(result.config).toBe(baseConfig);
+    expect(result.runner).toBeDefined();
+  });
+
+  it('passes dryRun flag to LocalExecutor', async () => {
+    vi.mocked(loadConfig).mockResolvedValue(baseConfig);
+
+    await createRunContext({
+      config: 'project-config.yml',
+      cwd: '/repo',
+      dryRun: true,
+      verbose: false,
+      quiet: false,
+    });
+
+    expect(LocalExecutor).toHaveBeenCalledWith({ dryRun: true });
   });
 
   it('applies verbose and quiet log levels', async () => {
-    const runner = { environment: 'docker', run: vi.fn() };
     vi.mocked(loadConfig).mockResolvedValue(baseConfig);
-    vi.mocked(detectEnvironment).mockResolvedValue(runner as never);
 
     await createRunContext({
       config: 'project-config.yml',

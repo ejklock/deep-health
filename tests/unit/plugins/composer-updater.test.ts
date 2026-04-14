@@ -58,10 +58,6 @@ function fail(stderr = 'composer update failed'): CommandResult {
 function baseConfig(opts: { testCommand?: string } = {}): ProjectConfig {
   return {
     project: { name: 'test-project', client: 'test-client' },
-    runtime: {
-      execution: 'local',
-      docker_service: '',
-    },
     ecosystems: [
       {
         id: 'composer',

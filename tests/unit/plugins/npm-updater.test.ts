@@ -62,10 +62,6 @@ function fail(stderr = 'something failed'): CommandResult {
 function baseConfig(): ProjectConfig {
   return {
     project: { name: 'test-project', client: 'test-client' },
-    runtime: {
-      execution: 'local',
-      docker_service: '',
-    },
     ecosystems: [
       {
         id: 'npm',

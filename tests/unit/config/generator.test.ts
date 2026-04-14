@@ -18,18 +18,6 @@ describe('generateConfigYaml', () => {
     expect(parsed.project.client).toBe('ACME Corp');
   });
 
-  it('uses provided execution mode', () => {
-    const yaml = generateConfigYaml({ execution: 'local' });
-    const parsed = parse(yaml) as { runtime: { execution: string } };
-    expect(parsed.runtime.execution).toBe('local');
-  });
-
-  it('uses provided docker service name', () => {
-    const yaml = generateConfigYaml({ dockerService: 'web' });
-    const parsed = parse(yaml) as { runtime: { docker_service: string } };
-    expect(parsed.runtime.docker_service).toBe('web');
-  });
-
   it('includes empty protected_packages arrays with example comments', () => {
     const yaml = generateConfigYaml();
     const parsed = parse(yaml) as {

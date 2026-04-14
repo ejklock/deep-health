@@ -1,23 +1,9 @@
-import type { ExecutionEnv } from './common';
 import type { SupportedLocale } from './locale';
-// AdvisorResult has moved to report.ts; re-exported here for backward compatibility.
-export type { AdvisorResult } from './report';
 
 export interface ProtectedPackage {
   package: string;
   constraint: string;
   reason: string;
-}
-
-/**
- * Execution runtime — only the fields needed to invoke commands.
- * Language-specific runtime settings (php, node) have been moved to
- * the declarative ecosystems[] array.
- */
-export interface RuntimeConfig {
-  execution: ExecutionEnv;
-  docker_service: string;
-  docker_workdir?: string;
 }
 
 /** Strategy id for automated fixer engines */
@@ -38,10 +24,26 @@ export interface ValidationCommandConfig {
   command: string;
 }
 
+/** Runner selection for OSV scanner */
+export type OsvRunnerMode = 'auto' | 'docker' | 'local';
+
 /** OSV scanner engine configuration */
 export interface OsvScannerConfig {
   /** Additional CLI args forwarded to osv-scanner */
   args?: string[];
+  /**
+   * Runner selection strategy:
+   * - 'auto' (default): try local osv-scanner first; fall back to Docker if unavailable.
+   * - 'local': always use the local osv-scanner binary; fail if not installed.
+   * - 'docker': always run osv-scanner via an ephemeral Docker container.
+   */
+  runner?: OsvRunnerMode;
+  /**
+   * Docker image to use when runner is 'docker' or 'auto' falls back to Docker.
+   * Defaults to 'ghcr.io/google/osv-scanner:latest'.
+   * Example: 'ghcr.io/google/osv-scanner:v1.9.0'
+   */
+  image?: string;
 }
 
 /** Outputs/reports configuration */
@@ -130,7 +132,6 @@ export interface ProjectConfig {
     name: string;
     client: string;
   };
-  runtime: RuntimeConfig;
   /**
    * Declarative list of ecosystems to scan/update.
    * At least one entry is required.

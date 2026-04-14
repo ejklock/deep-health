@@ -12,11 +12,6 @@ project:
   name: '{{projectName}}'
   client: '{{client}}'
 
-runtime:
-  execution: '{{execution}}'
-  docker_service: '{{dockerService}}'{{#if dockerWorkdir}}
-  docker_workdir: '{{dockerWorkdir}}'{{/if}}
-
 # Declare ecosystems to scan and update.
 # id must match a registered plugin (e.g. composer, npm).
 # fixer: strategy id for automated remediation ('osv' or 'npm-audit').
@@ -84,6 +79,12 @@ scanners:
 #     project_key: 'my-project'
 #     token_env: 'SONAR_TOKEN'
 #     on_failure: 'warn'
+#   osv:
+#     runner: 'auto'                     # 'auto' (default) | 'local' | 'docker'
+#                                        #   auto   — try local osv-scanner, fall back to Docker
+#                                        #   local  — require a locally installed osv-scanner binary
+#                                        #   docker — always run via an ephemeral container
+#     image: 'ghcr.io/google/osv-scanner:latest'  # optional — Docker image override (docker/auto modes)
 {{/if}}
 
 # cloud_storage:                         # optional — upload reports to cloud storage after generation
