@@ -41,8 +41,10 @@ export interface FixCommandOptions {
  *   1 — overall status error
  *
  * Scan architecture note:
- * - `runScanner` (called below as scanBefore/scanAfter) is OSV-ONLY.
- *   It produces the vulnerability snapshot used for Gate A and the executive before/after diff.
+ * - `runScanner` (called below as scanAfter) is OSV-ONLY.
+ *   It produces the post-fix vulnerability snapshot used for the executive before/after diff.
+ * - The before-fix snapshot (`scanBefore`) comes from `result.scan` returned by `runOrchestrator`,
+ *   which performs the scan internally as part of Gate A. No standalone pre-fix scan is needed.
  * - SonarQube results come from the orchestrator pipeline (runOrchestrator) via
  *   `result.aggregated.engineResults`. They are NOT included in scanBefore/scanAfter.
  * - runOrchestrator is called exactly once and owns the full SonarQube execution lifecycle
@@ -58,27 +60,8 @@ export async function runFixCommand(
     ? (opts.phases.split(",") as ("scan" | "npm" | "composer" | "report")[])
     : undefined;
 
-  const scanBefore = await runScanner(runner, config, opts.cwd);
-
   // Build authorizeBreaking set from --authorize-breaking <id...>
   const authorizedIds = new Set<string>(opts.authorizeBreaking ?? []);
-
-  // Emit non-blocking warnings for ecosystems with breaking vulns and no authorization
-  const activePlugins = defaultRegistry.getAll().filter((p) =>
-    config.ecosystems.some((e) => e.id === p.id),
-  );
-  for (const plugin of activePlugins) {
-    const breaking = scanBefore.ecosystems[plugin.id]?.breaking ?? 0;
-    if (breaking > 0 && !authorizedIds.has(plugin.id)) {
-      const pkgs = (
-        scanBefore.ecosystems[plugin.id]?.breaking_packages ?? []
-      ).join(", ");
-      process.stderr.write(
-        `[deep-health] Breaking-change updates skipped for ${plugin.name} (${breaking} package(s): ${pkgs || "unknown"}).\n` +
-        `  To authorize: deep-health fix --authorize-breaking ${plugin.id}\n`,
-      );
-    }
-  }
 
   // Translate to authorizeBreaking record for orchestrator
   const authorizeBreakingRecord: Record<string, boolean> = {};
@@ -94,6 +77,26 @@ export async function runFixCommand(
     phases,
     authorizeBreaking: authorizeBreakingRecord,
   });
+
+  // Emit non-blocking warnings for ecosystems with breaking vulns and no authorization.
+  // Uses result.scan (the canonical before-fix snapshot from the orchestrator's Gate A scan).
+  if (result.scan) {
+    const activePlugins = defaultRegistry.getAll().filter((p) =>
+      config.ecosystems.some((e) => e.id === p.id),
+    );
+    for (const plugin of activePlugins) {
+      const breaking = result.scan.ecosystems[plugin.id]?.breaking ?? 0;
+      if (breaking > 0 && !authorizedIds.has(plugin.id)) {
+        const pkgs = (
+          result.scan.ecosystems[plugin.id]?.breaking_packages ?? []
+        ).join(", ");
+        process.stderr.write(
+          `[deep-health] Breaking-change updates skipped for ${plugin.name} (${breaking} package(s): ${pkgs || "unknown"}).\n` +
+          `  To authorize: deep-health fix --authorize-breaking ${plugin.id}\n`,
+        );
+      }
+    }
+  }
 
   // Resolve outputs config (canonical location for reports settings)
   const outputsConfig = config.outputs;
@@ -140,12 +143,12 @@ export async function runFixCommand(
     }
   }
 
-  if (!opts.noReport && markdownEnabled) {
+  if (!opts.noReport && markdownEnabled && result.scan) {
     const scanAfter = await runScanner(runner, config, opts.cwd);
     const execReport = generateExecutiveReport({
       client: config.project.client,
       project: config.project.name,
-      scanBefore,
+      scanBefore: result.scan,
       scanAfter,
       updates: result.updates,
       engineResults: result.aggregated?.engineResults,

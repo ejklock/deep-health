@@ -153,10 +153,11 @@ describe('runFixCommand', () => {
     expect(saveReport).not.toHaveBeenCalled();
   });
 
-  it('calls runScanner exactly twice (before + after) and runOrchestrator exactly once', async () => {
-    // Regression test: fix.ts uses OSV-only runScanner for before/after snapshots,
-    // while SonarQube results flow exclusively through the single runOrchestrator call.
-    // This guards against accidental multi-engine calls on the OSV-only scan path.
+  it('calls runScanner exactly once (scanAfter only) and runOrchestrator exactly once', async () => {
+    // Regression test: fix.ts uses result.scan from runOrchestrator as the canonical
+    // before-fix snapshot (scanBefore). The only standalone runScanner call is scanAfter,
+    // used exclusively for the executive-report before/after diff.
+    // SonarQube results flow exclusively through the single runOrchestrator call.
     vi.mocked(runScanner).mockResolvedValue(scanResult);
     vi.mocked(runOrchestrator).mockResolvedValue({
       scan: scanResult,
@@ -191,10 +192,96 @@ describe('runFixCommand', () => {
       noReport: false,
     });
 
-    // runScanner must be called exactly twice: scanBefore + scanAfter (OSV-only path)
-    expect(runScanner).toHaveBeenCalledTimes(2);
+    // runScanner must be called exactly once: scanAfter only (scanBefore comes from result.scan)
+    expect(runScanner).toHaveBeenCalledTimes(1);
 
-    // runOrchestrator must be called exactly once (owns SonarQube execution)
+    // runOrchestrator must be called exactly once (owns scan + SonarQube execution)
     expect(runOrchestrator).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call runScanner at all when noReport=true', async () => {
+    // When noReport=true the executive-report branch (which calls scanAfter) is skipped,
+    // so runScanner must not be called at all.
+    vi.mocked(runScanner).mockResolvedValue(scanResult);
+    vi.mocked(runOrchestrator).mockResolvedValue({
+      scan: scanResult,
+      updates: {},
+      overallStatus: 'success',
+      warnings: [],
+      aggregated: undefined,
+      advisorResults: {},
+    });
+
+    const ctx: RunContext = {
+      config: configWithOutputs,
+      runner: { environment: 'local', run: vi.fn() },
+    };
+
+    await runFixCommand(ctx, {
+      config: 'project-config.yml',
+      cwd: '/repo',
+      dryRun: false,
+      verbose: false,
+      quiet: false,
+      json: false,
+      noReport: true,
+    });
+
+    expect(runScanner).not.toHaveBeenCalled();
+    expect(runOrchestrator).toHaveBeenCalledTimes(1);
+  });
+
+  it('emits breaking-vuln warning sourced from result.scan (not a standalone scan)', async () => {
+    // Breaking-vuln warnings must use result.scan from the orchestrator, not a pre-scan call.
+    const scanWithBreaking = {
+      ...scanResult,
+      ecosystems: {
+        npm: {
+          ...scanResult.ecosystems.npm,
+          breaking: 2,
+          breaking_packages: ['lodash', 'express'],
+        },
+      },
+    };
+
+    vi.mocked(runScanner).mockResolvedValue(scanResult);
+    vi.mocked(runOrchestrator).mockResolvedValue({
+      scan: scanWithBreaking,
+      updates: {},
+      overallStatus: 'success',
+      warnings: [],
+      aggregated: undefined,
+      advisorResults: {},
+    });
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    const ctx: RunContext = {
+      config: configWithOutputs,
+      runner: { environment: 'local', run: vi.fn() },
+    };
+
+    await runFixCommand(ctx, {
+      config: 'project-config.yml',
+      cwd: '/repo',
+      dryRun: false,
+      verbose: false,
+      quiet: false,
+      json: false,
+      noReport: true,
+    });
+
+    // Warning should reference the breaking packages from result.scan
+    expect(stderrSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Breaking-change updates skipped for'),
+    );
+    expect(stderrSpy).toHaveBeenCalledWith(
+      expect.stringContaining('lodash, express'),
+    );
+
+    // runScanner must NOT have been called (no standalone pre-scan)
+    expect(runScanner).not.toHaveBeenCalled();
+
+    stderrSpy.mockRestore();
   });
 });
