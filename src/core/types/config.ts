@@ -115,6 +115,17 @@ export interface SonarQubeConfig {
    * Example: 'sonarsource/sonar-scanner-cli:5.0' to pin to a specific version.
    */
   scanner_image?: string;
+  /**
+   * When true, forwards the detected git branch as `-Dsonar.branch.name` to sonar-scanner.
+   *
+   * WARNING: Branch analysis requires SonarQube Developer Edition or higher.
+   * Community Edition (CE) does NOT support branch analysis — enabling this on CE will
+   * cause sonar-scanner to fail with an "invalid branch" or licensing error.
+   *
+   * Defaults to false (CE-safe). Only set to true if you have a paid SonarQube edition
+   * and branch analysis is configured on your SonarQube instance.
+   */
+  send_branch_name?: boolean;
 }
 
 export interface ScannersConfig {

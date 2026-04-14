@@ -72,7 +72,7 @@ class MockRunner implements CommandRunner {
   }
 }
 
-function makeConfig(sonarEnabled = false, onFailure: 'warn' | 'fail' = 'warn', mode: 'external' | 'managed' = 'external'): ProjectConfig {
+function makeConfig(sonarEnabled = false, onFailure: 'warn' | 'fail' = 'warn', mode: 'external' | 'managed' = 'external', sendBranchName = false): ProjectConfig {
   return {
     project: { name: 'test', client: 'client' },
     protected_packages: { composer: [], npm: [] },
@@ -91,6 +91,7 @@ function makeConfig(sonarEnabled = false, onFailure: 'warn' | 'fail' = 'warn', m
               project_key: 'my-project',
               token_env: 'SONAR_TOKEN',
               on_failure: onFailure,
+              send_branch_name: sendBranchName,
             },
           },
         }
@@ -477,8 +478,8 @@ describe('SonarQubeEngine — managed mode', () => {
     delete process.env['SONAR_TOKEN'];
   });
 
-  function makeManagedConfig(): ProjectConfig {
-    return makeConfig(true, 'warn', 'managed');
+  function makeManagedConfig(sendBranchName = false): ProjectConfig {
+    return makeConfig(true, 'warn', 'managed', sendBranchName);
   }
 
   it('skips when sonarqube is not enabled even in managed mode', async () => {
@@ -914,12 +915,14 @@ describe('SonarQubeEngine — branch forwarding', () => {
     return { ...makeCtx(runner, config), branch };
   }
 
-  it('includes -Dsonar.branch.name in local scan command when branch is set', async () => {
+  // ── External mode: opt-in ─────────────────────────────────────────────────────
+
+  it('includes -Dsonar.branch.name in local scan command when send_branch_name=true and branch is set', async () => {
     const runner = new MockRunner({
       '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
       'sonar-scanner -D': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
     });
-    const config = makeConfig(true);
+    const config = makeConfig(true, 'warn', 'external', /* sendBranchName */ true);
 
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
 
@@ -930,12 +933,12 @@ describe('SonarQubeEngine — branch forwarding', () => {
     expect(scanCmd).toContain('-Dsonar.branch.name=main');
   });
 
-  it('does NOT include -Dsonar.branch.name in local scan command when branch is null', async () => {
+  it('does NOT include -Dsonar.branch.name in local scan command when branch is null (even with send_branch_name=true)', async () => {
     const runner = new MockRunner({
       '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
       'sonar-scanner -D': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
     });
-    const config = makeConfig(true);
+    const config = makeConfig(true, 'warn', 'external', /* sendBranchName */ true);
 
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
 
@@ -946,10 +949,73 @@ describe('SonarQubeEngine — branch forwarding', () => {
     expect(scanCmd).not.toContain('-Dsonar.branch.name');
   });
 
-  it('includes -Dsonar.branch.name in container fallback args when branch is set (managed mode)', async () => {
+  // ── External mode: CE-safe default ───────────────────────────────────────────
+
+  it('does NOT include -Dsonar.branch.name by default (send_branch_name absent — CE-safe)', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner -D': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    // send_branch_name defaults to false
+    const config = makeConfig(true, 'warn', 'external', /* sendBranchName */ false);
+
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
+
+    await engine.scan(makeCtxWithBranch(runner, config, 'main'));
+
+    const scanCmd = runner.calledCommands.find((c) => c.includes('-Dsonar.projectKey'));
+    expect(scanCmd).toBeDefined();
+    expect(scanCmd).not.toContain('-Dsonar.branch.name');
+  });
+
+  // ── Managed mode (local scanner path): opt-in ─────────────────────────────────
+
+  it('includes -Dsonar.branch.name in managed local scan when send_branch_name=true and branch is set', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner -D': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfig(true, 'warn', 'managed', /* sendBranchName */ true);
+
+    stubFetchForManagedMode(
+      { projectStatus: { status: 'OK', conditions: [] } },
+      { component: { measures: [] } },
+    );
+
+    await engine.scan(makeCtxWithBranch(runner, config, 'main'));
+
+    const scanCmd = runner.calledCommands.find((c) => c.includes('-Dsonar.projectKey'));
+    expect(scanCmd).toBeDefined();
+    expect(scanCmd).toContain('-Dsonar.branch.name=main');
+  });
+
+  // ── Managed mode (local scanner path): CE-safe default ───────────────────────
+
+  it('does NOT include -Dsonar.branch.name in managed local scan when send_branch_name=false (default)', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner -D': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfig(true, 'warn', 'managed', /* sendBranchName */ false);
+
+    stubFetchForManagedMode(
+      { projectStatus: { status: 'OK', conditions: [] } },
+      { component: { measures: [] } },
+    );
+
+    await engine.scan(makeCtxWithBranch(runner, config, 'main'));
+
+    const scanCmd = runner.calledCommands.find((c) => c.includes('-Dsonar.projectKey'));
+    expect(scanCmd).toBeDefined();
+    expect(scanCmd).not.toContain('-Dsonar.branch.name');
+  });
+
+  // ── Container fallback path: opt-in ──────────────────────────────────────────
+
+  it('includes -Dsonar.branch.name in container fallback args when send_branch_name=true and branch is set', async () => {
     // Local scanner unavailable — forces container fallback
     const runner = new MockRunner({ '--version': { exitCode: 127, stderr: 'not found' } });
-    const config = makeConfig(true, 'warn', 'managed');
+    const config = makeConfig(true, 'warn', 'managed', /* sendBranchName */ true);
 
     stubFetchForManagedMode(
       { projectStatus: { status: 'OK', conditions: [] } },
@@ -966,10 +1032,32 @@ describe('SonarQubeEngine — branch forwarding', () => {
     expect(runArgs.some((a: string) => a === '-Dsonar.branch.name=feature/my-branch')).toBe(true);
   });
 
-  it('does NOT include -Dsonar.branch.name in container fallback args when branch is null', async () => {
+  // ── Container fallback path: CE-safe default ─────────────────────────────────
+
+  it('does NOT include -Dsonar.branch.name in container fallback args when send_branch_name=false (default)', async () => {
     // Local scanner unavailable — forces container fallback
     const runner = new MockRunner({ '--version': { exitCode: 127, stderr: 'not found' } });
-    const config = makeConfig(true, 'warn', 'managed');
+    const config = makeConfig(true, 'warn', 'managed', /* sendBranchName */ false);
+
+    stubFetchForManagedMode(
+      { projectStatus: { status: 'OK', conditions: [] } },
+      { component: { measures: [] } },
+    );
+
+    await engine.scan(makeCtxWithBranch(runner, config, 'main'));
+
+    const MockScannerRunner = vi.mocked(DockerSonarScannerRunner);
+    const scannerInstance = MockScannerRunner.mock.results[0]?.value as {
+      run: ReturnType<typeof vi.fn>;
+    };
+    const runArgs: string[] = scannerInstance.run.mock.calls[0]?.[0] ?? [];
+    expect(runArgs.some((a: string) => a.startsWith('-Dsonar.branch.name'))).toBe(false);
+  });
+
+  it('does NOT include -Dsonar.branch.name in container fallback args when branch is null (even with send_branch_name=true)', async () => {
+    // Local scanner unavailable — forces container fallback
+    const runner = new MockRunner({ '--version': { exitCode: 127, stderr: 'not found' } });
+    const config = makeConfig(true, 'warn', 'managed', /* sendBranchName */ true);
 
     stubFetchForManagedMode(
       { projectStatus: { status: 'OK', conditions: [] } },

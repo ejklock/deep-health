@@ -247,6 +247,10 @@ function buildAuthArgs(token: string): string[] {
  *
  * Security: token and branch are always passed via runner.runArgs() (shell=false),
  * preventing shell-injection.  runner.run() is never used for scan invocations.
+ *
+ * @param branch - Git branch to forward as -Dsonar.branch.name, or null to omit it.
+ *   Callers must only pass a non-null value when send_branch_name is explicitly enabled;
+ *   the default (CE-safe) behaviour is to pass null regardless of detected branch.
  */
 async function executeSonarScan(
   ctx: ScannerEngineContext,
@@ -492,7 +496,7 @@ export class SonarQubeEngine implements ScannerEngine {
 
     // ─── Managed mode ────────────────────────────────────────────────────────
     if (mode === 'managed') {
-      return this._scanManaged(ctx, project_key, sonarConfig.scanner_image, base);
+      return this._scanManaged(ctx, project_key, sonarConfig.scanner_image, base, sonarConfig.send_branch_name ?? false);
     }
 
     // ─── External mode ────────────────────────────────────────────────────────
@@ -510,7 +514,10 @@ export class SonarQubeEngine implements ScannerEngine {
     // Verify sonar-scanner is installed
     await this.assertAvailable(ctx);
 
-    return executeSonarScan(ctx, sonarConfig.host_url, project_key, token, base, ctx.branch ?? null);
+    // Only forward branch when explicitly opted-in — Community Edition does not support branch analysis.
+    const effectiveBranch = sonarConfig.send_branch_name ? (ctx.branch ?? null) : null;
+
+    return executeSonarScan(ctx, sonarConfig.host_url, project_key, token, base, effectiveBranch);
   }
 
   // ─── Private: managed mode execution ─────────────────────────────────────────
@@ -520,6 +527,7 @@ export class SonarQubeEngine implements ScannerEngine {
     projectKey: string,
     scannerImage: string | undefined,
     base: ScanResultJson,
+    sendBranchName: boolean,
   ): Promise<ScanResultJson> {
     const { runner, cwd } = ctx;
 
@@ -545,7 +553,8 @@ export class SonarQubeEngine implements ScannerEngine {
     }
 
     const provisioner = new DockerSonarQubeProvisioner();
-    const branch = ctx.branch ?? null;
+    // Only forward branch when explicitly opted-in — Community Edition does not support branch analysis.
+    const branch = sendBranchName ? (ctx.branch ?? null) : null;
 
     let hostUrl: string;
     try {

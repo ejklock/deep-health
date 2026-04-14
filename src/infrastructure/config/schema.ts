@@ -81,6 +81,13 @@ const SonarQubeConfigSchema = z.object({
    * Defaults to 'sonarsource/sonar-scanner-cli:latest'.
    */
   scanner_image: z.string().optional(),
+  /**
+   * When true, forwards the detected git branch as -Dsonar.branch.name to sonar-scanner.
+   * Requires SonarQube Developer Edition or higher — Community Edition does NOT support
+   * branch analysis and will fail if this property is forwarded.
+   * Defaults to false (CE-safe).
+   */
+  send_branch_name: z.boolean().default(false),
 }).strict();
 
 const ScannersConfigSchema = z.object({
