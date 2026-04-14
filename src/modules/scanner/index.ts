@@ -54,5 +54,5 @@ export async function runScanner(
   cwd: string,
   registry: EcosystemRegistry = defaultRegistry,
 ): Promise<ScanResultJson> {
-  return _osvEngine.scan({ runner, config, cwd, ecosystemRegistry: registry });
+  return _osvEngine.scan({ runner, config, cwd, ecosystemRegistry: registry, branch: null });
 }

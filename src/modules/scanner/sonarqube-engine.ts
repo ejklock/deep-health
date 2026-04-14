@@ -262,6 +262,7 @@ async function executeSonarScan(
   projectKey: string,
   token: string,
   base: ScanResultJson,
+  branch: string | null,
 ): Promise<ScanResultJson> {
   const { runner, cwd } = ctx;
 
@@ -275,14 +276,20 @@ async function executeSonarScan(
 
   // Build sonar-scanner command
   const authArg = buildAuthArg(token);
+  const branchArg = branch ? `-Dsonar.branch.name=${branch}` : null;
   const cmd = [
     'sonar-scanner',
     `-Dsonar.host.url=${hostUrl}`,
     `-Dsonar.projectKey=${projectKey}`,
     authArg,
+    ...(branchArg ? [branchArg] : []),
   ].join(' ');
 
-  logger.debug(`Running: sonar-scanner -Dsonar.host.url=${hostUrl} -Dsonar.projectKey=${projectKey} [token omitted]`);
+  logger.debug(
+    `Running: sonar-scanner -Dsonar.host.url=${hostUrl} -Dsonar.projectKey=${projectKey}` +
+    (branch ? ` -Dsonar.branch.name=${branch}` : '') +
+    ` [token omitted]`,
+  );
 
   const scanRun = await runner.run(cmd, { cwd });
 
@@ -308,6 +315,7 @@ async function executeSonarScanViaContainer(
   token: string,
   base: ScanResultJson,
   scannerImage?: string,
+  branch?: string | null,
 ): Promise<ScanResultJson> {
   const scannerRunner = new DockerSonarScannerRunner({
     projectDir: cwd,
@@ -319,9 +327,14 @@ async function executeSonarScanViaContainer(
   const extraArgs = [
     `-Dsonar.projectKey=${projectKey}`,
     ...authArgs,
+    ...(branch ? [`-Dsonar.branch.name=${branch}`] : []),
   ];
 
-  logger.debug(`Running sonar-scanner via container — host: ${hostUrl}, projectKey: ${projectKey} [token omitted]`);
+  logger.debug(
+    `Running sonar-scanner via container — host: ${hostUrl}, projectKey: ${projectKey}` +
+    (branch ? `, branch: ${branch}` : '') +
+    ` [token omitted]`,
+  );
 
   const scanRun = await scannerRunner.run(extraArgs);
 
@@ -505,7 +518,7 @@ export class SonarQubeEngine implements ScannerEngine {
     // Verify sonar-scanner is installed
     await this.assertAvailable(ctx);
 
-    return executeSonarScan(ctx, sonarConfig.host_url, project_key, token, base);
+    return executeSonarScan(ctx, sonarConfig.host_url, project_key, token, base, ctx.branch ?? null);
   }
 
   // ─── Private: managed mode execution ─────────────────────────────────────────
@@ -540,6 +553,7 @@ export class SonarQubeEngine implements ScannerEngine {
     }
 
     const provisioner = new DockerSonarQubeProvisioner();
+    const branch = ctx.branch ?? null;
 
     let hostUrl: string;
     try {
@@ -567,10 +581,10 @@ export class SonarQubeEngine implements ScannerEngine {
 
       if (localAvailable) {
         // ── Local scanner path ──────────────────────────────────────────────
-        return await executeSonarScan(ctx, hostUrl, projectKey, ephemeralToken, base);
+        return await executeSonarScan(ctx, hostUrl, projectKey, ephemeralToken, base, branch);
       } else {
         // ── Container fallback path ─────────────────────────────────────────
-        return await executeSonarScanViaContainer(cwd, hostUrl, projectKey, ephemeralToken, base, scannerImage);
+        return await executeSonarScanViaContainer(cwd, hostUrl, projectKey, ephemeralToken, base, scannerImage, branch);
       }
     } finally {
       await provisioner.teardown();

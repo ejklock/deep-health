@@ -7,6 +7,7 @@ import type { EngineWarning, ScannerEngineContext } from '@modules/scanner/types
 import { validateGateA, validateEcosystemGate } from '@core/gates/validator';
 import { GateValidationError } from '@core/errors';
 import { logger } from '@infra/utils/logger';
+import { detectGitBranch } from '@infra/utils/git-branch';
 // Ecosystem registry — plugins are registered via modules/ecosystem/index.ts side-effects
 import { EcosystemRegistry, defaultRegistry } from '@modules/ecosystem/index';
 // Scanner registry — engines are registered via modules/scanner/index.ts side-effects
@@ -77,21 +78,35 @@ function shouldRunPhase(phase: string, options: OrchestratorOptions): boolean {
  * Resolve the on_failure policy for a secondary engine.
  *
  * Uses a generic lookup into config.scanners by engine id.
- * - 'sonarqube': reads from config.scanners.sonarqube (defaults to 'warn' when not set).
- * - 'osv': primary engine — should never be called as secondary; returns 'fail' as safe fallback.
- * - Any other engine id not in config.scanners: defaults to 'fail' (safe hardening).
+ * Each engine config block that exposes an `on_failure` field is consulted.
+ * - 'sonarqube': reads config.scanners.sonarqube.on_failure (defaults to 'warn').
+ * - Any engine id whose config block has an `on_failure` field: uses that value.
+ * - Any engine id with no config or no `on_failure` field: defaults to 'fail' (safe hardening).
  *
  * Rationale for the 'fail' default for unknowns: an unrecognised engine has no
  * config key, so silently swallowing its failure could mask integration bugs or
  * misconfiguration. Failing loudly is the safe choice.
  */
 function resolveOnFailure(engineId: string, config: ProjectConfig): 'warn' | 'fail' {
-  if (engineId === 'sonarqube') {
-    return config.scanners?.sonarqube?.on_failure ?? 'warn';
+  const scanners = config.scanners;
+  if (!scanners) {
+    logger.debug(
+      `Engine "${engineId}": no scanners config found — defaulting on_failure to "fail".`,
+    );
+    return 'fail';
   }
-  // Unknown secondary engine — fail by default (safe hardening)
+
+  // Generic lookup: find the engine config block by id and read on_failure if present
+  for (const [key, engineConfig] of Object.entries(scanners)) {
+    if (key === engineId && engineConfig && typeof engineConfig === 'object' && 'on_failure' in engineConfig) {
+      const onFailure = (engineConfig as { on_failure?: 'warn' | 'fail' }).on_failure;
+      return onFailure ?? 'fail';
+    }
+  }
+
+  // Unknown secondary engine or engine config has no on_failure — fail by default (safe hardening)
   logger.warn(
-    `Engine "${engineId}" is not a recognised secondary engine. ` +
+    `Engine "${engineId}" is not a recognised secondary engine or has no on_failure config. ` +
     `Defaulting on_failure to "fail" for safety. ` +
     `Add explicit config for this engine to override.`,
   );
@@ -248,11 +263,19 @@ export async function runOrchestrator(
     );
   }
 
+  // Detect git branch once before building the scan context.
+  // Never throws — returns null when branch cannot be determined.
+  const branch = await detectGitBranch(options.cwd, runner);
+  if (branch) {
+    logger.info(`Detected git branch: ${branch}`);
+  }
+
   const ctx: ScannerEngineContext = {
     runner,
     config,
     cwd: options.cwd,
     ecosystemRegistry,
+    branch,
   };
 
   // Run all scanner engines; collect results + warnings

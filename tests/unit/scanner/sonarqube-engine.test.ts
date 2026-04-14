@@ -88,6 +88,7 @@ function makeCtx(runner: MockRunner, config: ProjectConfig): ScannerEngineContex
     config,
     cwd: '/tmp/test',
     ecosystemRegistry: {} as EcosystemRegistry,
+    branch: null,
   };
 }
 
@@ -811,5 +812,101 @@ describe('SonarQubeEngine — project_key runtime guard', () => {
 
     const result = await engine.scan(makeCtx(runner, config));
     expect(result.status).toBe('success');
+  });
+});
+
+// ─── Branch forwarding ────────────────────────────────────────────────────────
+
+describe('SonarQubeEngine — branch forwarding', () => {
+  const engine = new SonarQubeEngine();
+
+  beforeEach(() => {
+    process.env['SONAR_TOKEN'] = 'test-token';
+  });
+
+  afterEach(() => {
+    delete process.env['SONAR_TOKEN'];
+    vi.clearAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function makeCtxWithBranch(
+    runner: MockRunner,
+    config: ProjectConfig,
+    branch: string | null,
+  ): ScannerEngineContext {
+    return { ...makeCtx(runner, config), branch };
+  }
+
+  it('includes -Dsonar.branch.name in local scan command when branch is set', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner -D': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfig(true);
+
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
+
+    await engine.scan(makeCtxWithBranch(runner, config, 'main'));
+
+    const scanCmd = runner.calledCommands.find((c) => c.includes('-Dsonar.projectKey'));
+    expect(scanCmd).toBeDefined();
+    expect(scanCmd).toContain('-Dsonar.branch.name=main');
+  });
+
+  it('does NOT include -Dsonar.branch.name in local scan command when branch is null', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner -D': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfig(true);
+
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
+
+    await engine.scan(makeCtxWithBranch(runner, config, null));
+
+    const scanCmd = runner.calledCommands.find((c) => c.includes('-Dsonar.projectKey'));
+    expect(scanCmd).toBeDefined();
+    expect(scanCmd).not.toContain('-Dsonar.branch.name');
+  });
+
+  it('includes -Dsonar.branch.name in container fallback args when branch is set (managed mode)', async () => {
+    // Local scanner unavailable — forces container fallback
+    const runner = new MockRunner({ '--version': { exitCode: 127, stderr: 'not found' } });
+    const config = makeConfig(true, 'warn', 'managed');
+
+    stubFetchForManagedMode(
+      { projectStatus: { status: 'OK', conditions: [] } },
+      { component: { measures: [] } },
+    );
+
+    await engine.scan(makeCtxWithBranch(runner, config, 'feature/my-branch'));
+
+    const MockScannerRunner = vi.mocked(DockerSonarScannerRunner);
+    const scannerInstance = MockScannerRunner.mock.results[0]?.value as {
+      run: ReturnType<typeof vi.fn>;
+    };
+    const runArgs: string[] = scannerInstance.run.mock.calls[0]?.[0] ?? [];
+    expect(runArgs.some((a: string) => a === '-Dsonar.branch.name=feature/my-branch')).toBe(true);
+  });
+
+  it('does NOT include -Dsonar.branch.name in container fallback args when branch is null', async () => {
+    // Local scanner unavailable — forces container fallback
+    const runner = new MockRunner({ '--version': { exitCode: 127, stderr: 'not found' } });
+    const config = makeConfig(true, 'warn', 'managed');
+
+    stubFetchForManagedMode(
+      { projectStatus: { status: 'OK', conditions: [] } },
+      { component: { measures: [] } },
+    );
+
+    await engine.scan(makeCtxWithBranch(runner, config, null));
+
+    const MockScannerRunner = vi.mocked(DockerSonarScannerRunner);
+    const scannerInstance = MockScannerRunner.mock.results[0]?.value as {
+      run: ReturnType<typeof vi.fn>;
+    };
+    const runArgs: string[] = scannerInstance.run.mock.calls[0]?.[0] ?? [];
+    expect(runArgs.some((a: string) => a.startsWith('-Dsonar.branch.name'))).toBe(false);
   });
 });

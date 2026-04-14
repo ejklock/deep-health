@@ -295,6 +295,8 @@ export class OsvScannerEngine implements ScannerEngine {
       environment: runner.environment,
       ecosystems: {},
       error: null,
+      // Stamp branch when available (null omitted by consumers — treated as unknown)
+      ...(ctx.branch != null ? { branch: ctx.branch } : {}),
     };
 
     try {

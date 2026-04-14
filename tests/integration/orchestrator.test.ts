@@ -586,3 +586,123 @@ describe('runOrchestrator — on_failure policy for status=error (no throw)', ()
     ).rejects.toThrow('unexpected engine throw');
   });
 });
+
+// ─── Branch detection: orchestrator stamps branch in scan result ─────────────
+
+describe('runOrchestrator — branch detection', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env['SONAR_TOKEN'];
+  });
+
+  it('scan result includes branch when git rev-parse returns a valid branch name', async () => {
+    const config = await loadTestConfig();
+    const runner = new MockCommandRunner({
+      '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
+      '--lockfile package-lock.json --lockfile composer.lock --format json': {
+        stdout: JSON.stringify({ results: [] }),
+        exitCode: 0,
+      },
+      'git rev-parse --abbrev-ref HEAD': { stdout: 'main\n', exitCode: 0 },
+    });
+
+    const result = await runOrchestrator(runner, config, {
+      configPath: 'project-config.yml',
+      cwd: fixturesDir,
+      dryRun: false,
+      verbose: false,
+      scannerRegistry: makeOsvOnlyRegistry(),
+    });
+
+    expect(result.scan?.branch).toBe('main');
+  });
+
+  it('scan result has no branch field when git returns detached HEAD', async () => {
+    const config = await loadTestConfig();
+    const runner = new MockCommandRunner({
+      '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
+      '--lockfile package-lock.json --lockfile composer.lock --format json': {
+        stdout: JSON.stringify({ results: [] }),
+        exitCode: 0,
+      },
+      'git rev-parse --abbrev-ref HEAD': { stdout: 'HEAD\n', exitCode: 0 },
+    });
+
+    const result = await runOrchestrator(runner, config, {
+      configPath: 'project-config.yml',
+      cwd: fixturesDir,
+      dryRun: false,
+      verbose: false,
+      scannerRegistry: makeOsvOnlyRegistry(),
+    });
+
+    // branch is undefined (null was not stamped — branch was not meaningful)
+    expect(result.scan?.branch).toBeUndefined();
+  });
+
+  it('pipeline succeeds even when git rev-parse fails (no git repo)', async () => {
+    const config = await loadTestConfig();
+    const runner = new MockCommandRunner({
+      '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
+      '--lockfile package-lock.json --lockfile composer.lock --format json': {
+        stdout: JSON.stringify({ results: [] }),
+        exitCode: 0,
+      },
+      'git rev-parse --abbrev-ref HEAD': { exitCode: 128, stderr: 'fatal: not a git repository' },
+    });
+
+    // Must not throw — branch detection failure is non-fatal
+    const result = await runOrchestrator(runner, config, {
+      configPath: 'project-config.yml',
+      cwd: fixturesDir,
+      dryRun: false,
+      verbose: false,
+      scannerRegistry: makeOsvOnlyRegistry(),
+    });
+
+    expect(result.scan).not.toBeNull();
+    expect(result.scan?.branch).toBeUndefined();
+  });
+});
+
+// ─── Generic on_failure resolution ───────────────────────────────────────────
+
+describe('runOrchestrator — generic on_failure resolution', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env['SONAR_TOKEN'];
+  });
+
+  it('sonarqube on_failure=warn (resolved generically via config.scanners lookup)', async () => {
+    const baseConfig = await loadTestConfig();
+    // Construct a config where sonarqube has on_failure=warn — resolveOnFailure
+    // should find it via generic lookup rather than hardcoded engine id check.
+    const config = withSonarQube(baseConfig, { onFailure: 'warn' });
+    process.env['SONAR_TOKEN'] = 'my-token';
+
+    const runner = new MockCommandRunner({
+      'osv-scanner --version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
+      '--lockfile package-lock.json --lockfile composer.lock --format json': {
+        stdout: JSON.stringify({ results: [] }),
+        exitCode: 0,
+      },
+      'sonar-scanner --version': { exitCode: 127, stderr: 'command not found' },
+    });
+
+    const reg = new ScannerEngineRegistry();
+    reg.register(new OsvScannerEngine());
+    reg.register(new ErrorStatusEngine('sonarqube', 'sonar scan failed'));
+
+    const result = await runOrchestrator(runner, config, {
+      configPath: 'project-config.yml',
+      cwd: fixturesDir,
+      dryRun: false,
+      verbose: false,
+      scannerRegistry: reg,
+    });
+
+    // Should warn, not throw
+    expect(result.warnings.length).toBeGreaterThan(0);
+    expect(result.warnings[0]?.engineId).toBe('sonarqube');
+  });
+});

@@ -70,6 +70,9 @@ scanners:
     project_key: '{{sonarProjectKey}}'
     token_env: 'SONAR_TOKEN'
     on_failure: 'warn'
+    # Branch-awareness: deep-health passes -Dsonar.branch.name=<branch> automatically
+    # when a git branch can be detected. SonarQube Developer Edition or higher is required
+    # to use branch analysis. Community Edition ignores this property.
 {{else}}
 # scanners:                              # optional — additional scanner engines
 #   sonarqube:
@@ -79,6 +82,8 @@ scanners:
 #     project_key: 'my-project'
 #     token_env: 'SONAR_TOKEN'
 #     on_failure: 'warn'
+#     # Branch-awareness: deep-health passes -Dsonar.branch.name=<branch> when a git
+#     # branch is detected. Requires SonarQube Developer Edition or higher.
 #   osv:
 #     runner: 'auto'                     # 'auto' (default) | 'local' | 'docker'
 #                                        #   auto   — try local osv-scanner, fall back to Docker

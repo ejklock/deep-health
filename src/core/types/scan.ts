@@ -52,6 +52,11 @@ export interface ScanResultJson {
   ecosystems: Record<string, EcosystemScanResult>;
   error: string | null;
   /**
+   * Git branch name at the time of the scan, if known.
+   * `null` or absent when the branch could not be determined (detached HEAD, CI checkout-by-SHA, etc.).
+   */
+  branch?: string | null;
+  /**
    * Engine-specific metadata. Optional — OSV does not populate this field.
    * SonarQube populates quality gate status and basic metrics here.
    * Consumers should not rely on this for Gate A or update orchestration.

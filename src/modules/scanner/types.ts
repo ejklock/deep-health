@@ -12,6 +12,12 @@ export interface ScannerEngineContext {
   config: ProjectConfig;
   cwd: string;
   ecosystemRegistry: EcosystemRegistry;
+  /**
+   * Current git branch name, detected once by the orchestrator before engines run.
+   * `null` when the branch cannot be determined (detached HEAD, not a git repo, etc.).
+   * Engines should treat null as "branch unknown" and skip branch-specific behaviour.
+   */
+  branch: string | null;
 }
 
 /**

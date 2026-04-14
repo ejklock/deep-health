@@ -109,6 +109,7 @@ function makeCtx(
     config,
     cwd,
     ecosystemRegistry: makeEcosystemRegistry(['--lockfile', 'package-lock.json']),
+    branch: null,
   };
 }
 
@@ -287,6 +288,7 @@ describe('OsvScannerEngine.scan() — runner dispatch', () => {
       config: makeConfig({ osv: { runner: 'docker' } }),
       cwd: '/my/project',
       ecosystemRegistry: registry,
+      branch: null,
     };
     await engine.scan(ctx);
     expect(mockDockerRun).toHaveBeenCalledWith(rawPluginArgs);
@@ -347,5 +349,55 @@ describe('OsvScannerEngine — identity', () => {
 
   it('has expected name', () => {
     expect(new OsvScannerEngine().name).toBe('OSV Scanner');
+  });
+});
+
+// ─── branch stamping ─────────────────────────────────────────────────────────
+
+describe('OsvScannerEngine — branch stamping', () => {
+  const engine = new OsvScannerEngine();
+
+  beforeEach(() => {
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout: MINIMAL_SCAN_JSON, stderr: '' });
+    vi.mocked(OsvDockerRunner).mockClear();
+    mockDockerRun.mockClear();
+  });
+
+  afterEach(() => vi.clearAllMocks());
+
+  it('stamps branch into result when ctx.branch is set', async () => {
+    const runner = new MockRunner({
+      'osv-scanner --version': { exitCode: 0 },
+      'osv-scanner': { exitCode: 0, stdout: MINIMAL_SCAN_JSON },
+    });
+    const ctx: ScannerEngineContext = {
+      ...makeCtx(runner, makeConfig({ osv: { runner: 'local' } })),
+      branch: 'main',
+    };
+    const result = await engine.scan(ctx);
+    expect(result.branch).toBe('main');
+  });
+
+  it('does not include branch field when ctx.branch is null', async () => {
+    const runner = new MockRunner({
+      'osv-scanner --version': { exitCode: 0 },
+      'osv-scanner': { exitCode: 0, stdout: MINIMAL_SCAN_JSON },
+    });
+    const ctx: ScannerEngineContext = {
+      ...makeCtx(runner, makeConfig({ osv: { runner: 'local' } })),
+      branch: null,
+    };
+    const result = await engine.scan(ctx);
+    expect(result.branch).toBeUndefined();
+  });
+
+  it('stamps branch when using Docker runner', async () => {
+    const runner = new MockRunner({ 'docker': { exitCode: 0 } });
+    const ctx: ScannerEngineContext = {
+      ...makeCtx(runner, makeConfig({ osv: { runner: 'docker' } })),
+      branch: 'feature/my-feature',
+    };
+    const result = await engine.scan(ctx);
+    expect(result.branch).toBe('feature/my-feature');
   });
 });
