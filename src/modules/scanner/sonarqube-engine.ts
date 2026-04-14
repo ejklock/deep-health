@@ -1,9 +1,11 @@
 import type { ScannerEngine, ScannerEngineContext } from './types';
 import type { ScanResultJson } from '@core/types/scan';
 import { DockerSonarQubeProvisioner } from '@infra/provisioner/docker-sonarqube';
+import { DockerSonarScannerRunner } from '@infra/provisioner/docker-sonar-scanner';
 import { EnvironmentError } from '@core/errors';
 import { logger } from '@infra/utils/logger';
 import { getPlatformInstallHint } from '@infra/utils/platform';
+import { SONARQUBE_PROJECT_KEY_REGEX } from '@core/types/config';
 
 // ─── SonarQube API types (minimal) ─────────────────────────────────────────────
 
@@ -41,6 +43,15 @@ interface SonarQubeIssuesResponse {
     type: string;
     status: string;
   }>;
+}
+
+interface SonarQubeUserTokensResponse {
+  userTokens?: Array<{ name: string }>;
+}
+
+interface SonarQubeGenerateTokenResponse {
+  token?: string;
+  name?: string;
 }
 
 // ─── Metrics to collect ────────────────────────────────────────────────────────
@@ -144,21 +155,101 @@ async function fetchSonarIssues(
   }
 }
 
+// ─── Ephemeral token generation ────────────────────────────────────────────────
+
+/**
+ * Generate a short-lived user token against the ephemeral SonarQube instance
+ * using the default admin credentials.
+ *
+ * SonarQube ≥9.x deprecated `sonar.login` / `sonar.password` in favour of
+ * `sonar.token`. Rather than keeping deprecated auth, we generate a real token
+ * via the admin REST API and use it for both sonar-scanner and API calls.
+ *
+ * The token is intentionally NOT logged.
+ *
+ * @param hostUrl   - Base URL of the ephemeral SonarQube instance.
+ * @param tokenName - Name to give the generated token (informational).
+ * @returns The generated token string, or `null` if generation failed.
+ */
+async function generateEphemeralToken(
+  hostUrl: string,
+  tokenName: string,
+): Promise<string | null> {
+  const base = hostUrl.replace(/\/$/, '');
+  // Basic auth with default admin/admin credentials of the ephemeral container
+  const credentials = Buffer.from('admin:admin').toString('base64');
+  const authHeader = `Basic ${credentials}`;
+
+  try {
+    // Delete the token first (idempotent — best-effort, ignore 404)
+    await fetch(`${base}/api/user_tokens/revoke`, {
+      method: 'POST',
+      headers: {
+        Authorization: authHeader,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: `name=${encodeURIComponent(tokenName)}`,
+    }).catch(() => undefined);
+
+    // Generate a fresh token
+    const response = await fetch(`${base}/api/user_tokens/generate`, {
+      method: 'POST',
+      headers: {
+        Authorization: authHeader,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: `name=${encodeURIComponent(tokenName)}&type=USER_TOKEN`,
+    });
+
+    if (!response.ok) {
+      logger.warn(`SonarQube: token generation returned HTTP ${response.status} — will retry with global analysis token type`);
+
+      // Fallback: try without type (older SonarQube CE versions)
+      const fallback = await fetch(`${base}/api/user_tokens/generate`, {
+        method: 'POST',
+        headers: {
+          Authorization: authHeader,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `name=${encodeURIComponent(tokenName)}`,
+      });
+
+      if (!fallback.ok) {
+        logger.warn(`SonarQube: token generation failed (HTTP ${fallback.status}) — managed scan will use Basic auth fallback`);
+        return null;
+      }
+
+      const fallbackData = (await fallback.json()) as SonarQubeGenerateTokenResponse;
+      return fallbackData.token ?? null;
+    }
+
+    const data = (await response.json()) as SonarQubeGenerateTokenResponse;
+    return data.token ?? null;
+  } catch (err) {
+    logger.warn(`SonarQube: failed to generate ephemeral token — ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+}
+
 // ─── Shared scan execution (used by both external and managed modes) ────────────
 
 /**
  * Build auth args for sonar-scanner.
  *
- * External mode: uses the configured token from env.
- * Managed mode: uses default admin/admin credentials of the ephemeral container.
- * This is acceptable because the container is fully ephemeral and immediately torn down.
+ * Both external and managed modes now use `sonar.token`.
+ * Managed mode uses a generated ephemeral token; external mode uses the
+ * configured env-var token.
  */
-function buildAuthArg(mode: 'external' | 'managed', token: string): string {
-  if (mode === 'managed') {
-    // Ephemeral container — default admin credentials.
-    return `-Dsonar.login=admin -Dsonar.password=admin`;
-  }
+function buildAuthArg(token: string): string {
   return `-Dsonar.token=${token}`;
+}
+
+/**
+ * Build sonar-scanner auth args as an array (no shell quoting hazards).
+ * Used when invoking via DockerSonarScannerRunner.
+ */
+function buildAuthArgs(token: string): string[] {
+  return [`-Dsonar.token=${token}`];
 }
 
 /**
@@ -170,7 +261,6 @@ async function executeSonarScan(
   hostUrl: string,
   projectKey: string,
   token: string,
-  mode: 'external' | 'managed',
   base: ScanResultJson,
 ): Promise<ScanResultJson> {
   const { runner, cwd } = ctx;
@@ -184,7 +274,7 @@ async function executeSonarScan(
   }
 
   // Build sonar-scanner command
-  const authArg = buildAuthArg(mode, token);
+  const authArg = buildAuthArg(token);
   const cmd = [
     'sonar-scanner',
     `-Dsonar.host.url=${hostUrl}`,
@@ -192,7 +282,7 @@ async function executeSonarScan(
     authArg,
   ].join(' ');
 
-  logger.debug(`Running: sonar-scanner -Dsonar.host.url=${hostUrl} -Dsonar.projectKey=${projectKey} [auth omitted]`);
+  logger.debug(`Running: sonar-scanner -Dsonar.host.url=${hostUrl} -Dsonar.projectKey=${projectKey} [token omitted]`);
 
   const scanRun = await runner.run(cmd, { cwd });
 
@@ -204,16 +294,65 @@ async function executeSonarScan(
     };
   }
 
-  logger.info('SonarQube: scan complete, collecting quality gate status...');
+  return collectSonarMetadataAndBuildResult(hostUrl, projectKey, token, base);
+}
 
-  // Determine token to use for API calls
-  const apiToken = mode === 'managed' ? 'admin' : token;
+/**
+ * Execute sonar-scanner inside an ephemeral container (fallback when local
+ * sonar-scanner is not installed) and collect quality gate + metrics.
+ */
+async function executeSonarScanViaContainer(
+  cwd: string,
+  hostUrl: string,
+  projectKey: string,
+  token: string,
+  base: ScanResultJson,
+  scannerImage?: string,
+): Promise<ScanResultJson> {
+  const scannerRunner = new DockerSonarScannerRunner({
+    projectDir: cwd,
+    sonarHostUrl: hostUrl,
+    ...(scannerImage ? { image: scannerImage } : {}),
+  });
+
+  const authArgs = buildAuthArgs(token);
+  const extraArgs = [
+    `-Dsonar.projectKey=${projectKey}`,
+    ...authArgs,
+  ];
+
+  logger.debug(`Running sonar-scanner via container — host: ${hostUrl}, projectKey: ${projectKey} [token omitted]`);
+
+  const scanRun = await scannerRunner.run(extraArgs);
+
+  if (scanRun.exitCode !== 0) {
+    return {
+      ...base,
+      status: 'error',
+      error: `sonar-scanner (container) exited with code ${scanRun.exitCode}: ${scanRun.stderr || scanRun.stdout}`,
+    };
+  }
+
+  return collectSonarMetadataAndBuildResult(hostUrl, projectKey, token, base);
+}
+
+/**
+ * After a successful sonar-scanner execution (local or container),
+ * fetch quality gate + metrics and assemble the final ScanResultJson.
+ */
+async function collectSonarMetadataAndBuildResult(
+  hostUrl: string,
+  projectKey: string,
+  token: string,
+  base: ScanResultJson,
+): Promise<ScanResultJson> {
+  logger.info('SonarQube: scan complete, collecting quality gate status...');
 
   // Collect metadata from SonarQube API (best-effort; never blocks the pipeline)
   const [qualityGate, metrics, issues] = await Promise.all([
-    fetchSonarQualityGate(hostUrl, projectKey, apiToken),
-    fetchSonarMetrics(hostUrl, projectKey, apiToken),
-    fetchSonarIssues(hostUrl, projectKey, apiToken),
+    fetchSonarQualityGate(hostUrl, projectKey, token),
+    fetchSonarMetrics(hostUrl, projectKey, token),
+    fetchSonarIssues(hostUrl, projectKey, token),
   ]);
 
   const qualityGateStatus = qualityGate?.projectStatus?.status ?? 'UNKNOWN';
@@ -255,10 +394,16 @@ async function executeSonarScan(
  * Managed mode:
  * - Provisions an ephemeral SonarQube Community Edition Docker container
  * - Waits for readiness via API polling
- * - Runs sonar-scanner against the ephemeral instance
+ * - Generates a short-lived token from the ephemeral instance (admin API)
+ * - Runs sonar-scanner against the ephemeral instance using sonar.token
  * - Collects quality gate + metrics as in external mode
  * - Tears down the container in a finally block (guaranteed cleanup)
- * - Uses default admin/admin credentials (ephemeral container only)
+ *
+ * Token security:
+ * - External mode: token comes from env var, never logged
+ * - Managed mode: ephemeral token generated via admin API, never logged
+ *   If token generation fails, falls back to Basic auth via admin credentials
+ *   (acceptable for ephemeral containers only, and logged as a warning)
  *
  * on_failure: 'warn' (default) — failure emits a warning and continues
  * on_failure: 'fail' — failure propagates as an error
@@ -282,6 +427,20 @@ export class SonarQubeEngine implements ScannerEngine {
       throw new EnvironmentError(
         `sonar-scanner not found. ${hint}`,
       );
+    }
+  }
+
+  /**
+   * Probe whether a local sonar-scanner is available.
+   * Returns true/false — never throws.
+   * Used by managed mode to decide whether to use local scanner or container fallback.
+   */
+  private async _isLocalScannerAvailable(ctx: ScannerEngineContext): Promise<boolean> {
+    try {
+      const result = await ctx.runner.run('sonar-scanner --version', { cwd: ctx.cwd });
+      return result.exitCode === 0;
+    } catch {
+      return false;
     }
   }
 
@@ -313,12 +472,22 @@ export class SonarQubeEngine implements ScannerEngine {
       return base;
     }
 
-    const mode = sonarConfig.mode ?? 'external';
+    // Defensive runtime guard: project_key must be valid even if it passed schema
+    // (e.g. when config was constructed programmatically without Zod validation).
     const { project_key, token_env } = sonarConfig;
+    if (!SONARQUBE_PROJECT_KEY_REGEX.test(project_key)) {
+      throw new EnvironmentError(
+        `SonarQube: invalid project_key "${project_key}". ` +
+        `Project keys may only contain letters, digits, hyphens (-), underscores (_), periods (.), and colons (:). ` +
+        `Update your project-config.yml and set scanners.sonarqube.project_key to a valid value (e.g. "my-project").`,
+      );
+    }
+
+    const mode = sonarConfig.mode ?? 'external';
 
     // ─── Managed mode ────────────────────────────────────────────────────────
     if (mode === 'managed') {
-      return this._scanManaged(ctx, project_key, base);
+      return this._scanManaged(ctx, project_key, sonarConfig.scanner_image, base);
     }
 
     // ─── External mode ────────────────────────────────────────────────────────
@@ -336,7 +505,7 @@ export class SonarQubeEngine implements ScannerEngine {
     // Verify sonar-scanner is installed
     await this.assertAvailable(ctx);
 
-    return executeSonarScan(ctx, sonarConfig.host_url, project_key, token, 'external', base);
+    return executeSonarScan(ctx, sonarConfig.host_url, project_key, token, base);
   }
 
   // ─── Private: managed mode execution ─────────────────────────────────────────
@@ -344,9 +513,10 @@ export class SonarQubeEngine implements ScannerEngine {
   private async _scanManaged(
     ctx: ScannerEngineContext,
     projectKey: string,
+    scannerImage: string | undefined,
     base: ScanResultJson,
   ): Promise<ScanResultJson> {
-    const { runner } = ctx;
+    const { runner, cwd } = ctx;
 
     // Dry-run short-circuit: must happen BEFORE any provisioner or sonar-scanner
     // availability check is invoked. No Docker container is ever started in dry-run.
@@ -360,8 +530,14 @@ export class SonarQubeEngine implements ScannerEngine {
 
     logger.info('SonarQube: running in managed mode — provisioning ephemeral container...');
 
-    // Verify sonar-scanner is installed before provisioning (fail fast)
-    await this.assertAvailable(ctx);
+    // Check whether local sonar-scanner is available (no throw — we fall back on miss).
+    const localAvailable = await this._isLocalScannerAvailable(ctx);
+
+    if (localAvailable) {
+      logger.info('SonarQube: local sonar-scanner found — using local scanner');
+    } else {
+      logger.info('SonarQube: local sonar-scanner not found — will use sonarsource/sonar-scanner-cli container fallback');
+    }
 
     const provisioner = new DockerSonarQubeProvisioner();
 
@@ -374,7 +550,28 @@ export class SonarQubeEngine implements ScannerEngine {
       await provisioner.waitReady();
       logger.info('SonarQube: container ready');
 
-      return await executeSonarScan(ctx, hostUrl, projectKey, 'admin', 'managed', base);
+      // Generate an ephemeral token from the admin API — avoids deprecated sonar.login/sonar.password
+      logger.info('SonarQube: generating ephemeral scan token...');
+      const ephemeralToken = await generateEphemeralToken(hostUrl, 'deep-health-scan');
+
+      if (!ephemeralToken) {
+        logger.warn('SonarQube: ephemeral token generation failed — managed scan cannot proceed safely');
+        return {
+          ...base,
+          status: 'error',
+          error: 'SonarQube managed mode: failed to generate ephemeral token from admin API. Ensure the ephemeral container started correctly.',
+        };
+      }
+
+      logger.info('SonarQube: ephemeral token generated (value not logged)');
+
+      if (localAvailable) {
+        // ── Local scanner path ──────────────────────────────────────────────
+        return await executeSonarScan(ctx, hostUrl, projectKey, ephemeralToken, base);
+      } else {
+        // ── Container fallback path ─────────────────────────────────────────
+        return await executeSonarScanViaContainer(cwd, hostUrl, projectKey, ephemeralToken, base, scannerImage);
+      }
     } finally {
       await provisioner.teardown();
     }

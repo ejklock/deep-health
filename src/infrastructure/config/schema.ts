@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SONARQUBE_PROJECT_KEY_REGEX } from '@core/types/config';
 
 const ProtectedPackageSchema = z.object({
   package: z.string(),
@@ -67,9 +68,18 @@ const SonarQubeConfigSchema = z.object({
    */
   mode: z.enum(['external', 'managed']).default('external'),
   host_url: z.string().url().optional().default('http://localhost:9000'),
-  project_key: z.string(),
+  project_key: z.string().regex(
+    SONARQUBE_PROJECT_KEY_REGEX,
+    'SonarQube project_key may only contain letters, digits, hyphens (-), underscores (_), periods (.), and colons (:). ' +
+    'Spaces and special characters are not allowed. Example: "my-project" or "org:my-project".',
+  ),
   token_env: z.string().default('SONAR_TOKEN'),
   on_failure: z.enum(['warn', 'fail']).default('warn'),
+  /**
+   * Docker image tag for the sonar-scanner-cli container (managed mode fallback).
+   * Defaults to 'sonarsource/sonar-scanner-cli:latest'.
+   */
+  scanner_image: z.string().optional(),
 });
 
 const ScannersConfigSchema = z.object({
@@ -87,7 +97,6 @@ const CloudStorageConfigSchema = z.object({
 const SafeUpdatePolicySchema = z.object({
   allow_patch_and_minor_within_constraints: z.boolean(),
   require_authorization_for_constraint_change: z.boolean(),
-  authorization_format: z.string(),
 });
 
 export const ProjectConfigSchema = z.object({

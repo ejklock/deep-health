@@ -51,7 +51,6 @@ protected_packages:
 safe_update_policy:
   allow_patch_and_minor_within_constraints: true
   require_authorization_for_constraint_change: true
-  authorization_format: '{{authorizationFormat}}'
 
 conflict_resolution: 'stop_and_ask'
 
@@ -73,7 +72,7 @@ scanners:
     enabled: true
     mode: 'external'
     host_url: 'http://localhost:9000'
-    project_key: '{{projectName}}'
+    project_key: '{{sonarProjectKey}}'
     token_env: 'SONAR_TOKEN'
     on_failure: 'warn'
 {{else}}

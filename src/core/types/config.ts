@@ -74,6 +74,25 @@ export interface CloudStorageConfig {
   credentials_env?: string;
 }
 
+/**
+ * SonarQube project_key validation.
+ *
+ * SonarQube project keys must match the pattern:
+ *   - Only letters (a-z, A-Z), digits (0-9), hyphens (-), underscores (_), periods (.), and colons (:)
+ *   - At least one character
+ *
+ * References: https://docs.sonarsource.com/sonarqube/latest/project-administration/project-settings/
+ */
+export const SONARQUBE_PROJECT_KEY_REGEX = /^[a-zA-Z0-9\-_.:][-a-zA-Z0-9_.:]*$/;
+
+/**
+ * Returns true if the given string is a valid SonarQube project key.
+ * Valid keys contain only letters, digits, hyphens, underscores, periods, and colons.
+ */
+export function isValidSonarProjectKey(key: string): boolean {
+  return SONARQUBE_PROJECT_KEY_REGEX.test(key);
+}
+
 export interface SonarQubeConfig {
   enabled: boolean;
   /**
@@ -87,6 +106,13 @@ export interface SonarQubeConfig {
   token_env: string;
   /** What to do when SonarQube scan fails: 'warn' (default) or 'fail'. */
   on_failure: 'warn' | 'fail';
+  /**
+   * Docker image tag for the sonar-scanner-cli container used in the container fallback path.
+   * Only relevant when `mode` is 'managed' and local sonar-scanner is unavailable.
+   * Defaults to 'sonarsource/sonar-scanner-cli:latest'.
+   * Example: 'sonarsource/sonar-scanner-cli:5.0' to pin to a specific version.
+   */
+  scanner_image?: string;
 }
 
 export interface ScannersConfig {
@@ -97,7 +123,6 @@ export interface ScannersConfig {
 export interface SafeUpdatePolicy {
   allow_patch_and_minor_within_constraints: boolean;
   require_authorization_for_constraint_change: boolean;
-  authorization_format: string;
 }
 
 export interface ProjectConfig {

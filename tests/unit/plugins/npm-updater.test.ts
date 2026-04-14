@@ -76,7 +76,6 @@ function baseConfig(): ProjectConfig {
     safe_update_policy: {
       allow_patch_and_minor_within_constraints: true,
       require_authorization_for_constraint_change: false,
-      authorization_format: '',
     },
     conflict_resolution: 'fail',
   };

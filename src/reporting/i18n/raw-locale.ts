@@ -63,7 +63,6 @@ export interface RawLocale {
     /** vars: output — truncated advisor output */
     advisor_output: string;            // vars: output
   };
-  authorization_format: string;
   consolidated: {
     title: string;                // vars: projectName
     label_date: string;

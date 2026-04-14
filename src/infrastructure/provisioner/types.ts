@@ -31,6 +31,52 @@ export interface ServiceProvisioner {
   teardown(): Promise<void>;
 }
 
+// ─── DockerSonarScannerRunner types ────────────────────────────────────────────
+
+/**
+ * Options for DockerSonarScannerRunner — the one-shot scanner container helper.
+ */
+export interface DockerSonarScannerRunnerOptions {
+  /**
+   * Absolute path of the project directory to mount into the container.
+   * Mounted at /usr/src (the sonar-scanner-cli image's default working dir).
+   */
+  projectDir: string;
+
+  /**
+   * The SonarQube host URL as seen from the Docker host (e.g. http://localhost:PORT).
+   * `localhost` / `127.0.0.1` are automatically rewritten to `host.docker.internal`
+   * so the container can reach the host-side service.
+   */
+  sonarHostUrl: string;
+
+  /**
+   * Docker image for the scanner container.
+   * Defaults to 'sonarsource/sonar-scanner-cli:latest'.
+   */
+  image?: string;
+
+  /**
+   * Docker platform string to pass via `--platform` (e.g. 'linux/amd64').
+   * When omitted, platform is auto-detected from the current process architecture:
+   *   - arm64 → linux/amd64 (sonar-scanner-cli has no arm64 image; amd64 via emulation)
+   *   - other → omitted (Docker chooses the native platform)
+   * Set to an empty string '' to suppress the auto-detection and omit --platform entirely.
+   */
+  platform?: string;
+}
+
+/**
+ * Result returned by DockerSonarScannerRunner.run().
+ */
+export interface DockerSonarScanRunResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
+// ─── DockerSonarQubeProvisionerOptions ─────────────────────────────────────────
+
 /**
  * Options for DockerSonarQubeProvisioner.
  */

@@ -27,7 +27,6 @@ function baseConfig(overrides: Partial<ProjectConfig> = {}): ProjectConfig {
     safe_update_policy: {
       allow_patch_and_minor_within_constraints: true,
       require_authorization_for_constraint_change: false,
-      authorization_format: '',
     },
     conflict_resolution: 'fail',
     ...overrides,
@@ -77,7 +76,7 @@ describe('loadConfig', () => {
     const tempPath = resolve(fixturesDir, '_temp_no_ecosystems.yml');
     await writeFile(
       tempPath,
-      `project:\n  name: test\n  client: test\nruntime:\n  execution: local\n  docker_service: app\necosystems: []\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: true\n  authorization_format: 'yes'\nconflict_resolution: stop_and_ask\n`,
+      `project:\n  name: test\n  client: test\nruntime:\n  execution: local\n  docker_service: app\necosystems: []\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: true\nconflict_resolution: stop_and_ask\n`,
     );
     try {
       await expect(loadConfig('_temp_no_ecosystems.yml', fixturesDir)).rejects.toThrow(
@@ -109,7 +108,7 @@ describe('loadConfig', () => {
     const tempPath = resolve(fixturesDir, '_temp_unknown_eco.yml');
     await writeFile(
       tempPath,
-      `project:\n  name: test\n  client: test\nruntime:\n  execution: local\n  docker_service: app\necosystems:\n  - id: 'unknown-eco'\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\n  authorization_format: ''\nconflict_resolution: fail\n`,
+      `project:\n  name: test\n  client: test\nruntime:\n  execution: local\n  docker_service: app\necosystems:\n  - id: 'unknown-eco'\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\n`,
     );
     try {
       const registry = makeRegistry();
@@ -179,5 +178,54 @@ describe('validateEcosystemsAgainstRegistry', () => {
     });
     const errors = validateEcosystemsAgainstRegistry(config, registry);
     expect(errors).toHaveLength(2);
+  });
+});
+
+describe('SonarQube project_key schema validation', () => {
+  it('rejects an invalid project_key containing spaces', async () => {
+    const { writeFile, unlink } = await import('node:fs/promises');
+    const tempPath = resolve(fixturesDir, '_temp_invalid_sonar_key.yml');
+    await writeFile(
+      tempPath,
+      `project:\n  name: test\n  client: test\nruntime:\n  execution: local\n  docker_service: app\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nscanners:\n  sonarqube:\n    enabled: true\n    project_key: 'My Invalid Key'\n`,
+    );
+    try {
+      await expect(loadConfig('_temp_invalid_sonar_key.yml', fixturesDir)).rejects.toThrow(
+        ConfigLoadError,
+      );
+    } finally {
+      await unlink(tempPath).catch(() => {});
+    }
+  });
+
+  it('rejects an invalid project_key containing special characters', async () => {
+    const { writeFile, unlink } = await import('node:fs/promises');
+    const tempPath = resolve(fixturesDir, '_temp_invalid_sonar_key2.yml');
+    await writeFile(
+      tempPath,
+      `project:\n  name: test\n  client: test\nruntime:\n  execution: local\n  docker_service: app\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nscanners:\n  sonarqube:\n    enabled: true\n    project_key: 'my project!'\n`,
+    );
+    try {
+      await expect(loadConfig('_temp_invalid_sonar_key2.yml', fixturesDir)).rejects.toThrow(
+        ConfigLoadError,
+      );
+    } finally {
+      await unlink(tempPath).catch(() => {});
+    }
+  });
+
+  it('accepts a valid project_key with hyphens and colons', async () => {
+    const { writeFile, unlink } = await import('node:fs/promises');
+    const tempPath = resolve(fixturesDir, '_temp_valid_sonar_key.yml');
+    await writeFile(
+      tempPath,
+      `project:\n  name: test\n  client: test\nruntime:\n  execution: local\n  docker_service: app\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nscanners:\n  sonarqube:\n    enabled: true\n    project_key: 'org:my-project_v2'\n`,
+    );
+    try {
+      const config = await loadConfig('_temp_valid_sonar_key.yml', fixturesDir);
+      expect(config.scanners?.sonarqube?.project_key).toBe('org:my-project_v2');
+    } finally {
+      await unlink(tempPath).catch(() => {});
+    }
   });
 });

@@ -8,7 +8,6 @@ function interp(str: string, vars: Record<string, string | number>): string {
 export function buildLocale(raw: RawLocale): Locale {
   return {
     months: raw.months,
-    authorization_format: raw.authorization_format,
 
     pkg_count(vulnCount, pkgCount, ecosystem, names) {
       const tmpl = pkgCount === 1 ? raw.pkg_count.one : raw.pkg_count.other;

@@ -45,7 +45,6 @@ const configWithOutputs: ProjectConfig = {
   safe_update_policy: {
     allow_patch_and_minor_within_constraints: true,
     require_authorization_for_constraint_change: true,
-    authorization_format: 'yes',
   },
   conflict_resolution: 'stop_and_ask',
   outputs: { formats: ['markdown'], dir: '.deep-health/reports' },

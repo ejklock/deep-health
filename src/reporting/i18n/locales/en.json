@@ -1,5 +1,4 @@
 {
-  "authorization_format": "yes, I confirm breaking changes for [vendor/package]",
   "months": ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
   "pkg_count": {
     "one": "{{vulnCount}} in {{ecosystem}} ({{pkgCount}} package{{namesSuffix}})",

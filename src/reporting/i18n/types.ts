@@ -93,7 +93,6 @@ export interface StatusLocale {
 
 export interface Locale {
   months: readonly string[];
-  authorization_format: string;
   pkg_count(vulnCount: number, pkgCount: number, ecosystem: string, names?: string): string;
   exec: ExecLocale;
   reason: ReasonLocale;

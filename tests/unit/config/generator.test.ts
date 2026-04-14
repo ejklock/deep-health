@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generateConfigYaml } from '@infra/config/generator';
+import { generateConfigYaml, normalizeSonarProjectKey } from '@infra/config/generator';
 import { parse } from 'yaml';
 import { ProjectConfigSchema } from '@infra/config/schema';
 
@@ -99,5 +99,66 @@ describe('generateConfigYaml', () => {
     expect(parsed.outputs?.formats).toContain('markdown');
     // 'sonarqube' is not an output format — it is not a toggle in formats
     expect(parsed.outputs?.formats).not.toContain('sonarqube');
+  });
+});
+
+describe('normalizeSonarProjectKey', () => {
+  it('returns already-valid keys unchanged (idempotent)', () => {
+    expect(normalizeSonarProjectKey('my-project')).toBe('my-project');
+    expect(normalizeSonarProjectKey('org:my-project')).toBe('org:my-project');
+    expect(normalizeSonarProjectKey('My_Project.v2')).toBe('My_Project.v2');
+    expect(normalizeSonarProjectKey('ACME-CORP_123')).toBe('ACME-CORP_123');
+  });
+
+  it('replaces spaces with hyphens', () => {
+    expect(normalizeSonarProjectKey('My App')).toBe('My-App');
+    expect(normalizeSonarProjectKey('My  App')).toBe('My-App');
+  });
+
+  it('replaces invalid characters with hyphens', () => {
+    expect(normalizeSonarProjectKey('My App!')).toBe('My-App');
+    expect(normalizeSonarProjectKey('hello world@2024')).toBe('hello-world-2024');
+  });
+
+  it('collapses consecutive hyphens', () => {
+    expect(normalizeSonarProjectKey('a  b  c')).toBe('a-b-c');
+    expect(normalizeSonarProjectKey('a--b')).toBe('a-b');
+  });
+
+  it('strips leading and trailing hyphens', () => {
+    expect(normalizeSonarProjectKey('!My Project!')).toBe('My-Project');
+    expect(normalizeSonarProjectKey('-project-')).toBe('project');
+  });
+
+  it('falls back to my-project for empty or whitespace-only input', () => {
+    expect(normalizeSonarProjectKey('')).toBe('my-project');
+    expect(normalizeSonarProjectKey('   ')).toBe('my-project');
+    expect(normalizeSonarProjectKey('!!!')).toBe('my-project');
+  });
+
+  it('generated project_key passes schema validation when enableSonarQube=true', () => {
+    // Project names with spaces must not cause schema rejection in generated config
+    const yaml = generateConfigYaml({
+      projectName: 'My Project',
+      enableSonarQube: true,
+      ecosystemConfigs: [{ id: 'npm', fixerStrategy: 'npm-audit' }],
+    });
+    const parsed = parse(yaml);
+    const result = ProjectConfigSchema.safeParse(parsed);
+    expect(result.success).toBe(true);
+    const projectKey = (parsed as { scanners?: { sonarqube?: { project_key?: string } } })
+      .scanners?.sonarqube?.project_key;
+    expect(projectKey).toBe('My-Project');
+  });
+
+  it('project names with special chars produce valid keys in generated config', () => {
+    const yaml = generateConfigYaml({
+      projectName: 'My App (v2)!',
+      enableSonarQube: true,
+      ecosystemConfigs: [{ id: 'npm' }],
+    });
+    const parsed = parse(yaml);
+    const result = ProjectConfigSchema.safeParse(parsed);
+    expect(result.success).toBe(true);
   });
 });
