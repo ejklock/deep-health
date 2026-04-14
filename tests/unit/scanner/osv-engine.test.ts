@@ -52,16 +52,15 @@ class MockRunner implements CommandRunner {
     this.calledCommands.push(command);
     for (const [key, resp] of this.responses) {
       if (command.includes(key)) {
-        return {
-          stdout: resp.stdout ?? '',
-          stderr: resp.stderr ?? '',
-          exitCode: resp.exitCode ?? 0,
-          command,
-          dryRun: this.dryRun,
-        };
+        return { stdout: resp.stdout ?? '', stderr: resp.stderr ?? '', exitCode: resp.exitCode ?? 0, command, dryRun: this.dryRun };
       }
     }
     return { stdout: '', stderr: '', exitCode: 0, command, dryRun: this.dryRun };
+  }
+
+  async runArgs(file: string, args: string[], _opts?: CommandRunnerOptions): Promise<CommandResult> {
+    const command = [file, ...args].join(' ');
+    return this.run(command, _opts);
   }
 }
 

@@ -54,6 +54,22 @@ class MockRunner implements CommandRunner {
     }
     return { stdout: '', stderr: '', exitCode: 0, command, dryRun: this.dryRun };
   }
+
+  /**
+   * Shell-safe variant — records the reconstructed command string so existing
+   * calledCommands assertions (includes('-Dsonar.projectKey'), contains('sonar.token='), etc.)
+   * continue to work without modification.
+   */
+  async runArgs(file: string, args: string[], _opts?: CommandRunnerOptions): Promise<CommandResult> {
+    const command = [file, ...args].join(' ');
+    this.calledCommands.push(command);
+    for (const [key, resp] of this.responses) {
+      if (command.includes(key)) {
+        return { stdout: resp.stdout ?? '', stderr: resp.stderr ?? '', exitCode: resp.exitCode ?? 0, command, dryRun: this.dryRun };
+      }
+    }
+    return { stdout: '', stderr: '', exitCode: 0, command, dryRun: this.dryRun };
+  }
 }
 
 function makeConfig(sonarEnabled = false, onFailure: 'warn' | 'fail' = 'warn', mode: 'external' | 'managed' = 'external'): ProjectConfig {
@@ -126,6 +142,66 @@ function stubFetchForManagedMode(
       .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }),
   );
 }
+
+// ─── Contract: runArgs must be the ONLY path used for scan execution ───────────
+
+describe('CommandRunner contract — runArgs required for scan execution', () => {
+  const engine = new SonarQubeEngine();
+
+  beforeEach(() => {
+    process.env['SONAR_TOKEN'] = 'test-token';
+  });
+  afterEach(() => {
+    delete process.env['SONAR_TOKEN'];
+    vi.unstubAllGlobals();
+  });
+
+  it('calls runArgs (not run) for the sonar-scanner scan invocation', async () => {
+    const runArgsCalls: Array<{ file: string; args: string[] }> = [];
+    const runCalls: string[] = [];
+
+    // Instrumented runner that records which method handles each invocation
+    const instrumentedRunner: CommandRunner = {
+      dryRun: false,
+      environment: 'local' as const,
+      // run() is still needed for --version checks (assertAvailable) — record it separately
+      async run(command: string): Promise<CommandResult> {
+        runCalls.push(command);
+        // sonar-scanner --version succeeds
+        return { stdout: 'SonarScanner 5.0', stderr: '', exitCode: 0, command, dryRun: false };
+      },
+      // runArgs() is the required shell-safe path for actual scan invocations
+      async runArgs(file: string, args: string[]): Promise<CommandResult> {
+        runArgsCalls.push({ file, args });
+        const command = [file, ...args].join(' ');
+        return { stdout: 'ANALYSIS SUCCESSFUL', stderr: '', exitCode: 0, command, dryRun: false };
+      },
+    };
+
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
+
+    const config = makeConfig(true);
+    const ctx: ScannerEngineContext = {
+      runner: instrumentedRunner,
+      config,
+      cwd: '/tmp/test',
+      ecosystemRegistry: {} as EcosystemRegistry,
+      branch: null,
+    };
+
+    await engine.scan(ctx);
+
+    // runArgs must have been called for the scan
+    expect(runArgsCalls).toHaveLength(1);
+    expect(runArgsCalls[0]!.file).toBe('sonar-scanner');
+    expect(runArgsCalls[0]!.args).toContain('-Dsonar.projectKey=my-project');
+    expect(runArgsCalls[0]!.args.some((a) => a.startsWith('-Dsonar.token='))).toBe(true);
+
+    // run() may only be used for --version; NOT for the scan itself
+    const scanViaSingleRun = runCalls.filter((c) => c.includes('-Dsonar.projectKey'));
+    expect(scanViaSingleRun).toHaveLength(0);
+  });
+});
 
 // ─── Tests ─────────────────────────────────────────────────────────────────────
 

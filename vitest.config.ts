@@ -26,6 +26,9 @@ export default defineConfig({
       exclude: ['src/types/**'],
     },
     // Named projects for targeted runs: pnpm test:unit, pnpm test:integration, pnpm test:smoke
+    // NOTE: vitest 2.x inline-project mode does NOT support `--project <name>` CLI filtering
+    // when projects are defined inline (not in a workspace file).
+    // Use path-based invocation instead: `vitest run tests/<dir>` (see package.json scripts).
     projects: [
       {
         extends: true,
@@ -47,9 +50,21 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'smoke',
-          // Smoke tests are a placeholder — no files yet.
           include: ['tests/smoke/**/*.test.ts'],
           globals: true,
+          // Smoke tests perform real Docker operations (container pull + start).
+          // Per-test timeouts are declared inline with { timeout: N } but we
+          // also raise the suite-level hook timeout so beforeAll skip probes
+          // (docker info) don't time out on slow daemons.
+          hookTimeout: 30_000,
+          testTimeout: 120_000,
+          // Run smoke tests sequentially to avoid port conflicts between provisioners.
+          pool: 'forks',
+          poolOptions: {
+            forks: {
+              singleFork: true,
+            },
+          },
         },
       },
     ],

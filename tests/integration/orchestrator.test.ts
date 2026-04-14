@@ -61,6 +61,11 @@ class MockCommandRunner implements CommandRunner {
       dryRun: this.dryRun,
     };
   }
+
+  async runArgs(file: string, args: string[], _options?: CommandRunnerOptions): Promise<CommandResult> {
+    const command = [file, ...args].join(' ');
+    return this.run(command, _options);
+  }
 }
 
 async function loadTestConfig() {

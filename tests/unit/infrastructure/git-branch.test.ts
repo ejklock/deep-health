@@ -29,6 +29,10 @@ class MockRunner implements CommandRunner {
     }
     return { stdout: '', stderr: '', exitCode: 0, command, dryRun: false };
   }
+
+  async runArgs(file: string, args: string[], _opts?: CommandRunnerOptions): Promise<CommandResult> {
+    return this.run([file, ...args].join(' '), _opts);
+  }
 }
 
 /** A runner that always throws on run() */
@@ -38,6 +42,10 @@ class ThrowingRunner implements CommandRunner {
 
   async run(_command: string, _opts?: CommandRunnerOptions): Promise<CommandResult> {
     throw new Error('runner.run() threw unexpectedly');
+  }
+
+  async runArgs(file: string, args: string[], _opts?: CommandRunnerOptions): Promise<CommandResult> {
+    throw new Error('runner.runArgs() threw unexpectedly');
   }
 }
 
@@ -124,6 +132,7 @@ describe('detectGitBranch()', () => {
         dryRun: false,
         environment: 'local' as ExecutionEnv,
         run: vi.fn().mockRejectedValue(new Error('permission denied')),
+        runArgs: vi.fn().mockRejectedValue(new Error('permission denied')),
       } satisfies CommandRunner;
 
       await expect(detectGitBranch('/project', runner)).resolves.toBeNull();

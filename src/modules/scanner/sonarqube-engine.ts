@@ -234,17 +234,6 @@ async function generateEphemeralToken(
 // ─── Shared scan execution (used by both external and managed modes) ────────────
 
 /**
- * Build auth args for sonar-scanner.
- *
- * Both external and managed modes now use `sonar.token`.
- * Managed mode uses a generated ephemeral token; external mode uses the
- * configured env-var token.
- */
-function buildAuthArg(token: string): string {
-  return `-Dsonar.token=${token}`;
-}
-
-/**
  * Build sonar-scanner auth args as an array (no shell quoting hazards).
  * Used when invoking via DockerSonarScannerRunner.
  */
@@ -255,6 +244,9 @@ function buildAuthArgs(token: string): string[] {
 /**
  * Execute sonar-scanner and collect quality gate + metrics from the SonarQube API.
  * Returns the final ScanResultJson.
+ *
+ * Security: token and branch are always passed via runner.runArgs() (shell=false),
+ * preventing shell-injection.  runner.run() is never used for scan invocations.
  */
 async function executeSonarScan(
   ctx: ScannerEngineContext,
@@ -274,16 +266,14 @@ async function executeSonarScan(
     return { ...base, status: 'success' };
   }
 
-  // Build sonar-scanner command
-  const authArg = buildAuthArg(token);
-  const branchArg = branch ? `-Dsonar.branch.name=${branch}` : null;
-  const cmd = [
-    'sonar-scanner',
+  // Build sonar-scanner args as an array — no shell quoting hazards.
+  // Token and branch values are never shell-interpolated.
+  const scanArgs = [
     `-Dsonar.host.url=${hostUrl}`,
     `-Dsonar.projectKey=${projectKey}`,
-    authArg,
-    ...(branchArg ? [branchArg] : []),
-  ].join(' ');
+    `-Dsonar.token=${token}`,
+    ...(branch ? [`-Dsonar.branch.name=${branch}`] : []),
+  ];
 
   logger.debug(
     `Running: sonar-scanner -Dsonar.host.url=${hostUrl} -Dsonar.projectKey=${projectKey}` +
@@ -291,7 +281,9 @@ async function executeSonarScan(
     ` [token omitted]`,
   );
 
-  const scanRun = await runner.run(cmd, { cwd });
+  // Always use shell-free runArgs() — no fallback to run().
+  // runner.runArgs is required by the CommandRunner contract.
+  const scanRun = await runner.runArgs('sonar-scanner', scanArgs, { cwd });
 
   if (scanRun.exitCode !== 0) {
     return {

@@ -20,6 +20,15 @@ export interface CommandRunnerOptions {
 
 export interface CommandRunner {
   run(command: string, options?: CommandRunnerOptions): Promise<CommandResult>;
+  /**
+   * Shell-safe variant: executes `file` with `args` without a shell
+   * (analogous to `execFile`). Use this for every invocation that embeds
+   * untrusted values such as tokens or branch names to prevent shell-injection.
+   *
+   * All implementations MUST provide this method.
+   * `run()` is reserved for static, trusted commands such as `--version` checks.
+   */
+  runArgs(file: string, args: string[], options?: CommandRunnerOptions): Promise<CommandResult>;
   readonly dryRun: boolean;
   readonly environment: ExecutionEnv;
 }
