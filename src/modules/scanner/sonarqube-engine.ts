@@ -348,6 +348,16 @@ export class SonarQubeEngine implements ScannerEngine {
   ): Promise<ScanResultJson> {
     const { runner } = ctx;
 
+    // Dry-run short-circuit: must happen BEFORE any provisioner or sonar-scanner
+    // availability check is invoked. No Docker container is ever started in dry-run.
+    if (runner.dryRun) {
+      logger.info(
+        `[DRY-RUN] Would provision ephemeral SonarQube container and execute: sonar-scanner ` +
+        `-Dsonar.host.url=<managed> -Dsonar.projectKey=${projectKey}`,
+      );
+      return { ...base, status: 'success' };
+    }
+
     logger.info('SonarQube: running in managed mode — provisioning ephemeral container...');
 
     // Verify sonar-scanner is installed before provisioning (fail fast)
@@ -363,14 +373,6 @@ export class SonarQubeEngine implements ScannerEngine {
       logger.info(`SonarQube: waiting for container to be ready at ${hostUrl}...`);
       await provisioner.waitReady();
       logger.info('SonarQube: container ready');
-
-      if (runner.dryRun) {
-        logger.info(
-          `[DRY-RUN] Would execute: sonar-scanner ` +
-          `-Dsonar.host.url=${hostUrl} -Dsonar.projectKey=${projectKey}`,
-        );
-        return { ...base, status: 'success' };
-      }
 
       return await executeSonarScan(ctx, hostUrl, projectKey, 'admin', 'managed', base);
     } finally {

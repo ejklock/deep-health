@@ -35,6 +35,19 @@ export { SonarQubeEngine } from './sonarqube-engine';
 // Convenience wrapper: run only the OSV engine (used by bin commands needing a quick scan)
 const _osvEngine = new OsvScannerEngine();
 
+/**
+ * OSV-only vulnerability scan.
+ *
+ * This function is intentionally scoped to OSV (osv-scanner) only.
+ * It is used by the fix workflow (fix.ts) for the before/after vulnerability snapshots
+ * that drive Gate A and the executive diff report.
+ *
+ * SonarQube results are NOT produced here. They are produced by the full orchestrator
+ * scan pipeline (runOrchestrator) and surfaced via the aggregated `engineResults` field
+ * on the orchestrator result. fix.ts consumes those separately for report sections.
+ *
+ * Do NOT add multi-engine aggregation here — that path belongs to the orchestrator.
+ */
 export async function runScanner(
   runner: CommandRunner,
   config: ProjectConfig,

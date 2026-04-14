@@ -513,6 +513,8 @@ describe('SonarQubeEngine — managed mode (Phase 2)', () => {
   });
 
   it('returns success in dry-run mode without provisioning a container', async () => {
+    // In managed dry-run, the short-circuit must fire BEFORE any provisioner or
+    // sonar-scanner availability check is invoked. No Docker container is ever started.
     const runner = new MockRunner(
       { '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' } },
       { dryRun: true },
@@ -523,17 +525,15 @@ describe('SonarQubeEngine — managed mode (Phase 2)', () => {
 
     expect(result.status).toBe('success');
 
-    // Provisioner should still have been used (we provision, then check dryRun inside)
+    // Provisioner must NOT have been instantiated or used
     const MockProvisioner = vi.mocked(DockerSonarQubeProvisioner);
-    expect(MockProvisioner).toHaveBeenCalled();
-    // But no actual sonar-scanner -Dsonar.projectKey call
+    expect(MockProvisioner).not.toHaveBeenCalled();
+
+    // sonar-scanner availability check must NOT have been called (no --version)
+    expect(runner.calledCommands).toHaveLength(0);
+
+    // No actual sonar-scanner scan command issued
     const scanCalls = runner.calledCommands.filter((c) => c.includes('-Dsonar.projectKey'));
     expect(scanCalls).toHaveLength(0);
-
-    // Teardown must always be called
-    const instance = MockProvisioner.mock.results[0]?.value as {
-      teardown: ReturnType<typeof vi.fn>;
-    };
-    expect(instance.teardown).toHaveBeenCalledOnce();
   });
 });

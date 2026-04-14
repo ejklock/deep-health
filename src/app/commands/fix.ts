@@ -39,6 +39,14 @@ export interface FixCommandOptions {
  * Returns an exit code:
  *   0 — success
  *   1 — overall status error
+ *
+ * Scan architecture note:
+ * - `runScanner` (called below as scanBefore/scanAfter) is OSV-ONLY.
+ *   It produces the vulnerability snapshot used for Gate A and the executive before/after diff.
+ * - SonarQube results come from the orchestrator pipeline (runOrchestrator) via
+ *   `result.aggregated.engineResults`. They are NOT included in scanBefore/scanAfter.
+ * - runOrchestrator is called exactly once and owns the full SonarQube execution lifecycle
+ *   (including managed-mode provisioning). fix.ts never invokes SonarQube directly.
  */
 export async function runFixCommand(
   ctx: RunContext,

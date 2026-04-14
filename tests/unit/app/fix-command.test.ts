@@ -18,6 +18,8 @@ vi.mock('@reporting/executive', () => ({
   generateExecutiveReport: vi.fn(() => '# executive report'),
   executiveReportFilename: vi.fn(() => 'executive.md'),
   consolidatedReportFilename: vi.fn(() => 'consolidated.md'),
+  generateSonarQubeMarkdownReport: vi.fn(() => null),
+  sonarqubeReportFilename: vi.fn(() => 'sonarqube.md'),
 }));
 
 vi.mock('@app/output-writer', () => ({
@@ -151,5 +153,50 @@ describe('runFixCommand', () => {
 
     // No reports when formats is empty
     expect(saveReport).not.toHaveBeenCalled();
+  });
+
+  it('calls runScanner exactly twice (before + after) and runOrchestrator exactly once', async () => {
+    // Regression test: fix.ts uses OSV-only runScanner for before/after snapshots,
+    // while SonarQube results flow exclusively through the single runOrchestrator call.
+    // This guards against accidental multi-engine calls on the OSV-only scan path.
+    vi.mocked(runScanner).mockResolvedValue(scanResult);
+    vi.mocked(runOrchestrator).mockResolvedValue({
+      scan: scanResult,
+      updates: {},
+      overallStatus: 'success',
+      warnings: [],
+      aggregated: {
+        primary: scanResult,
+        engineResults: {
+          sonarqube: {
+            ...scanResult,
+            $schema: 'sonarqube-scan-result/v1',
+            agent: 'sonarqube',
+          },
+        },
+      },
+      advisorResults: {},
+    });
+
+    const ctx: RunContext = {
+      config: configWithOutputs,
+      runner: { environment: 'local', run: vi.fn() },
+    };
+
+    await runFixCommand(ctx, {
+      config: 'project-config.yml',
+      cwd: '/repo',
+      dryRun: false,
+      verbose: false,
+      quiet: false,
+      json: false,
+      noReport: false,
+    });
+
+    // runScanner must be called exactly twice: scanBefore + scanAfter (OSV-only path)
+    expect(runScanner).toHaveBeenCalledTimes(2);
+
+    // runOrchestrator must be called exactly once (owns SonarQube execution)
+    expect(runOrchestrator).toHaveBeenCalledTimes(1);
   });
 });
