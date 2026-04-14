@@ -1,4 +1,5 @@
 import type { ExecutiveReportOptions } from '@core/types/report';
+import type { AdvisorResult } from '@core/types/config';
 import type { ScanResultJson, VulnerabilityEntry } from '@core/types/scan';
 import type { Locale } from './i18n/index';
 import type { ExecLocale } from './i18n/types';
@@ -105,6 +106,64 @@ function buildSonarQubeExecSection(
   };
 }
 
+// ── Advisor section builder (executive) ─────────────────────────────────────
+
+interface AdvisorExecSectionData {
+  present: boolean;
+  ecosystems: Array<{
+    id: string;
+    name: string;
+    advisors: Array<{
+      name: string;
+      header: string;
+      statusLabel: string;
+      hasOutput: boolean;
+      outputBlock: string;
+    }>;
+  }>;
+}
+
+function buildAdvisorExecSection(
+  advisorResults: Record<string, AdvisorResult[]> | undefined,
+  locale: ExecLocale,
+): AdvisorExecSectionData {
+  if (!advisorResults) {
+    return { present: false, ecosystems: [] };
+  }
+
+  const ecosystems: AdvisorExecSectionData['ecosystems'] = [];
+
+  for (const [ecoId, results] of Object.entries(advisorResults)) {
+    if (!results || results.length === 0) continue;
+
+    const plugin = defaultRegistry.get(ecoId);
+    const ecoName = plugin?.name ?? ecoId;
+
+    const advisors = results.map((r) => {
+      const statusLbl = r.status === 'pass'
+        ? locale.advisor_pass
+        : r.status === 'fail'
+          ? locale.advisor_fail
+          : locale.advisor_skipped;
+
+      const hasOutput = r.output.trim().length > 0;
+      const outputBlock = hasOutput ? locale.advisor_output(r.output) : '';
+
+      return {
+        name: r.name,
+        header: locale.advisor_header(r.name),
+        statusLabel: statusLbl,
+        hasOutput,
+        outputBlock,
+      };
+    });
+
+    ecosystems.push({ id: ecoId, name: ecoName, advisors });
+  }
+
+  return { present: ecosystems.length > 0, ecosystems };
+}
+
 // ── context builder ──────────────────────────────────────────────────────────
 
 export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
@@ -183,14 +242,15 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
 
     const hasVulns = vulnsAfter.length > 0;
 
-    // Resolve validation status and detail from the canonical validations[] array
-    const validationEntry = update?.validations?.find((v) => v.name === plugin.validationName);
-    const validationStatus = validationEntry?.status;
-    const validationDetail = validationEntry?.detail ?? '';
-    const showValidation = validationStatus === 'pass' && !!validationDetail;
-    const validationVerified = showValidation
-      ? locale.exec.validation_verified(plugin.validationLabel, validationDetail)
-      : '';
+    // Render all validations generically — no fixed names assumed
+    const validationEntries = (update?.validations ?? [])
+      .filter((v) => v.status === 'pass' && v.detail)
+      .map((v) => ({
+        name: v.name,
+        detail: v.detail ?? '',
+        verifiedMsg: locale.exec.validation_verified(v.name, v.detail ?? ''),
+      }));
+    const showValidations = validationEntries.length > 0;
 
     return {
       id: plugin.id,
@@ -199,9 +259,8 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
       evidenceTitle: locale.exec.ecosystem_evidence_title(plugin.reportLabel),
       hasVulns,
       vulnsAfter,
-      showValidation,
-      validationDetail,
-      validationVerified,
+      showValidations,
+      validationEntries,
     };
   });
 
@@ -263,6 +322,9 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
   // Build SonarQube section (graceful: absent when engineResults not provided)
   const sonarSection = buildSonarQubeExecSection(opts.engineResults, locale.exec);
 
+  // Build advisor section
+  const advisorSection = buildAdvisorExecSection(opts.advisorResults, locale.exec);
+
   const context: Record<string, unknown> = {
     t: locale.exec,
     client: opts.client,
@@ -290,6 +352,7 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
     allFixed: fixedVulns.length > 0 && pendingOriginal.length === 0,
     pendingByPkg,
     sonarSection,
+    advisorSection,
   };
 
   return render(executiveTemplate, context);
@@ -300,4 +363,66 @@ export function executiveReportFilename(client: string, project: string): string
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
   return `[${client} ${project}] Report OSV Scanner - ${year}-${month} - ${monthName(now)}.md`;
+}
+
+/**
+ * Filename for the consolidated (per-run) markdown report.
+ * Example: "consolidated-my-project-2026-04-14.md"
+ */
+export function consolidatedReportFilename(project: string, date: string): string {
+  const slug = project.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return `consolidated-${slug}-${date}.md`;
+}
+
+/**
+ * Filename for the separate SonarQube markdown report artifact.
+ * Example: "sonarqube-my-project-2026-04-14.md"
+ */
+export function sonarqubeReportFilename(project: string, date: string): string {
+  const slug = project.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return `sonarqube-${slug}-${date}.md`;
+}
+
+/**
+ * Generate a standalone SonarQube markdown report artifact.
+ * Returns null when SonarQube results are absent or skipped.
+ *
+ * This is intentionally a lightweight summary — full SonarQube data continues
+ * to appear inline in the consolidated and executive reports.
+ */
+export function generateSonarQubeMarkdownReport(
+  engineResults: Record<string, ScanResultJson> | undefined,
+  project: string,
+  locale?: import('@core/types/locale').SupportedLocale,
+): string | null {
+  const reportLocale = getLocale(locale);
+  const section = buildSonarQubeExecSection(engineResults, reportLocale.exec);
+  if (!section.present || section.skipped) return null;
+
+  const lines: string[] = [];
+  lines.push(`# SonarQube — ${project}`);
+  lines.push('');
+
+  if (section.warning) {
+    lines.push(`> ⚠️ ${section.warning}`);
+    lines.push('');
+  }
+
+  if (section.qualityGate) {
+    lines.push(`**Quality Gate:** ${section.qualityGate}`);
+    lines.push('');
+  }
+
+  if (section.metrics && section.metrics.length > 0) {
+    lines.push('## Metrics');
+    lines.push('');
+    lines.push('| Metric | Value |');
+    lines.push('|--------|-------|');
+    for (const m of section.metrics) {
+      lines.push(`| ${m.key} | ${m.value} |`);
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n');
 }

@@ -56,10 +56,9 @@ const commonOptions = (cmd: Command) =>
     .option("-o, --output <path>", "Write report to file");
 
 // init command
-// NOTE: init/config scaffolding is intentionally product-scoped to php/npm.
-// The runtime scan → update → report architecture is fully registry-extensible
-// via EcosystemPlugin; new ecosystems added to the registry are picked up
-// automatically without touching this command or the orchestrator.
+// NOTE: init/config scaffolding is registry-driven via EcosystemPlugin.
+// New ecosystems added to the registry are picked up automatically at runtime
+// without touching this command or the orchestrator.
 // Update this command only when new ecosystems need first-class `init` UX.
 program
   .command("init")
@@ -71,19 +70,6 @@ program
   .option(
     "--docker-workdir <path>",
     "Working directory inside the container (e.g. /var/www/html)",
-  )
-  .option(
-    "--ecosystems <list>",
-    "Comma-separated ecosystems: php,npm (default: php,npm)",
-    "php,npm",
-  )
-  .option("--php-version <version>", "PHP version", "8.2")
-  .option("--node-version <version>", "Node.js version", "20.x")
-  .option("--test-command <cmd>", "Test command", "php artisan test --compact")
-  .option(
-    "--report-language <lang>",
-    "Report language: pt-br (default) or en",
-    "pt-br",
   )
   .option("--cwd <path>", "Working directory", process.cwd())
   .option("--output <path>", "Output path (default: ./project-config.yml)")

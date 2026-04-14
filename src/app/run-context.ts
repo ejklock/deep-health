@@ -1,6 +1,7 @@
 import { loadConfig } from '@infra/config/loader';
 import { detectEnvironment } from '@infra/environment/detector';
 import { setLogLevel } from '@infra/utils/logger';
+import { defaultRegistry } from '@modules/ecosystem/index';
 import type { ProjectConfig } from '@core/types/config';
 import type { CommandRunner } from '@core/types/common';
 
@@ -28,7 +29,7 @@ export async function createRunContext(
   if (opts.verbose) setLogLevel('debug');
   if (opts.quiet) setLogLevel('error');
 
-  const config = await loadConfig(opts.config, opts.cwd);
+  const config = await loadConfig(opts.config, opts.cwd, defaultRegistry);
   const runner = await detectEnvironment(
     config.runtime.execution,
     config.runtime.docker_service,

@@ -112,6 +112,76 @@ describe('generateConsolidatedReport', () => {
     expect(report).not.toContain('update.build_detail');
   });
 
+  it('renders all validation entries generically (not just first)', () => {
+    const reportWithMultipleValidations: ConsolidatedReport = {
+      ...mockReport,
+      updates: {
+        ...mockReport.updates,
+        npm: {
+          ...mockReport.updates.npm!,
+          validations: [
+            { name: 'build', status: 'pass', detail: 'Build passed' },
+            { name: 'lint', status: 'fail', detail: 'Lint errors found' },
+            { name: 'test', status: 'pass' },
+          ],
+        },
+      },
+    };
+    const report = generateConsolidatedReport(reportWithMultipleValidations);
+    // All three validation names must appear
+    expect(report).toContain('build');
+    expect(report).toContain('lint');
+    expect(report).toContain('test');
+    // Details must appear
+    expect(report).toContain('Build passed');
+    expect(report).toContain('Lint errors found');
+    // Both PASS and FAIL statuses
+    expect(report).toContain('PASS');
+    expect(report).toContain('FAIL');
+  });
+
+  it('renders advisor section when advisorResults are provided', () => {
+    const reportWithAdvisors: ConsolidatedReport = {
+      ...mockReport,
+      advisorResults: {
+        npm: [
+          {
+            name: 'audit',
+            command: 'npm audit',
+            exitCode: 0,
+            output: 'found 0 vulnerabilities',
+            status: 'pass',
+          },
+        ],
+        composer: [
+          {
+            name: 'audit',
+            command: 'composer audit',
+            exitCode: 1,
+            output: 'Found 1 vulnerability',
+            status: 'fail',
+          },
+        ],
+      },
+    };
+    const report = generateConsolidatedReport(reportWithAdvisors);
+    // Section header
+    expect(report).toContain('Advisor');
+    // Advisor name
+    expect(report).toContain('audit');
+    // Status indicators
+    expect(report).toContain('pass');
+    // Advisor output
+    expect(report).toContain('found 0 vulnerabilities');
+    expect(report).toContain('Found 1 vulnerability');
+  });
+
+  it('does not render advisor section when advisorResults are absent', () => {
+    const report = generateConsolidatedReport(mockReport);
+    // Should not contain advisor section header
+    expect(report).not.toContain('Advisor Analysis');
+  });
+
   it('renders validation section without errors when validations[] has entries', () => {
     const reportWithAdditionalValidations: ConsolidatedReport = {
       ...mockReport,

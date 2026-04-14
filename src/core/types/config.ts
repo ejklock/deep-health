@@ -7,17 +7,62 @@ export interface ProtectedPackage {
   reason: string;
 }
 
+/**
+ * Execution runtime — only the fields needed to invoke commands.
+ * Language-specific runtime settings (php, node) have been moved to
+ * the declarative ecosystems[] array.
+ */
 export interface RuntimeConfig {
-  php?: string;
-  node?: string;
   execution: ExecutionEnv;
   docker_service: string;
   docker_workdir?: string;
-  test_command?: string;
-  build_commands?: {
-    frontend: string;
-    backend: string;
-  };
+}
+
+/** Strategy id for automated fixer engines */
+export type FixerStrategyId = 'osv' | 'npm-audit';
+
+/** Output format for generated reports */
+export type OutputFormat = 'markdown';
+
+/** Per-ecosystem advisor configuration */
+export interface AdvisorConfig {
+  name: string;
+  command: string;
+}
+
+/** Per-ecosystem validation command configuration */
+export interface ValidationCommandConfig {
+  name: string;
+  command: string;
+}
+
+/** OSV scanner engine configuration */
+export interface OsvScannerConfig {
+  /** Additional CLI args forwarded to osv-scanner */
+  args?: string[];
+}
+
+/** Outputs/reports configuration */
+export interface OutputsConfig {
+  formats?: OutputFormat[];
+  dir?: string;
+}
+
+/** Declarative ecosystem configuration entry */
+export interface EcosystemConfig {
+  /** Plugin id: 'npm', 'composer', etc. */
+  id: string;
+  /** Runtime version hint (e.g. '8.2', '20.x') — informational */
+  version?: string;
+  /**
+   * Fixer strategy to apply when remediating vulnerabilities.
+   * Defaults to the plugin's primary supported fixer.
+   */
+  fixer?: FixerStrategyId;
+  /** Validation commands to run after updates */
+  validationCommands?: ValidationCommandConfig[];
+  /** Advisor commands to run for this ecosystem */
+  advisors?: AdvisorConfig[];
 }
 
 export interface CloudStorageConfig {
@@ -44,6 +89,7 @@ export interface SonarQubeConfig {
 
 export interface ScannersConfig {
   sonarqube?: SonarQubeConfig;
+  osv?: OsvScannerConfig;
 }
 
 export interface SafeUpdatePolicy {
@@ -58,15 +104,28 @@ export interface ProjectConfig {
     client: string;
   };
   runtime: RuntimeConfig;
-  protected_packages: {
-    composer: ProtectedPackage[];
-    npm: ProtectedPackage[];
-    [key: string]: ProtectedPackage[];
-  };
+  /**
+   * Declarative list of ecosystems to scan/update.
+   * At least one entry is required.
+   */
+  ecosystems: EcosystemConfig[];
+  protected_packages: Record<string, ProtectedPackage[]>;
   safe_update_policy: SafeUpdatePolicy;
   conflict_resolution: string;
   reports_dir?: string;
   report_language?: SupportedLocale;
   cloud_storage?: CloudStorageConfig;
   scanners?: ScannersConfig;
+  outputs?: OutputsConfig;
+}
+
+/** Result produced by an advisor command execution */
+export interface AdvisorResult {
+  name: string;
+  command: string;
+  /** Exit code of the advisor command */
+  exitCode: number;
+  /** Last N lines of stdout (truncated for reports; full output in logs) */
+  output: string;
+  status: 'pass' | 'fail' | 'skipped';
 }

@@ -1,16 +1,14 @@
 import Handlebars from 'handlebars';
 import { getLocale } from '@reporting/i18n/index';
 import type { SupportedLocale } from '@core/types/locale';
+import type { OutputFormat } from '@core/types/config';
 import configTemplate from './templates/project-config.hbs';
 
 /**
- * Config / init scaffolding is intentionally product-scoped to php and npm.
+ * Config / init scaffolding generates a declarative project-config.yml.
  *
- * Rationale: the `init` command generates a project-config.yml for the two
- * currently supported product verticals (PHP/Composer and Node/npm). This
- * scaffolding is a convenience UX layer — it produces a static YAML file that
- * the user edits to match their project. Extending it to new ecosystems
- * requires deliberate UX decisions (prompts, example values, documentation).
+ * The generated file uses the ecosystems[] format — each ecosystem entry
+ * declares its id, fixer strategy, validation commands, and advisors.
  *
  * By contrast, the *runtime* architecture (scan → update → report) is fully
  * registry-extensible: any plugin that implements EcosystemPlugin and registers
@@ -21,25 +19,29 @@ import configTemplate from './templates/project-config.hbs';
  * update this generator only when you want first-class `init` scaffolding.
  */
 
+export interface EcosystemConfigEntry {
+  id: string;
+  fixerStrategy?: string;
+  validationCommands?: Array<{ name: string; command: string }>;
+  advisors?: Array<{ name: string; command: string }>;
+}
+
 export interface GenerateConfigOptions {
   projectName?: string;
   client?: string;
   execution?: 'docker' | 'local';
   dockerService?: string;
   dockerWorkdir?: string;
-  /**
-   * Ecosystem shorthand list passed from CLI.
-   * 'php' activates composer/PHP runtime settings.
-   * 'npm' activates node/npm runtime settings.
-   * Intentionally limited to known product verticals for config scaffolding.
-   */
-  ecosystems?: ('php' | 'npm')[];
-  phpVersion?: string;
-  nodeVersion?: string;
-  testCommand?: string;
-  frontendBuildCommand?: string;
-  backendBuildCommand?: string;
   reportLanguage?: SupportedLocale;
+  /**
+   * Rich ecosystem config entries (registry-driven from init command).
+   * Defaults to both composer and npm when omitted.
+   */
+  ecosystemConfigs?: EcosystemConfigEntry[];
+  /** Whether to add SonarQube scanner block */
+  enableSonarQube?: boolean;
+  /** Outputs config for report generation */
+  outputs?: { formats?: OutputFormat[]; dir?: string };
 }
 
 const compiled = Handlebars.compile(configTemplate, { noEscape: true });
@@ -61,42 +63,74 @@ const ECOSYSTEM_EXAMPLES: Record<
   },
 };
 
+/** Default ecosystem entries used when ecosystemConfigs is not provided */
+const DEFAULT_ECOSYSTEM_CONFIGS: EcosystemConfigEntry[] = [
+  {
+    id: 'composer',
+    validationCommands: [{ name: 'tests', command: 'php artisan test --compact' }],
+    advisors: [{ name: 'audit', command: 'composer audit' }],
+  },
+  {
+    id: 'npm',
+    fixerStrategy: 'npm-audit',
+    validationCommands: [{ name: 'build', command: 'npm run build' }],
+    advisors: [{ name: 'audit', command: 'npm audit' }],
+  },
+];
+
 export function generateConfigYaml(opts: GenerateConfigOptions = {}): string {
   const locale = getLocale(opts.reportLanguage);
-  const ecosystems = opts.ecosystems ?? ['php', 'npm'];
-  const hasPhp = ecosystems.includes('php');
-  const hasNpm = ecosystems.includes('npm');
+
+  // Resolve ecosystem entries — default to composer+npm when not provided
+  const configEntries = (opts.ecosystemConfigs && opts.ecosystemConfigs.length > 0)
+    ? opts.ecosystemConfigs
+    : DEFAULT_ECOSYSTEM_CONFIGS;
+
+  const ecosystems = configEntries.map((entry) => ({
+    id: entry.id,
+    hasFixer: !!(entry.fixerStrategy),
+    fixer: entry.fixerStrategy,
+    hasValidationCommands: (entry.validationCommands?.length ?? 0) > 0,
+    validationCommands: entry.validationCommands ?? [],
+    hasAdvisors: (entry.advisors?.length ?? 0) > 0,
+    advisors: entry.advisors ?? [],
+  }));
+
+  // Resolve selected ecosystem ids for protected_packages
+  const selectedIds = ecosystems.map((e) => e.id);
 
   // Always emit both known ecosystem keys in protected_packages for schema compatibility.
-  // Mark as active (with example comments) only when the ecosystem is selected.
-  const protectedPackageEcosystems = [
-    {
-      id: 'composer',
-      active: hasPhp,
-      ...(ECOSYSTEM_EXAMPLES['composer'] ?? {}),
-    },
-    {
-      id: 'npm',
-      active: hasNpm,
-      ...(ECOSYSTEM_EXAMPLES['npm'] ?? {}),
-    },
-  ];
+  const allKnownIds = ['composer', 'npm'];
+  const allIds = [...new Set([...allKnownIds, ...selectedIds])];
+  const protectedPackageEcosystems = allIds.map((id) => ({
+    id,
+    active: selectedIds.includes(id),
+    ...(ECOSYSTEM_EXAMPLES[id] ?? {
+      examplePackage: 'example/package',
+      exampleConstraint: '^1.0',
+      exampleReason: 'Version constraint reason',
+    }),
+  }));
+
+  const outputsConfig = opts.outputs;
+  const hasOutputs = !!outputsConfig;
+  const outputFormats = outputsConfig?.formats ?? [];
+  const outputsDir = outputsConfig?.dir;
 
   return compiled({
-    projectName: opts.projectName ?? 'My PHP Project',
+    projectName: opts.projectName ?? 'My Project',
     client: opts.client ?? 'Client Name',
     execution: opts.execution ?? 'docker',
     dockerService: opts.dockerService ?? 'app',
     dockerWorkdir: opts.dockerWorkdir,
-    hasPhp,
-    hasNpm,
-    phpVersion: opts.phpVersion ?? '8.2',
-    nodeVersion: opts.nodeVersion ?? '20.x',
-    testCommand: opts.testCommand ?? 'php artisan test --compact',
-    frontendBuild: opts.frontendBuildCommand ?? 'npm run development-frontend',
-    backendBuild: opts.backendBuildCommand ?? 'npm run development-backend',
+    ecosystems,
     reportLanguage: opts.reportLanguage ?? 'pt-br',
     authorizationFormat: locale.authorization_format,
     protectedPackageEcosystems,
+    enableSonarQube: opts.enableSonarQube ?? false,
+    hasOutputs,
+    outputFormats,
+    outputsDir,
   });
 }
+

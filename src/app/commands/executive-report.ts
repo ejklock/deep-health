@@ -3,10 +3,11 @@ import { runOrchestrator } from "@orchestration/orchestrator";
 import {
   generateExecutiveReport,
   executiveReportFilename,
+  generateSonarQubeMarkdownReport,
+  sonarqubeReportFilename,
 } from "@reporting/executive";
 import {
   saveReport,
-  saveSonarQubeExport,
   resolveReportsDir,
 } from "@app/report-saver";
 import type { RunContext } from "@app/run-context";
@@ -36,6 +37,13 @@ export async function runExecutiveReportCommand(
   const client = opts.client ?? config.project.client;
   const project = opts.project ?? config.project.name;
 
+  // Markdown output is opt-in: only save to reportsDir when outputs.formats includes 'markdown'
+  const outputsConfig = config.outputs;
+  const markdownEnabled =
+    (outputsConfig?.formats ?? []).includes('markdown') ||
+    // Legacy: if reports_dir is set but no outputs config, default to saving
+    (!outputsConfig && !!config.reports_dir);
+
   const scanBefore = await runScanner(runner, config, opts.cwd);
 
   const orchestratorResult = await runOrchestrator(runner, config, {
@@ -54,29 +62,43 @@ export async function runExecutiveReportCommand(
     scanAfter,
     updates: orchestratorResult.updates,
     engineResults: orchestratorResult.aggregated?.engineResults,
+    locale: config.report_language,
+    // Wire advisorResults from orchestrator into executive report
+    advisorResults: Object.keys(orchestratorResult.advisorResults).length > 0
+      ? orchestratorResult.advisorResults
+      : undefined,
   });
 
-  const filename = executiveReportFilename(client, project);
-  const reportsDir = resolveReportsDir(opts.cwd, config.reports_dir);
-  await saveReport(
-    filename,
-    report,
-    reportsDir,
-    config.cloud_storage,
-    opts.cwd,
-  );
+  // Use outputs.dir if present, fall back to legacy reports_dir
+  const reportsDir = resolveReportsDir(opts.cwd, outputsConfig?.dir ?? config.reports_dir);
 
-  // Save SonarQube detailed export when available
-  if (orchestratorResult.aggregated?.engineResults) {
-    const date = new Date().toISOString().split("T")[0]!;
-    await saveSonarQubeExport(
-      orchestratorResult.aggregated.engineResults,
-      config.project.name,
-      date,
+  if (markdownEnabled) {
+    const filename = executiveReportFilename(client, project);
+    await saveReport(
+      filename,
+      report,
       reportsDir,
       config.cloud_storage,
       opts.cwd,
     );
+
+    // Save a separate SonarQube markdown artifact when SonarQube results are present
+    const sonarMarkdown = generateSonarQubeMarkdownReport(
+      orchestratorResult.aggregated?.engineResults,
+      project,
+      config.report_language,
+    );
+    if (sonarMarkdown) {
+      const date = new Date().toISOString().split('T')[0]!;
+      const sonarFilename = sonarqubeReportFilename(project, date);
+      await saveReport(
+        sonarFilename,
+        sonarMarkdown,
+        reportsDir,
+        config.cloud_storage,
+        opts.cwd,
+      );
+    }
   }
 
   return 0;

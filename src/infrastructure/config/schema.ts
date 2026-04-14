@@ -6,21 +6,54 @@ const ProtectedPackageSchema = z.object({
   reason: z.string(),
 });
 
+/**
+ * RuntimeConfig — stripped to execution env only.
+ * Language-specific settings (php, node) moved to ecosystems[].
+ * No refine() needed since there are no optional exclusivity constraints here.
+ */
 const RuntimeConfigSchema = z.object({
-  php: z.string().optional(),
-  node: z.string().optional(),
   execution: z.enum(['docker', 'local']),
   docker_service: z.string(),
   docker_workdir: z.string().optional(),
-  test_command: z.string().optional(),
-  build_commands: z.object({
-    frontend: z.string(),
-    backend: z.string(),
-  }).optional(),
-}).refine(
-  (r) => r.php !== undefined || r.node !== undefined,
-  { message: 'At least one ecosystem must be configured: php or node', path: ['php'] },
-);
+});
+
+/** Fixer strategy identifier */
+const FixerStrategyIdSchema = z.enum(['osv', 'npm-audit']);
+
+/** Advisor command config */
+const AdvisorConfigSchema = z.object({
+  name: z.string(),
+  command: z.string(),
+});
+
+/** Validation command config */
+const ValidationCommandConfigSchema = z.object({
+  name: z.string(),
+  command: z.string(),
+});
+
+/** OSV scanner engine config */
+const OsvScannerConfigSchema = z.object({
+  args: z.array(z.string()).optional(),
+});
+
+/** Output format — markdown for reports */
+const OutputFormatSchema = z.enum(['markdown']);
+
+/** Outputs config block */
+const OutputsConfigSchema = z.object({
+  formats: z.array(OutputFormatSchema).optional(),
+  dir: z.string().optional(),
+});
+
+/** Declarative ecosystem config entry */
+const EcosystemConfigSchema = z.object({
+  id: z.string(),
+  version: z.string().optional(),
+  fixer: FixerStrategyIdSchema.optional(),
+  validationCommands: z.array(ValidationCommandConfigSchema).optional(),
+  advisors: z.array(AdvisorConfigSchema).optional(),
+});
 
 const SonarQubeConfigSchema = z.object({
   enabled: z.boolean().default(false),
@@ -41,6 +74,7 @@ const SonarQubeConfigSchema = z.object({
 
 const ScannersConfigSchema = z.object({
   sonarqube: SonarQubeConfigSchema.optional(),
+  osv: OsvScannerConfigSchema.optional(),
 });
 
 const CloudStorageConfigSchema = z.object({
@@ -62,16 +96,22 @@ export const ProjectConfigSchema = z.object({
     client: z.string(),
   }),
   runtime: RuntimeConfigSchema,
-  protected_packages: z.object({
-    composer: z.array(ProtectedPackageSchema).optional().default([]),
-    npm: z.array(ProtectedPackageSchema).optional().default([]),
-  }).catchall(z.array(ProtectedPackageSchema)),
+  /**
+   * At least one ecosystem must be declared.
+   * Each entry must have a unique id (validated at runtime by the plugin registry).
+   */
+  ecosystems: z.array(EcosystemConfigSchema).min(1, {
+    message: 'At least one ecosystem must be configured in ecosystems[]',
+  }),
+  /** Per-ecosystem protected packages. Keys are ecosystem ids ('npm', 'composer', …). */
+  protected_packages: z.record(z.array(ProtectedPackageSchema)),
   safe_update_policy: SafeUpdatePolicySchema,
   conflict_resolution: z.string(),
   reports_dir: z.string().optional(),
   report_language: z.enum(['pt-br', 'en']).optional(),
   cloud_storage: CloudStorageConfigSchema.optional(),
   scanners: ScannersConfigSchema.optional(),
+  outputs: OutputsConfigSchema.optional(),
 });
 
 export type ProjectConfigInput = z.input<typeof ProjectConfigSchema>;

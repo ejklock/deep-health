@@ -54,14 +54,24 @@ function fail(stderr = 'something failed'): CommandResult {
   return { stdout: '', stderr, exitCode: 1, command: '', dryRun: false };
 }
 
-function baseConfig(overrides: Partial<ProjectConfig['runtime']> = {}): ProjectConfig {
+/**
+ * Build a ProjectConfig with the new declarative ecosystems[] shape.
+ * NOTE: build_commands has been removed from RuntimeConfig.
+ * Build validation is now driven by validationCommands passed to runNpmUpdater.
+ */
+function baseConfig(): ProjectConfig {
   return {
     project: { name: 'test-project', client: 'test-client' },
     runtime: {
       execution: 'local',
       docker_service: '',
-      ...overrides,
     },
+    ecosystems: [
+      {
+        id: 'npm',
+        validationCommands: [{ name: 'build', command: 'npm run build' }],
+      },
+    ],
     protected_packages: { composer: [], npm: [] },
     safe_update_policy: {
       allow_patch_and_minor_within_constraints: true,
@@ -110,7 +120,7 @@ function baseScan(
   ];
   return {
     $schema: 'osv-scan-result/v1',
-    agent: 'osv-scanner',
+    agent: 'osv',
     status: 'success',
     environment: 'local',
     ecosystems: {
@@ -137,38 +147,46 @@ function emptyScan(): ScanResultJson {
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('runNpmUpdater — dry-run paths', () => {
-  it('dry-run WITH build_commands => validation status is "skipped" and detail is "Dry-run — not executed"', async () => {
+  it('dry-run with validation commands => all validations are "skipped"', async () => {
     const runner = makeRunner({ dryRun: true });
-    const config = baseConfig({
-      build_commands: { frontend: 'npm run build:fe', backend: 'npm run build:be' },
-    });
 
-    const result = await runNpmUpdater(runner, config, baseScan(), '/tmp/project');
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan(),
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+    );
 
     expect(result.validations).toHaveLength(1);
-    expect(result.validations[0].status).toBe('skipped');
-    expect(result.validations[0].detail).toBe('Dry-run — not executed');
+    expect(result.validations[0]!.status).toBe('skipped');
+    expect(result.validations[0]!.name).toBe('build');
     // Runner should not have been called (dry-run skips all commands)
     expect(runner.run).not.toHaveBeenCalled();
   });
 
-  it('dry-run WITHOUT build_commands => validation status is "skipped" and detail explains no build_commands configured', async () => {
+  it('dry-run without validation commands => single skipped entry', async () => {
     const runner = makeRunner({ dryRun: true });
-    const config = baseConfig(); // no build_commands
 
-    const result = await runNpmUpdater(runner, config, baseScan(), '/tmp/project');
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan(),
+      '/tmp/project',
+      false,
+      [],
+    );
 
     expect(result.validations).toHaveLength(1);
-    expect(result.validations[0].status).toBe('skipped');
-    expect(result.validations[0].detail).toMatch(/no build_commands configured/i);
+    expect(result.validations[0]!.status).toBe('skipped');
     expect(runner.run).not.toHaveBeenCalled();
   });
 
   it('dry-run always returns status "success" (no real commands run)', async () => {
     const runner = makeRunner({ dryRun: true });
-    const config = baseConfig();
 
-    const result = await runNpmUpdater(runner, config, baseScan(), '/tmp/project');
+    const result = await runNpmUpdater(runner, baseConfig(), baseScan(), '/tmp/project');
 
     expect(result.status).toBe('success');
     expect(result.$schema).toBe('osv-update-result/v1');
@@ -304,68 +322,139 @@ describe('runNpmUpdater — breaking package installs (authorized)', () => {
   });
 });
 
-describe('runNpmUpdater — build validation', () => {
+describe('runNpmUpdater — build validation via validationCommands', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('frontend build failure => reverts changes and returns error', async () => {
+  it('runs validation commands after fixer and returns pass on success', async () => {
     const runner = makeRunner();
     const runMock = runner.run as ReturnType<typeof vi.fn>;
-    const config = baseConfig({
-      build_commands: { frontend: 'npm run build:fe', backend: 'npm run build:be' },
-    });
-    runMock
-      .mockResolvedValueOnce(ok()) // npm outdated
-      .mockResolvedValueOnce(ok()) // npm audit
-      .mockResolvedValueOnce(ok()) // osv fix
-      .mockResolvedValueOnce(fail('build error')) // frontend build
-      .mockResolvedValueOnce(ok()) // backend build (won't be reached, but safe)
-      .mockResolvedValueOnce(ok()); // npm install (revert)
 
-    const result = await runNpmUpdater(runner, config, baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]), '/tmp/project');
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+    );
 
-    expect(result.status).toBe('error');
-    expect(result.validations[0].detail).toContain('Frontend build failed');
-  });
-
-  it('backend build failure => reverts changes and returns error', async () => {
-    const runner = makeRunner();
-    const runMock = runner.run as ReturnType<typeof vi.fn>;
-    const config = baseConfig({
-      build_commands: { frontend: 'npm run build:fe', backend: 'npm run build:be' },
-    });
-    runMock
-      .mockResolvedValueOnce(ok()) // npm outdated
-      .mockResolvedValueOnce(ok()) // npm audit
-      .mockResolvedValueOnce(ok()) // osv fix
-      .mockResolvedValueOnce(ok()) // frontend build (passes)
-      .mockResolvedValueOnce(fail('backend error')) // backend build
-      .mockResolvedValueOnce(ok()); // npm install (revert)
-
-    const result = await runNpmUpdater(runner, config, baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]), '/tmp/project');
-
-    expect(result.status).toBe('error');
-    expect(result.validations[0].detail).toContain('Backend build failed');
-  });
-
-  it('both builds pass => buildValidation status is "pass"', async () => {
-    const runner = makeRunner();
-    const runMock = runner.run as ReturnType<typeof vi.fn>;
-    const config = baseConfig({
-      build_commands: { frontend: 'npm run build:fe', backend: 'npm run build:be' },
-    });
-    runMock
-      .mockResolvedValueOnce(ok()) // npm outdated
-      .mockResolvedValueOnce(ok()) // npm audit
-      .mockResolvedValueOnce(ok()) // osv fix
-      .mockResolvedValueOnce(ok()) // frontend build
-      .mockResolvedValueOnce(ok()) // backend build
-      .mockResolvedValueOnce(ok()); // osv scan
-
-    const result = await runNpmUpdater(runner, config, baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]), '/tmp/project');
-
+    const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(calledCommands.some((cmd) => cmd === 'npm run build')).toBe(true);
+    expect(result.validations).toHaveLength(1);
+    expect(result.validations[0]!.name).toBe('build');
+    expect(result.validations[0]!.status).toBe('pass');
     expect(result.status).toBe('success');
-    expect(result.validations[0].status).toBe('pass');
+  });
+
+  it('returns single skipped entry when no validation commands configured', async () => {
+    const runner = makeRunner();
+
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [],
+    );
+
+    expect(result.validations).toHaveLength(1);
+    expect(result.validations[0]!.status).toBe('skipped');
+    expect(result.status).toBe('success');
+  });
+
+  it('validation failure => status is "error" and changes are reverted', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    // Sequence: npm outdated (ok), npm audit (ok), osv fix (ok), build (FAIL), revert npm install (ok)
+    runMock
+      .mockResolvedValueOnce(ok()) // npm outdated
+      .mockResolvedValueOnce(ok()) // npm audit
+      .mockResolvedValueOnce(ok()) // osv fix
+      .mockResolvedValueOnce(fail('build failed')) // npm run build
+      .mockResolvedValueOnce(ok()); // npm install (revert)
+
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+    );
+
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('reverted');
+    expect(result.validations[0]!.name).toBe('build');
+    expect(result.validations[0]!.status).toBe('fail');
+
+    // Revert should have been called (npm install)
+    const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(calledCommands).toContain('npm install');
+  });
+
+  it('osv-scanner fix and post-update scan still run with validation commands', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+    );
+
+    const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(calledCommands.some((cmd) => cmd.includes('osv-scanner fix'))).toBe(true);
+    expect(calledCommands.some((cmd) => cmd.includes('osv-scanner --lockfile package-lock.json'))).toBe(true);
+  });
+});
+
+describe('runNpmUpdater — fixer strategy dispatch', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('uses npm audit fix when fixerStrategy is "npm-audit"', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [],
+      'npm-audit',
+    );
+
+    const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(calledCommands.some((cmd) => cmd === 'npm audit fix')).toBe(true);
+    expect(calledCommands.some((cmd) => cmd.includes('osv-scanner fix'))).toBe(false);
+  });
+
+  it('uses osv-scanner fix when fixerStrategy is "osv" (default)', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [],
+      'osv',
+    );
+
+    const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(calledCommands.some((cmd) => cmd.includes('osv-scanner fix'))).toBe(true);
+    expect(calledCommands.some((cmd) => cmd === 'npm audit fix')).toBe(false);
   });
 });

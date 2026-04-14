@@ -13,23 +13,19 @@ export const composerPlugin: EcosystemPlugin = {
   /** Label used in executive report evidence tables */
   reportLabel: 'PHP/Composer',
 
-  /** Label for the validation section in consolidated reports */
-  validationLabel: 'PHP test suite',
+  /** Composer does not support osv-scanner fix; osv fixer used as best-effort only */
+  supportedFixers: [],
 
-  /** Name of the primary ValidationEntry emitted by the composer updater */
-  validationName: 'tests',
+  defaultValidationCommands: [
+    { name: 'tests', command: 'php artisan test --compact' },
+  ],
+
+  defaultAdvisors: [
+    { name: 'audit', command: 'composer audit' },
+  ],
 
   buildScanArgs(): string[] {
     return ['--lockfile', 'composer.lock'];
-  },
-
-  buildFixCommand(): null {
-    // osv-scanner fix does not support Composer
-    return null;
-  },
-
-  isActive(config: ProjectConfig): boolean {
-    return !!config.runtime.php;
   },
 
   getProtectedPackages(config: ProjectConfig): ProtectedPackage[] {
@@ -37,6 +33,13 @@ export const composerPlugin: EcosystemPlugin = {
   },
 
   async runUpdater(ctx: EcosystemUpdaterContext): Promise<UpdateResultJson> {
-    return runComposerUpdater(ctx.runner, ctx.config, ctx.scanResult, ctx.cwd, ctx.authorizeBreaking);
+    return runComposerUpdater(
+      ctx.runner,
+      ctx.config,
+      ctx.scanResult,
+      ctx.cwd,
+      ctx.authorizeBreaking,
+      ctx.validationCommands ?? [],
+    );
   },
 };

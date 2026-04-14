@@ -53,6 +53,15 @@ export interface RawLocale {
     sonarqube_metrics: string;
     sonarqube_skipped: string;
     sonarqube_warning: string;         // vars: message
+    /** Advisors section header */
+    advisors_section: string;
+    /** vars: name — advisor name, e.g. "audit" */
+    advisor_header: string;            // vars: name
+    advisor_pass: string;
+    advisor_fail: string;
+    advisor_skipped: string;
+    /** vars: output — truncated advisor output */
+    advisor_output: string;            // vars: output
   };
   authorization_format: string;
   consolidated: {
@@ -78,5 +87,14 @@ export interface RawLocale {
     sonarqube_no_issues: string;
     sonarqube_skipped: string;
     sonarqube_warning: string;         // vars: message
+    /** Advisors section in consolidated report */
+    advisors_section: string;
+    /** vars: name */
+    advisor_header: string;
+    advisor_pass: string;
+    advisor_fail: string;
+    advisor_skipped: string;
+    /** vars: output */
+    advisor_output: string;
   };
 }

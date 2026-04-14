@@ -1,4 +1,5 @@
 import type { ConsolidatedReport } from '@core/types/report';
+import type { AdvisorResult } from '@core/types/config';
 import type { EcosystemScanResult, ScanResultJson } from '@core/types/scan';
 import { defaultRegistry } from '@modules/ecosystem/index';
 import { getLocale } from './i18n/index';
@@ -116,6 +117,64 @@ function buildSonarQubeConsolidatedSection(
   };
 }
 
+// ─── Advisor section builder ─────────────────────────────────────────────────
+
+interface AdvisorSectionData {
+  present: boolean;
+  ecosystems: Array<{
+    id: string;
+    name: string;
+    advisors: Array<{
+      name: string;
+      header: string;
+      statusLabel: string;
+      hasOutput: boolean;
+      outputBlock: string;
+    }>;
+  }>;
+}
+
+function buildAdvisorConsolidatedSection(
+  advisorResults: Record<string, AdvisorResult[]> | undefined,
+  locale: ConsolidatedLocale,
+): AdvisorSectionData {
+  if (!advisorResults) {
+    return { present: false, ecosystems: [] };
+  }
+
+  const ecosystems: AdvisorSectionData['ecosystems'] = [];
+
+  for (const [ecoId, results] of Object.entries(advisorResults)) {
+    if (!results || results.length === 0) continue;
+
+    const plugin = defaultRegistry.get(ecoId);
+    const ecoName = plugin?.name ?? ecoId;
+
+    const advisors = results.map((r) => {
+      const statusLbl = r.status === 'pass'
+        ? locale.advisor_pass
+        : r.status === 'fail'
+          ? locale.advisor_fail
+          : locale.advisor_skipped;
+
+      const hasOutput = r.output.trim().length > 0;
+      const outputBlock = hasOutput ? locale.advisor_output(r.output) : '';
+
+      return {
+        name: r.name,
+        header: locale.advisor_header(r.name),
+        statusLabel: statusLbl,
+        hasOutput,
+        outputBlock,
+      };
+    });
+
+    ecosystems.push({ id: ecoId, name: ecoName, advisors });
+  }
+
+  return { present: ecosystems.length > 0, ecosystems };
+}
+
 export function generateConsolidatedReport(data: ConsolidatedReport): string {
   const locale = getLocale(data.locale);
   const scan = data.scan;
@@ -135,10 +194,14 @@ export function generateConsolidatedReport(data: ConsolidatedReport): string {
     const eco = scan.ecosystems[plugin.id] ?? emptyEcosystemResult();
     const update = data.updates[plugin.id] ?? null;
 
-    // Resolve validation status and detail from the canonical validations[] array
-    const validationEntry = update?.validations?.find((v) => v.name === plugin.validationName);
-    const validationStatus = update ? statusLabel(validationEntry?.status) : null;
-    const validationDetail = validationEntry?.detail ?? '';
+    // Render all validations generically — no fixed names assumed
+    const validationEntries = (update?.validations ?? []).map((v) => ({
+      name: v.name,
+      statusLabel: statusLabel(v.status),
+      detail: v.detail ?? '',
+      hasDetail: !!(v.detail && v.detail.trim()),
+    }));
+    const hasValidations = validationEntries.length > 0;
 
     const updatedPackages = update?.packages_updated?.length ? update.packages_updated : null;
 
@@ -146,12 +209,11 @@ export function generateConsolidatedReport(data: ConsolidatedReport): string {
       id: plugin.id,
       name: plugin.name,
       reportLabel: plugin.reportLabel,
-      validationLabel: plugin.validationLabel,
       ecosystemHeader: locale.consolidated.ecosystem_header(plugin.name),
       eco,
       update,
-      validationStatus,
-      validationDetail,
+      hasValidations,
+      validationEntries,
       updatedPackages,
     };
   });
@@ -164,6 +226,9 @@ export function generateConsolidatedReport(data: ConsolidatedReport): string {
     undefined,
     locale.consolidated,
   );
+
+  // Build advisor section
+  const advisorSection = buildAdvisorConsolidatedSection(data.advisorResults, locale.consolidated);
 
   const context: Record<string, unknown> = {
     t: {
@@ -178,7 +243,9 @@ export function generateConsolidatedReport(data: ConsolidatedReport): string {
     breakingPkgs: breakingPkgs.length ? breakingPkgs : null,
     manualPkgs: manualPkgs.length ? manualPkgs : null,
     sonarSection,
+    advisorSection,
   };
 
   return render(consolidatedTemplate, context);
 }
+

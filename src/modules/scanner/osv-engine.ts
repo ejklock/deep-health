@@ -210,7 +210,7 @@ function parseOsvJsonOutput(
  * and result normalization into ScanResultJson.
  */
 export class OsvScannerEngine implements ScannerEngine {
-  readonly id = 'osv-scanner';
+  readonly id = 'osv';
   readonly name = 'OSV Scanner';
 
   async assertAvailable(ctx: ScannerEngineContext): Promise<void> {
@@ -230,7 +230,7 @@ export class OsvScannerEngine implements ScannerEngine {
 
     const base: ScanResultJson = {
       $schema: 'osv-scan-result/v1',
-      agent: 'osv-scanner',
+      agent: 'osv',
       status: 'success',
       environment: runner.environment,
       ecosystems: {},
@@ -240,13 +240,16 @@ export class OsvScannerEngine implements ScannerEngine {
     try {
       await this.assertAvailable(ctx);
 
+      // Ecosystem resolution uses config.ecosystems[] declaratively
+      const activePlugins = ecosystemRegistry.getAll().filter((p) =>
+        config.ecosystems.some((e) => e.id === p.id),
+      );
+
       if (runner.dryRun) {
-        const activePlugins = ecosystemRegistry.getActive(config);
         logger.info(`[DRY-RUN] Would execute: ${buildScanCommand(activePlugins)}`);
         return base;
       }
 
-      const activePlugins = ecosystemRegistry.getActive(config);
       const cmd = buildScanCommand(activePlugins);
       logger.debug(`Running: ${cmd}`);
       const scanResult = await runner.run(cmd, { cwd });

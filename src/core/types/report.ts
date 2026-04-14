@@ -2,6 +2,7 @@ import type { ScanResultJson } from './scan';
 import type { UpdateResultJson } from './update';
 import type { PhaseStatus } from './common';
 import type { SupportedLocale } from './locale';
+import type { AdvisorResult } from './config';
 
 export interface ConsolidatedReport {
   projectName: string;
@@ -18,6 +19,11 @@ export interface ConsolidatedReport {
    * or the engine is not present. Key is the engine id (e.g. 'sonarqube').
    */
   engineResults?: Record<string, ScanResultJson>;
+  /**
+   * Advisor results keyed by ecosystem id.
+   * Optional — present when advisors were configured and executed.
+   */
+  advisorResults?: Record<string, AdvisorResult[]>;
 }
 
 export interface ExecutiveReportOptions {
@@ -34,4 +40,9 @@ export interface ExecutiveReportOptions {
    * or the engine is not present. Key is the engine id (e.g. 'sonarqube').
    */
   engineResults?: Record<string, ScanResultJson>;
+  /**
+   * Advisor results keyed by ecosystem id.
+   * Optional — present when advisors were configured and executed.
+   */
+  advisorResults?: Record<string, AdvisorResult[]>;
 }

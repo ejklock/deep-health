@@ -23,11 +23,11 @@ export default `\
 
 ## {{t.section_validation}}
 {{#each ecosystemSections}}
-{{#if update}}
-- {{validationLabel}}: {{validationStatus}}
-{{#if validationDetail}}
-  {{validationDetail}}
-{{/if}}
+{{#if hasValidations}}
+{{ecosystemHeader}}
+{{#each validationEntries}}- **{{name}}:** {{statusLabel}}
+{{#if hasDetail}}  {{detail}}
+{{/if}}{{/each}}
 {{/if}}
 {{/each}}
 
@@ -73,5 +73,21 @@ export default `\
 {{/each}}
 {{/if}}
 {{/if}}
+{{/if}}
+
+{{#if advisorSection.present}}
+{{t.advisors_section}}
+
+{{#each advisorSection.ecosystems}}
+{{#each advisors}}
+{{header}}
+
+**Status:** {{statusLabel}}
+{{#if hasOutput}}
+{{outputBlock}}
+{{/if}}
+
+{{/each}}
+{{/each}}
 {{/if}}
 `;

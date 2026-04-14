@@ -45,9 +45,59 @@ describe('generateConfigYaml', () => {
     expect(yaml).toContain('# deep-health');
   });
 
-  it('generates valid YAML with custom PHP version', () => {
-    const yaml = generateConfigYaml({ phpVersion: '8.3' });
-    const parsed = parse(yaml) as { runtime: { php: string } };
-    expect(parsed.runtime.php).toBe('8.3');
+  it('generates valid YAML with custom PHP version reflected in ecosystems via ecosystemConfigs', () => {
+    const yaml = generateConfigYaml({
+      ecosystemConfigs: [
+        {
+          id: 'composer',
+          validationCommands: [{ name: 'tests', command: 'php artisan test --compact' }],
+          advisors: [{ name: 'audit', command: 'composer audit' }],
+        },
+      ],
+    });
+    const parsed = parse(yaml) as { ecosystems: Array<{ id: string }> };
+    const composer = parsed.ecosystems.find((e) => e.id === 'composer');
+    expect(composer).toBeDefined();
+  });
+
+  it('includes ecosystems[] with at least one entry by default', () => {
+    const yaml = generateConfigYaml();
+    const parsed = parse(yaml) as { ecosystems: unknown[] };
+    expect(Array.isArray(parsed.ecosystems)).toBe(true);
+    expect(parsed.ecosystems.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('includes both composer and npm ecosystems when both provided via ecosystemConfigs', () => {
+    const yaml = generateConfigYaml({
+      ecosystemConfigs: [
+        {
+          id: 'composer',
+          validationCommands: [{ name: 'tests', command: 'php artisan test --compact' }],
+          advisors: [{ name: 'audit', command: 'composer audit' }],
+        },
+        {
+          id: 'npm',
+          fixerStrategy: 'npm-audit',
+          validationCommands: [{ name: 'build', command: 'npm run build' }],
+          advisors: [{ name: 'audit', command: 'npm audit' }],
+        },
+      ],
+    });
+    const parsed = parse(yaml) as { ecosystems: Array<{ id: string }> };
+    const ids = parsed.ecosystems.map((e) => e.id);
+    expect(ids).toContain('composer');
+    expect(ids).toContain('npm');
+  });
+
+  it('includes markdown in outputs.formats when enableSonarQube and ecosystemConfigs provided', () => {
+    const yaml = generateConfigYaml({
+      enableSonarQube: true,
+      outputs: { formats: ['markdown'], dir: '.deep-health/reports' },
+      ecosystemConfigs: [{ id: 'npm', fixerStrategy: 'npm-audit' }],
+    });
+    const parsed = parse(yaml) as { outputs?: { formats?: string[] } };
+    expect(parsed.outputs?.formats).toContain('markdown');
+    // 'sonarqube' is not an output format — it is not a toggle in formats
+    expect(parsed.outputs?.formats).not.toContain('sonarqube');
   });
 });

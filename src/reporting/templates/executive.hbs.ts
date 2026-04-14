@@ -53,9 +53,11 @@ export default `\
 {{scanAfterSummary}}
 
 {{#each evidenceSections}}
-{{#if showValidation}}
-{{validationVerified}}
+{{#if showValidations}}
+{{#each validationEntries}}
+{{this.verifiedMsg}}
 
+{{/each}}
 {{/if}}
 {{/each}}
 
@@ -94,5 +96,23 @@ export default `\
 {{/each}}
 {{/if}}
 {{/if}}
+{{/if}}
+
+{{#if advisorSection.present}}
+---
+
+{{t.advisors_section}}
+
+{{#each advisorSection.ecosystems}}
+{{#each advisors}}
+{{header}}
+
+**Status:** {{statusLabel}}
+{{#if hasOutput}}
+{{outputBlock}}
+{{/if}}
+
+{{/each}}
+{{/each}}
 {{/if}}
 `;

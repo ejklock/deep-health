@@ -1,4 +1,3 @@
-import type { ProjectConfig } from '@core/types/config';
 import type { EcosystemPlugin } from './types';
 
 export class EcosystemRegistry {
@@ -15,11 +14,6 @@ export class EcosystemRegistry {
 
   getAll(): EcosystemPlugin[] {
     return [...this.plugins.values()];
-  }
-
-  /** Returns only the plugins active for the given project config */
-  getActive(config: ProjectConfig): EcosystemPlugin[] {
-    return this.getAll().filter((p) => p.isActive(config));
   }
 
   /**

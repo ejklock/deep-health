@@ -1,7 +1,8 @@
 import type { CommandRunner, PhaseStatus } from '@core/types/common';
-import type { ProjectConfig } from '@core/types/config';
+import type { ProjectConfig, AdvisorConfig } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
+import type { AdvisorResult } from '@core/types/config';
 import type { EngineWarning, ScannerEngineContext } from '@modules/scanner/types';
 import { validateGateA, validateEcosystemGate } from '@core/gates/validator';
 import { GateValidationError } from '@core/errors';
@@ -60,6 +61,11 @@ export interface OrchestratorResult {
    * The `primary` subfield is always the OSV result (Gate A source of truth).
    */
   aggregated?: AggregatedScanResult;
+  /**
+   * Advisor results keyed by ecosystem id.
+   * Advisors are informational only — they never block the pipeline.
+   */
+  advisorResults: Record<string, AdvisorResult[]>;
 }
 
 function shouldRunPhase(phase: string, options: OrchestratorOptions): boolean {
@@ -70,14 +76,14 @@ function shouldRunPhase(phase: string, options: OrchestratorOptions): boolean {
 /**
  * Resolve the on_failure policy for a secondary engine.
  *
- * - SonarQube: reads from config (defaults to 'warn' when not explicitly set).
- * - Any other engine id that is NOT explicitly known in this registry: defaults
- *   to 'fail' as the safe fallback.
+ * Uses a generic lookup into config.scanners by engine id.
+ * - 'sonarqube': reads from config.scanners.sonarqube (defaults to 'warn' when not set).
+ * - 'osv': primary engine — should never be called as secondary; returns 'fail' as safe fallback.
+ * - Any other engine id not in config.scanners: defaults to 'fail' (safe hardening).
  *
  * Rationale for the 'fail' default for unknowns: an unrecognised engine has no
  * config key, so silently swallowing its failure could mask integration bugs or
- * misconfiguration. Failing loudly is the safe choice. Operators can wrap the
- * engine in a known config entry to opt into warn behaviour.
+ * misconfiguration. Failing loudly is the safe choice.
  */
 function resolveOnFailure(engineId: string, config: ProjectConfig): 'warn' | 'fail' {
   if (engineId === 'sonarqube') {
@@ -161,6 +167,53 @@ async function runAllEngines(
   return { engineEntries, warnings };
 }
 
+/**
+ * Run advisor commands for a single ecosystem (informational only — never throws).
+ *
+ * Advisors produce observability output but never affect the pipeline outcome.
+ * Even if an advisor command fails (non-zero exit), the pipeline continues.
+ */
+async function runAdvisors(
+  runner: CommandRunner,
+  cwd: string,
+  ecosystemId: string,
+  advisors: AdvisorConfig[],
+): Promise<AdvisorResult[]> {
+  if (advisors.length === 0) return [];
+
+  const results: AdvisorResult[] = [];
+
+  for (const advisor of advisors) {
+    logger.info(`[Advisor] ${ecosystemId}/${advisor.name}: ${advisor.command}`);
+    try {
+      const cmdResult = await runner.run(advisor.command, { cwd });
+      const outputLines = cmdResult.stdout.trim().split('\n');
+      const output = outputLines.slice(-20).join('\n'); // last 20 lines
+
+      results.push({
+        name: advisor.name,
+        command: advisor.command,
+        exitCode: cmdResult.exitCode,
+        output,
+        status: cmdResult.exitCode === 0 ? 'pass' : 'fail',
+      });
+    } catch (err) {
+      // Advisor failure is always non-fatal
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn(`[Advisor] ${ecosystemId}/${advisor.name} failed (non-fatal): ${message}`);
+      results.push({
+        name: advisor.name,
+        command: advisor.command,
+        exitCode: -1,
+        output: message,
+        status: 'fail',
+      });
+    }
+  }
+
+  return results;
+}
+
 export async function runOrchestrator(
   runner: CommandRunner,
   config: ProjectConfig,
@@ -171,6 +224,7 @@ export async function runOrchestrator(
     updates: {},
     overallStatus: 'success',
     warnings: [],
+    advisorResults: {},
   };
 
   // Scan — hard precondition for all update steps
@@ -184,6 +238,15 @@ export async function runOrchestrator(
 
   const ecosystemRegistry = options.registry ?? defaultRegistry;
   const engineRegistry = options.scannerRegistry ?? defaultScannerRegistry;
+
+  // OSV disable guard: if OSV engine is not in registry, block update/fix flow
+  if (!engineRegistry.has('osv')) {
+    throw new Error(
+      'OSV scanner engine is not registered. ' +
+      'The OSV engine is required for automatic update/fix flow. ' +
+      'Register an OsvScannerEngine with id "osv" before running the orchestrator.',
+    );
+  }
 
   const ctx: ScannerEngineContext = {
     runner,
@@ -220,13 +283,42 @@ export async function runOrchestrator(
   );
   logger.info(`Scan complete: ${ecosystemSummaryParts.join(', ') || 'no vulnerabilities found'}`);
 
-  const activePlugins = ecosystemRegistry.getActive(config);
+  // Resolve active plugins from declarative config.ecosystems[]
+  const activePlugins = ecosystemRegistry.getAll().filter((p) =>
+    config.ecosystems.some((e) => e.id === p.id),
+  );
 
   // Iterate over active plugins in registration order (npm → composer)
   for (const plugin of activePlugins) {
     if (!shouldRunPhase(plugin.id, options)) {
       logger.info(`Phase: Skipping ${plugin.name} — not in phases list`);
       continue;
+    }
+
+    // Resolve per-ecosystem config entry
+    const ecoConfigEntry = config.ecosystems.find((e) => e.id === plugin.id);
+
+    // Resolve validation commands: config override → plugin defaults
+    const validationCommands =
+      ecoConfigEntry?.validationCommands ?? plugin.defaultValidationCommands;
+
+    // Resolve fixer strategy: config override → first supported fixer → 'osv'
+    const fixerStrategy =
+      ecoConfigEntry?.fixer ??
+      (plugin.supportedFixers.length > 0 ? plugin.supportedFixers[0] : undefined);
+
+    // Resolve advisors: config override → plugin defaults
+    const advisors = ecoConfigEntry?.advisors ?? plugin.defaultAdvisors;
+
+    // Run advisors (informational only — never throws, never blocks pipeline)
+    if (advisors.length > 0) {
+      logger.info(`[Advisor Step] Running advisors for ${plugin.name}...`);
+      result.advisorResults[plugin.id] = await runAdvisors(
+        runner,
+        options.cwd,
+        plugin.id,
+        advisors,
+      );
     }
 
     const ecosystemResult = scanResult.ecosystems[plugin.id];
@@ -247,6 +339,8 @@ export async function runOrchestrator(
       scanResult,
       cwd: options.cwd,
       authorizeBreaking,
+      validationCommands,
+      fixerStrategy,
     });
 
     result.updates[plugin.id] = updateResult;

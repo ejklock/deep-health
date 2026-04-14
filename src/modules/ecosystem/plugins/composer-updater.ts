@@ -1,11 +1,12 @@
 import type { CommandRunner, CommandResult } from '@core/types/common';
-import type { ProjectConfig } from '@core/types/config';
+import type { ValidationCommandConfig } from '@core/types/config';
 import type { UpdateResultJson, ValidationEntry } from '@core/types/update';
 import type { ScanResultJson } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
 import { PhaseError } from '@core/errors';
 import { backupFiles, restoreFiles } from '@infra/utils/git';
 import { logger } from '@infra/utils/logger';
+import { runValidations } from '../utils/validation-runner';
 
 const COMPOSER_FILES = ['composer.json', 'composer.lock'];
 
@@ -34,15 +35,6 @@ async function applyComposerUpdate(
   return runner.run(`composer update ${pkgList} --with-all-dependencies --no-interaction`, { cwd, stream: true });
 }
 
-async function runTestSuite(
-  runner: CommandRunner,
-  testCommand: string,
-  cwd: string,
-): Promise<CommandResult> {
-  logger.info(`Running tests: ${testCommand}`);
-  return runner.run(testCommand, { cwd, stream: true });
-}
-
 async function revertComposerChanges(
   runner: CommandRunner,
   backups: Map<string, string>,
@@ -59,14 +51,25 @@ async function verifyResidualVulnerabilities(runner: CommandRunner, cwd: string)
 
 export async function runComposerUpdater(
   runner: CommandRunner,
-  config: ProjectConfig,
+  _config: unknown,
   scanResult: ScanResultJson,
   cwd: string,
   authorizeBreaking = false,
+  validationCommands: ValidationCommandConfig[] = [],
 ): Promise<UpdateResultJson> {
   logger.info('Running Composer safe updates...');
 
   const composerEcosystem = scanResult.ecosystems['composer'] ?? emptyEcosystem();
+
+  // Build skipped validation entries for early-return paths
+  const skippedEntries: ValidationEntry[] =
+    validationCommands.length > 0
+      ? validationCommands.map((vc) => ({
+          name: vc.name,
+          status: 'skipped' as const,
+          detail: 'No validation commands configured — skipped',
+        }))
+      : [{ name: 'validation', status: 'skipped', detail: 'No validation commands configured' }];
 
   const base: UpdateResultJson = {
     $schema: 'osv-update-result/v1',
@@ -75,7 +78,7 @@ export async function runComposerUpdater(
     packages_updated: [],
     packages_skipped: [],
     packages_pending_breaking: composerEcosystem.breaking_packages,
-    validations: [{ name: 'tests', status: 'skipped', detail: 'No test_command configured — skipped' }],
+    validations: skippedEntries,
     error: null,
   };
 
@@ -86,23 +89,29 @@ export async function runComposerUpdater(
   const packageNamesToUpdate = [...new Set([...autoSafePackageNames, ...breakingPackageNames])];
 
   if (packageNamesToUpdate.length === 0) {
-    return { ...base, validations: [{ name: 'tests', status: 'skipped', detail: 'No packages to update' }] };
+    return { ...base, validations: [{ name: 'validation', status: 'skipped', detail: 'No packages to update' }] };
   }
 
   if (runner.dryRun) {
     logger.info(`[DRY-RUN] Would execute: composer update ${packageNamesToUpdate.join(' ')} --no-interaction`);
-    if (config.runtime.test_command) {
-      logger.info(`[DRY-RUN] Would execute: ${config.runtime.test_command}`);
+    if (validationCommands.length > 0) {
+      for (const vc of validationCommands) {
+        logger.info(`[DRY-RUN] Would execute: ${vc.command}`);
+      }
     }
     logger.info(`[DRY-RUN] Would execute: ${OSV_SCAN_COMPOSER}`);
+    const dryRunEntries: ValidationEntry[] =
+      validationCommands.length > 0
+        ? validationCommands.map((vc) => ({
+            name: vc.name,
+            status: 'skipped' as const,
+            detail: 'Dry-run — not executed',
+          }))
+        : [{ name: 'validation', status: 'skipped', detail: 'No validation commands configured — skipped' }];
     return {
       ...base,
       packages_updated: composerEcosystem.auto_safe_packages,
-      validations: [
-        config.runtime.test_command
-          ? { name: 'tests', status: 'skipped', detail: 'Dry-run — not executed' }
-          : { name: 'tests', status: 'skipped', detail: 'No test_command configured — skipped' },
-      ],
+      validations: dryRunEntries,
     };
   }
 
@@ -116,27 +125,27 @@ export async function runComposerUpdater(
       return {
         ...base,
         status: 'error',
-        validations: [{ name: 'tests', status: 'skipped', detail: 'composer update failed — tests not run' }],
+        validations: [{ name: 'validation', status: 'skipped', detail: 'composer update failed — validations not run' }],
         error: `composer update failed: ${updateResult.stderr}`,
       };
     }
 
-    let testsValidation: ValidationEntry = { name: 'tests', status: 'skipped', detail: 'No test_command configured — skipped' };
+    // Run configured validation commands
+    const validationResult = await runValidations({
+      runner,
+      cwd,
+      commands: validationCommands,
+    });
 
-    if (config.runtime.test_command) {
-      const testResult = await runTestSuite(runner, config.runtime.test_command, cwd);
-      if (testResult.exitCode !== 0) {
-        logger.error('Tests failed — reverting Composer updates...');
-        await revertComposerChanges(runner, backups, cwd);
-        return {
-          ...base,
-          status: 'error',
-          validations: [{ name: 'tests', status: 'fail', detail: testResult.stdout || testResult.stderr }],
-          error: 'Tests failed after composer update — changes reverted',
-        };
-      }
-      const detail = testResult.stdout.trim().split('\n').slice(-2).join(' ') || 'Tests passed';
-      testsValidation = { name: 'tests', status: 'pass', detail };
+    if (!validationResult.allPassed) {
+      logger.error('Validations failed — reverting Composer updates...');
+      await revertComposerChanges(runner, backups, cwd);
+      return {
+        ...base,
+        status: 'error',
+        validations: validationResult.entries,
+        error: 'Validations failed after composer update — changes reverted',
+      };
     }
 
     await verifyResidualVulnerabilities(runner, cwd);
@@ -144,7 +153,7 @@ export async function runComposerUpdater(
     return {
       ...base,
       packages_updated: composerEcosystem.auto_safe_packages,
-      validations: [testsValidation],
+      validations: validationResult.entries,
     };
   } catch (err) {
     throw new PhaseError(

@@ -249,7 +249,7 @@ describe('runOrchestrator — SonarQube integration', () => {
     });
 
     expect(result.scan).not.toBeNull();
-    expect(result.scan?.agent).toBe('osv-scanner');
+    expect(result.scan?.agent).toBe('osv');
     expect(result.warnings).toHaveLength(0);
     // SonarQube engine self-skips — no sonar-scanner calls
     const sonarCalls = runner.calledCommands.filter((c) => c.includes('sonar-scanner'));
@@ -281,7 +281,7 @@ describe('runOrchestrator — SonarQube integration', () => {
 
     // Pipeline should continue — OSV result is the primary
     expect(result.scan).not.toBeNull();
-    expect(result.scan?.agent).toBe('osv-scanner');
+    expect(result.scan?.agent).toBe('osv');
 
     // Warning should be recorded
     expect(result.warnings.length).toBeGreaterThan(0);
@@ -356,7 +356,7 @@ describe('runOrchestrator — SonarQube integration', () => {
 
     // Gate A passed (based on OSV result)
     expect(result.scan).not.toBeNull();
-    expect(result.scan?.agent).toBe('osv-scanner');
+    expect(result.scan?.agent).toBe('osv');
     expect(result.scan?.$schema).toBe('osv-scan-result/v1');
 
     // SonarQube result is in aggregated.engineResults
@@ -392,7 +392,7 @@ describe('runOrchestrator — SonarQube integration', () => {
     });
 
     // Primary is OSV even when SonarQube failed
-    expect(result.aggregated?.primary.agent).toBe('osv-scanner');
+    expect(result.aggregated?.primary.agent).toBe('osv');
     expect(result.aggregated?.primary.$schema).toBe('osv-scan-result/v1');
   });
 
@@ -541,7 +541,7 @@ describe('runOrchestrator — on_failure policy for status=error (no throw)', ()
     });
 
     expect(result.scan).not.toBeNull();
-    expect(result.scan?.agent).toBe('osv-scanner');
+    expect(result.scan?.agent).toBe('osv');
 
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]?.engineId).toBe('sonarqube');

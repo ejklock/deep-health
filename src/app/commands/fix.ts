@@ -4,12 +4,14 @@ import { generateConsolidatedReport } from "@reporting/consolidated";
 import {
   generateExecutiveReport,
   executiveReportFilename,
+  consolidatedReportFilename,
+  generateSonarQubeMarkdownReport,
+  sonarqubeReportFilename,
 } from "@reporting/executive";
 import { defaultRegistry } from "@modules/ecosystem/index";
 import { writeOutput } from "@app/output-writer";
 import {
   saveReport,
-  saveSonarQubeExport,
   resolveReportsDir,
 } from "@app/report-saver";
 import type { RunContext } from "@app/run-context";
@@ -54,7 +56,9 @@ export async function runFixCommand(
   const authorizedIds = new Set<string>(opts.authorizeBreaking ?? []);
 
   // Emit non-blocking warnings for ecosystems with breaking vulns and no authorization
-  const activePlugins = defaultRegistry.getActive(config);
+  const activePlugins = defaultRegistry.getAll().filter((p) =>
+    config.ecosystems.some((e) => e.id === p.id),
+  );
   for (const plugin of activePlugins) {
     const breaking = scanBefore.ecosystems[plugin.id]?.breaking ?? 0;
     if (breaking > 0 && !authorizedIds.has(plugin.id)) {
@@ -83,6 +87,16 @@ export async function runFixCommand(
     authorizeBreaking: authorizeBreakingRecord,
   });
 
+  // Resolve outputs config (canonical location for reports settings)
+  const outputsConfig = config.outputs;
+  const reportsDir = resolveReportsDir(opts.cwd, outputsConfig?.dir ?? config.reports_dir);
+  const reportLanguage = config.report_language;
+  // Markdown output is opt-in: only save to reportsDir when outputs.formats includes 'markdown'
+  const markdownEnabled =
+    (outputsConfig?.formats ?? []).includes('markdown') ||
+    // Legacy: if reports_dir is set but no outputs config, default to saving
+    (!outputsConfig && !!config.reports_dir);
+
   if (result.scan) {
     const report: ConsolidatedReport = {
       projectName: config.project.name,
@@ -92,21 +106,25 @@ export async function runFixCommand(
       updates: result.updates,
       overallStatus: result.overallStatus,
       engineResults: result.aggregated?.engineResults,
+      locale: reportLanguage,
+      // Wire advisorResults from orchestrator into consolidated report
+      advisorResults: Object.keys(result.advisorResults).length > 0
+        ? result.advisorResults
+        : undefined,
     };
 
+    const consolidatedMarkdown = opts.json ? '' : generateConsolidatedReport(report);
     const output = opts.json
       ? JSON.stringify(result, null, 2)
-      : generateConsolidatedReport(report);
+      : consolidatedMarkdown;
     await writeOutput(output, opts.output);
 
-    // Save SonarQube detailed export when available
-    if (!opts.json && result.aggregated?.engineResults) {
-      const date = report.date;
-      const reportsDir = resolveReportsDir(opts.cwd, config.reports_dir);
-      await saveSonarQubeExport(
-        result.aggregated.engineResults,
-        config.project.name,
-        date,
+    // Save consolidated report to reportsDir when markdown is enabled
+    if (!opts.json && markdownEnabled) {
+      const consolidatedFilename = consolidatedReportFilename(config.project.name, report.date);
+      await saveReport(
+        consolidatedFilename,
+        consolidatedMarkdown,
         reportsDir,
         config.cloud_storage,
         opts.cwd,
@@ -114,7 +132,7 @@ export async function runFixCommand(
     }
   }
 
-  if (!opts.noReport) {
+  if (!opts.noReport && markdownEnabled) {
     const scanAfter = await runScanner(runner, config, opts.cwd);
     const execReport = generateExecutiveReport({
       client: config.project.client,
@@ -123,12 +141,16 @@ export async function runFixCommand(
       scanAfter,
       updates: result.updates,
       engineResults: result.aggregated?.engineResults,
+      locale: reportLanguage,
+      // Wire advisorResults into executive report
+      advisorResults: Object.keys(result.advisorResults).length > 0
+        ? result.advisorResults
+        : undefined,
     });
     const filename = executiveReportFilename(
       config.project.client,
       config.project.name,
     );
-    const reportsDir = resolveReportsDir(opts.cwd, config.reports_dir);
     await saveReport(
       filename,
       execReport,
@@ -136,6 +158,24 @@ export async function runFixCommand(
       config.cloud_storage,
       opts.cwd,
     );
+
+    // Save a separate SonarQube markdown artifact when SonarQube results are present
+    const sonarMarkdown = generateSonarQubeMarkdownReport(
+      result.aggregated?.engineResults,
+      config.project.name,
+      reportLanguage,
+    );
+    if (sonarMarkdown) {
+      const date = new Date().toISOString().split('T')[0]!;
+      const sonarFilename = sonarqubeReportFilename(config.project.name, date);
+      await saveReport(
+        sonarFilename,
+        sonarMarkdown,
+        reportsDir,
+        config.cloud_storage,
+        opts.cwd,
+      );
+    }
   }
 
   if (result.overallStatus === "error") return 1;

@@ -47,7 +47,13 @@
     "sonarqube_quality_gate": "**Quality Gate:** {{status}}",
     "sonarqube_metrics": "**Métricas:**",
     "sonarqube_skipped": "_SonarQube: análise não executada ou desativada neste ciclo._",
-    "sonarqube_warning": "_SonarQube: análise com aviso — {{message}}_"
+    "sonarqube_warning": "_SonarQube: análise com aviso — {{message}}_",
+    "advisors_section": "## Análise de Advisors",
+    "advisor_header": "### {{name}}",
+    "advisor_pass": "✅ aprovado",
+    "advisor_fail": "❌ falhou",
+    "advisor_skipped": "— ignorado",
+    "advisor_output": "```\n{{output}}\n```"
   },
   "consolidated": {
     "title": "# Relatório de Segurança — {{projectName}}",
@@ -69,6 +75,12 @@
     "sonarqube_affected_files": "**Arquivos com problemas (amostra):**",
     "sonarqube_no_issues": "_Nenhum problema BLOCKER/CRITICAL/MAJOR encontrado._",
     "sonarqube_skipped": "_SonarQube: análise não executada ou desativada neste ciclo._",
-    "sonarqube_warning": "_SonarQube: análise com aviso — {{message}}_"
+    "sonarqube_warning": "_SonarQube: análise com aviso — {{message}}_",
+    "advisors_section": "## Análise de Advisors",
+    "advisor_header": "### {{name}}",
+    "advisor_pass": "✅ aprovado",
+    "advisor_fail": "❌ falhou",
+    "advisor_skipped": "— ignorado",
+    "advisor_output": "```\n{{output}}\n```"
   }
 }

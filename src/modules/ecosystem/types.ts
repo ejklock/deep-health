@@ -1,5 +1,5 @@
 import type { CommandRunner } from '@core/types/common';
-import type { ProjectConfig, ProtectedPackage } from '@core/types/config';
+import type { ProjectConfig, ProtectedPackage, FixerStrategyId, ValidationCommandConfig, AdvisorConfig } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
 
@@ -9,6 +9,10 @@ export interface EcosystemUpdaterContext {
   scanResult: ScanResultJson;
   cwd: string;
   authorizeBreaking: boolean;
+  /** Validation commands from ecosystems[] config entry (overrides plugin defaults) */
+  validationCommands?: ValidationCommandConfig[];
+  /** Fixer strategy from ecosystems[] config entry (overrides plugin default) */
+  fixerStrategy?: FixerStrategyId;
 }
 
 export interface EcosystemPlugin {
@@ -35,29 +39,27 @@ export interface EcosystemPlugin {
   readonly reportLabel: string;
 
   /**
-   * Human-readable label for the validation section in consolidated reports.
-   * Ex: 'PHP test suite', 'npm build'
+   * Fixer strategy ids this plugin supports.
+   * The first entry is the default strategy for this plugin.
    */
-  readonly validationLabel: string;
+  readonly supportedFixers: FixerStrategyId[];
 
   /**
-   * The `name` value of the primary ValidationEntry in UpdateResultJson.validations[]
-   * that this plugin emits. Used by reports to locate the relevant validation entry.
-   * Ex: 'tests' for composer, 'build' for npm.
+   * Default validation commands for this plugin.
+   * These are used when no validationCommands are specified in the
+   * project config ecosystems[] entry.
    */
-  readonly validationName: string;
+  readonly defaultValidationCommands: ValidationCommandConfig[];
+
+  /**
+   * Default advisor commands for this plugin.
+   * These are used when no advisors are specified in the
+   * project config ecosystems[] entry.
+   */
+  readonly defaultAdvisors: AdvisorConfig[];
 
   /** Additional args for `osv-scanner` (ex: ['--lockfile', 'composer.lock']) */
   buildScanArgs(): string[];
-
-  /**
-   * Auto-fix command (osv-scanner fix), if supported.
-   * Returns null if the ecosystem has no automatic fix.
-   */
-  buildFixCommand(): string | null;
-
-  /** Whether this plugin is active for the given project config */
-  isActive(config: ProjectConfig): boolean;
 
   /** Protected packages for this ecosystem in the project config */
   getProtectedPackages(config: ProjectConfig): ProtectedPackage[];

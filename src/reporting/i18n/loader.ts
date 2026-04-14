@@ -33,6 +33,8 @@ export function buildLocale(raw: RawLocale): Locale {
       fixed_version: (version) => interp(raw.exec.fixed_version, { version }),
       sonarqube_quality_gate: (status) => interp(raw.exec.sonarqube_quality_gate, { status }),
       sonarqube_warning: (message) => interp(raw.exec.sonarqube_warning, { message }),
+      advisor_header: (name) => interp(raw.exec.advisor_header, { name }),
+      advisor_output: (output) => interp(raw.exec.advisor_output, { output }),
     },
 
     consolidated: {
@@ -41,6 +43,8 @@ export function buildLocale(raw: RawLocale): Locale {
       ecosystem_header: (name) => interp(raw.consolidated.ecosystem_header, { name }),
       sonarqube_quality_gate: (status) => interp(raw.consolidated.sonarqube_quality_gate, { status }),
       sonarqube_warning: (message) => interp(raw.consolidated.sonarqube_warning, { message }),
+      advisor_header: (name) => interp(raw.consolidated.advisor_header, { name }),
+      advisor_output: (output) => interp(raw.consolidated.advisor_output, { output }),
     },
   };
 }

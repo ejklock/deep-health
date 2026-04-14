@@ -12,22 +12,18 @@ export const npmPlugin: EcosystemPlugin = {
   /** Label used in executive report evidence tables */
   reportLabel: 'npm',
 
-  /** Label for the validation section in consolidated reports */
-  validationLabel: 'npm build',
+  supportedFixers: ['osv', 'npm-audit'],
 
-  /** Name of the primary ValidationEntry emitted by the npm updater */
-  validationName: 'build',
+  defaultValidationCommands: [
+    { name: 'build', command: 'npm run build' },
+  ],
+
+  defaultAdvisors: [
+    { name: 'audit', command: 'npm audit' },
+  ],
 
   buildScanArgs(): string[] {
     return ['--lockfile', 'package-lock.json'];
-  },
-
-  buildFixCommand(): string {
-    return 'osv-scanner fix --strategy=in-place -L package-lock.json';
-  },
-
-  isActive(config: ProjectConfig): boolean {
-    return !!config.runtime.node;
   },
 
   getProtectedPackages(config: ProjectConfig): ProtectedPackage[] {
@@ -35,6 +31,14 @@ export const npmPlugin: EcosystemPlugin = {
   },
 
   async runUpdater(ctx: EcosystemUpdaterContext): Promise<UpdateResultJson> {
-    return runNpmUpdater(ctx.runner, ctx.config, ctx.scanResult, ctx.cwd, ctx.authorizeBreaking);
+    return runNpmUpdater(
+      ctx.runner,
+      ctx.config,
+      ctx.scanResult,
+      ctx.cwd,
+      ctx.authorizeBreaking,
+      ctx.validationCommands ?? [],
+      ctx.fixerStrategy ?? 'osv',
+    );
   },
 };

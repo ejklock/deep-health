@@ -3,14 +3,27 @@ project:
   client: 'Test Client'
 
 runtime:
-  php: '8.1'
-  node: '20.x'
   execution: 'docker'
   docker_service: 'app'
-  test_command: 'php artisan test --compact'
-  build_commands:
-    frontend: 'npm run development-frontend'
-    backend: 'npm run development-backend'
+
+ecosystems:
+  - id: 'composer'
+    version: '8.1'
+    validationCommands:
+      - name: 'tests'
+        command: 'php artisan test --compact'
+    advisors:
+      - name: 'audit'
+        command: 'composer audit'
+  - id: 'npm'
+    version: '20.x'
+    fixer: 'npm-audit'
+    validationCommands:
+      - name: 'build'
+        command: 'npm run build'
+    advisors:
+      - name: 'audit'
+        command: 'npm audit'
 
 protected_packages:
   composer:

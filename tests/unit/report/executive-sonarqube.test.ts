@@ -122,3 +122,133 @@ describe('generateExecutiveReport — SonarQube section', () => {
     expect(report).toContain('Nenhuma vulnerabilidade');
   });
 });
+
+describe('generateExecutiveReport — advisorResults section', () => {
+  it('does NOT render advisor section when advisorResults is absent', () => {
+    const report = generateExecutiveReport(baseOpts);
+    expect(report).not.toContain('Advisor');
+  });
+
+  it('renders advisor section when advisorResults are provided', () => {
+    const report = generateExecutiveReport({
+      ...baseOpts,
+      advisorResults: {
+        npm: [
+          {
+            name: 'audit',
+            command: 'npm audit',
+            exitCode: 0,
+            output: 'found 0 vulnerabilities',
+            status: 'pass',
+          },
+        ],
+      },
+    });
+    expect(report).toContain('Advisor');
+    expect(report).toContain('audit');
+    expect(report).toContain('found 0 vulnerabilities');
+  });
+
+  it('renders fail status for failed advisors', () => {
+    const report = generateExecutiveReport({
+      ...baseOpts,
+      advisorResults: {
+        composer: [
+          {
+            name: 'audit',
+            command: 'composer audit',
+            exitCode: 1,
+            output: 'Found 2 vulnerabilities',
+            status: 'fail',
+          },
+        ],
+      },
+    });
+    expect(report).toContain('Advisor');
+    expect(report).toContain('audit');
+    expect(report).toContain('Found 2 vulnerabilities');
+  });
+
+  it('renders advisor section in en locale', () => {
+    const report = generateExecutiveReport({
+      ...baseOpts,
+      locale: 'en',
+      advisorResults: {
+        npm: [
+          {
+            name: 'audit',
+            command: 'npm audit',
+            exitCode: 0,
+            output: 'clean',
+            status: 'pass',
+          },
+        ],
+      },
+    });
+    expect(report).toContain('Advisor');
+    expect(report).toContain('pass');
+    expect(report).toContain('clean');
+  });
+});
+
+describe('generateExecutiveReport — generic validations rendering', () => {
+  it('renders all passing validation entries in evidence section', () => {
+    const scanWithVulns: ScanResultJson = {
+      $schema: 'osv-scan-result/v1',
+      agent: 'osv-scanner',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {
+        npm: {
+          vulnerabilities_total: 1,
+          auto_safe: 1,
+          breaking: 0,
+          manual: 0,
+          auto_safe_packages: ['lodash@4.17.20'],
+          breaking_packages: [],
+          manual_packages: [],
+          vulnerabilities: [
+            {
+              ghsaId: 'GHSA-1234',
+              cvss: '5.0',
+              package: 'lodash',
+              currentVersion: '4.17.20',
+              safeVersion: '4.17.21',
+              ecosystem: 'npm',
+              classification: 'auto_safe',
+              risk: 'medium',
+            },
+          ],
+        },
+      },
+      error: null,
+    };
+
+    const report = generateExecutiveReport({
+      ...baseOpts,
+      scanBefore: scanWithVulns,
+      updates: {
+        npm: {
+          $schema: 'osv-update-result/v1',
+          agent: 'npm-safe-update',
+          status: 'success',
+          packages_updated: ['lodash@4.17.21'],
+          packages_skipped: [],
+          packages_pending_breaking: [],
+          validations: [
+            { name: 'build', status: 'pass', detail: 'Build passed in 12s' },
+            { name: 'lint', status: 'pass', detail: 'No lint errors' },
+          ],
+          error: null,
+        },
+      },
+    });
+
+    // Both validation names should appear
+    expect(report).toContain('build');
+    expect(report).toContain('lint');
+    // Both details should appear
+    expect(report).toContain('Build passed in 12s');
+    expect(report).toContain('No lint errors');
+  });
+});

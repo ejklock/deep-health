@@ -1,16 +1,15 @@
-import type { CommandRunner, CommandResult } from '@core/types/common';
-import type { ProjectConfig } from '@core/types/config';
+import type { CommandRunner } from '@core/types/common';
+import type { FixerStrategyId, ValidationCommandConfig } from '@core/types/config';
 import type { UpdateResultJson, ValidationEntry } from '@core/types/update';
 import type { ScanResultJson } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
 import { PhaseError } from '@core/errors';
 import { backupFiles, restoreFiles } from '@infra/utils/git';
 import { logger } from '@infra/utils/logger';
+import { FIXER_MAP } from '../fixers/index';
+import { runValidations } from '../utils/validation-runner';
 
 const NPM_FILES = ['package.json', 'package-lock.json'];
-
-/** osv-scanner in-place fix command for npm lockfile */
-const OSV_FIX_NPM = 'osv-scanner fix --strategy=in-place -L package-lock.json';
 
 /** osv-scanner post-update verification scan for npm lockfile */
 const OSV_SCAN_NPM = 'osv-scanner --lockfile package-lock.json --format json';
@@ -19,50 +18,6 @@ async function checkCurrentState(runner: CommandRunner, cwd: string): Promise<vo
   logger.debug('Running npm outdated and npm audit (informational)...');
   await runner.run('npm outdated', { cwd });
   await runner.run('npm audit', { cwd });
-}
-
-async function applyOsvFix(runner: CommandRunner, cwd: string): Promise<void> {
-  logger.info(`Applying OSV in-place fix: ${OSV_FIX_NPM}`);
-  const result = await runner.run(OSV_FIX_NPM, { cwd, stream: true });
-  if (result.exitCode !== 0) {
-    logger.warn(`osv-scanner fix exited with ${result.exitCode}: ${result.stderr}`);
-  }
-}
-
-async function installBreakingPackages(
-  runner: CommandRunner,
-  scanResult: ScanResultJson,
-  cwd: string,
-): Promise<string | null> {
-  const npmEcosystem = scanResult.ecosystems['npm'] ?? emptyEcosystem();
-  const pkgs = npmEcosystem.vulnerabilities
-    .filter((v) => v.classification === 'breaking' && v.safeVersion)
-    .reduce<Map<string, string>>((map, v) => {
-      if (!map.has(v.package)) map.set(v.package, v.safeVersion!);
-      return map;
-    }, new Map());
-
-  if (pkgs.size === 0) return null;
-
-  const specs = [...pkgs.entries()].map(([name, ver]) => `${name}@${ver}`).join(' ');
-  logger.info(`Installing authorized breaking-change packages: ${specs}`);
-  const result = await runner.run(`npm install ${specs}`, { cwd, stream: true });
-  if (result.exitCode !== 0) {
-    return `npm install ${specs} failed: ${result.stderr}`;
-  }
-  return null;
-}
-
-async function validateBuilds(
-  runner: CommandRunner,
-  config: ProjectConfig,
-  cwd: string,
-): Promise<{ frontend: CommandResult; backend: CommandResult }> {
-  logger.info('Validating frontend build...');
-  const frontend = await runner.run(config.runtime.build_commands!.frontend, { cwd, stream: true });
-  logger.info('Validating backend build...');
-  const backend = await runner.run(config.runtime.build_commands!.backend, { cwd, stream: true });
-  return { frontend, backend };
 }
 
 async function revertNpmChanges(
@@ -81,14 +36,28 @@ async function verifyResidualVulnerabilities(runner: CommandRunner, cwd: string)
 
 export async function runNpmUpdater(
   runner: CommandRunner,
-  config: ProjectConfig,
+  _config: unknown,
   scanResult: ScanResultJson,
   cwd: string,
   authorizeBreaking = false,
+  validationCommands: ValidationCommandConfig[] = [],
+  fixerStrategy: FixerStrategyId = 'osv',
 ): Promise<UpdateResultJson> {
   logger.info('Running npm safe updates...');
 
   const npmEcosystem = scanResult.ecosystems['npm'] ?? emptyEcosystem();
+
+  // Resolve which fixer function to use
+  const fixerFn = FIXER_MAP[fixerStrategy];
+
+  const skippedValidations: ValidationEntry[] =
+    validationCommands.length > 0
+      ? validationCommands.map((vc) => ({
+          name: vc.name,
+          status: 'skipped' as const,
+          detail: 'Dry-run — not executed',
+        }))
+      : [{ name: 'validation', status: 'skipped', detail: 'No validation commands configured' }];
 
   const base: UpdateResultJson = {
     $schema: 'osv-update-result/v1',
@@ -97,78 +66,59 @@ export async function runNpmUpdater(
     packages_updated: [],
     packages_skipped: [],
     packages_pending_breaking: npmEcosystem.breaking_packages,
-    validations: [{ name: 'build', status: 'skipped', detail: 'No build_commands configured — skipped' }],
+    validations: skippedValidations,
     error: null,
   };
 
   if (runner.dryRun) {
-    logger.info(`[DRY-RUN] Would execute: ${OSV_FIX_NPM}`);
+    logger.info(`[DRY-RUN] Would execute fixer strategy: ${fixerStrategy}`);
     if (authorizeBreaking) logger.info('[DRY-RUN] Would install authorized breaking-change packages');
-    if (config.runtime.build_commands) {
-      logger.info(`[DRY-RUN] Would execute: ${config.runtime.build_commands.frontend}`);
-      logger.info(`[DRY-RUN] Would execute: ${config.runtime.build_commands.backend}`);
-    }
     logger.info(`[DRY-RUN] Would execute: ${OSV_SCAN_NPM}`);
-    const dryRunValidation: ValidationEntry = config.runtime.build_commands
-      ? { name: 'build', status: 'skipped', detail: 'Dry-run — not executed' }
-      : { name: 'build', status: 'skipped', detail: 'No build_commands configured — skipped' };
-    return { ...base, validations: [dryRunValidation] };
+    return { ...base, validations: skippedValidations };
   }
 
   try {
     const backups = await backupFiles(NPM_FILES, cwd);
 
     await checkCurrentState(runner, cwd);
-    await applyOsvFix(runner, cwd);
 
-    if (authorizeBreaking) {
-      const breakingError = await installBreakingPackages(runner, scanResult, cwd);
-      if (breakingError) {
-        return {
-          ...base,
-          status: 'error',
-          validations: [{ name: 'build', status: 'fail', detail: breakingError }],
-          error: breakingError,
-        };
-      }
+    // Apply the configured fixer strategy
+    const fixerResult = await fixerFn({ runner, cwd, scanResult, authorizeBreaking });
+
+    if (fixerResult.breakingInstallError) {
+      return {
+        ...base,
+        status: 'error',
+        validations: [{ name: 'validation', status: 'fail', detail: fixerResult.breakingInstallError }],
+        error: fixerResult.breakingInstallError,
+      };
     }
 
-    let buildValidation: ValidationEntry = { name: 'build', status: 'skipped', detail: 'No build_commands configured — skipped' };
+    // Run configured validation commands
+    const validationResult = await runValidations({
+      runner,
+      cwd,
+      commands: validationCommands,
+    });
 
-    if (config.runtime.build_commands) {
-      const { frontend, backend } = await validateBuilds(runner, config, cwd);
-
-      if (frontend.exitCode !== 0) {
-        logger.error('Frontend build failed — reverting...');
-        await revertNpmChanges(runner, backups, cwd);
-        return {
-          ...base,
-          status: 'error',
-          validations: [{ name: 'build', status: 'fail', detail: `Frontend build failed: ${frontend.stderr}` }],
-          error: 'Frontend build failed after package installs — changes reverted',
-        };
-      }
-
-      if (backend.exitCode !== 0) {
-        logger.error('Backend build failed — reverting...');
-        await revertNpmChanges(runner, backups, cwd);
-        return {
-          ...base,
-          status: 'error',
-          validations: [{ name: 'build', status: 'fail', detail: `Backend build failed: ${backend.stderr}` }],
-          error: 'Backend build failed after package installs — changes reverted',
-        };
-      }
-
-      buildValidation = { name: 'build', status: 'pass', detail: 'Frontend and backend builds passed after update' };
+    if (!validationResult.allPassed) {
+      // Revert changes when validation fails
+      logger.error('Validation failed — reverting npm changes...');
+      await revertNpmChanges(runner, backups, cwd);
+      return {
+        ...base,
+        status: 'error',
+        validations: validationResult.entries,
+        error: 'Validation failed after npm update — changes reverted',
+      };
     }
 
     await verifyResidualVulnerabilities(runner, cwd);
 
     return {
       ...base,
-      packages_updated: npmEcosystem.auto_safe_packages,
-      validations: [buildValidation],
+      packages_updated: fixerResult.packagesUpdated,
+      validations: validationResult.entries,
     };
   } catch (err) {
     throw new PhaseError(

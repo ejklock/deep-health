@@ -38,6 +38,13 @@ export interface ExecLocale {
   sonarqube_metrics: string;
   sonarqube_skipped: string;
   sonarqube_warning(message: string): string;
+  /** Advisor section */
+  advisors_section: string;
+  advisor_header(name: string): string;
+  advisor_pass: string;
+  advisor_fail: string;
+  advisor_skipped: string;
+  advisor_output(output: string): string;
 }
 
 export interface ConsolidatedLocale {
@@ -62,6 +69,13 @@ export interface ConsolidatedLocale {
   sonarqube_no_issues: string;
   sonarqube_skipped: string;
   sonarqube_warning(message: string): string;
+  /** Advisor section in consolidated report */
+  advisors_section: string;
+  advisor_header(name: string): string;
+  advisor_pass: string;
+  advisor_fail: string;
+  advisor_skipped: string;
+  advisor_output(output: string): string;
 }
 
 export interface ReasonLocale {
