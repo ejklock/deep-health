@@ -15,6 +15,7 @@ import {
   defaultScannerRegistry,
   ScannerEngineRegistry,
   aggregateScanResults,
+  OSV_ENGINE_ID,
 } from '@modules/scanner/index';
 import type { AggregatedScanResult } from '@modules/scanner/index';
 
@@ -116,7 +117,8 @@ function resolveOnFailure(engineId: string, config: ProjectConfig): 'warn' | 'fa
 /**
  * Run all registered scanner engines sequentially.
  *
- * - The first engine (OSV) is the primary — its result drives Gate A.
+ * - The OSV engine (id === OSV_ENGINE_ID) is the primary — its result drives Gate A.
+ *   Primary classification is by engine id, not by registration order.
  * - Subsequent engines (e.g. SonarQube) are secondary:
  *   - If they fail (throw OR return status='error') and on_failure='warn':
  *     emit a warning, continue.
@@ -134,7 +136,8 @@ async function runAllEngines(
   const warnings: EngineWarning[] = [];
 
   for (const engine of engines) {
-    const isPrimary = engineEntries.length === 0;
+    // Primary classification is by engine id — not by registration order.
+    const isPrimary = engine.id === OSV_ENGINE_ID;
 
     let result: ScanResultJson;
     try {

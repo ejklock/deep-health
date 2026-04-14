@@ -16,6 +16,7 @@ import type { ProjectConfig } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
 import type { EcosystemRegistry } from '@modules/ecosystem/registry';
 import { defaultRegistry } from '@modules/ecosystem/index';
+import { detectGitBranch } from '@infra/utils/git-branch';
 
 // Register OSV scanner engine as the primary engine
 defaultScannerRegistry.register(new OsvScannerEngine());
@@ -27,7 +28,7 @@ defaultScannerRegistry.register(new SonarQubeEngine());
 export { defaultScannerRegistry, ScannerEngineRegistry } from './registry';
 export type { ScannerEngine, ScannerEngineContext, EngineWarning } from './types';
 export type { AggregatedScanResult } from './aggregator';
-export { aggregateScanResults } from './aggregator';
+export { aggregateScanResults, OSV_ENGINE_ID } from './aggregator';
 export { OsvScannerEngine } from './osv-engine';
 export { emptyEcosystem } from '@core/types/scan';
 export { SonarQubeEngine } from './sonarqube-engine';
@@ -47,6 +48,10 @@ const _osvEngine = new OsvScannerEngine();
  * on the orchestrator result. fix.ts consumes those separately for report sections.
  *
  * Do NOT add multi-engine aggregation here — that path belongs to the orchestrator.
+ *
+ * Branch detection: detected non-throwingly from the working directory and stamped
+ * into the scan result. Returns null when branch cannot be determined (detached HEAD,
+ * not a git repo, etc.) — the scan always proceeds.
  */
 export async function runScanner(
   runner: CommandRunner,
@@ -54,5 +59,7 @@ export async function runScanner(
   cwd: string,
   registry: EcosystemRegistry = defaultRegistry,
 ): Promise<ScanResultJson> {
-  return _osvEngine.scan({ runner, config, cwd, ecosystemRegistry: registry, branch: null });
+  // Detect git branch — never throws; null means "unknown / not applicable"
+  const branch = await detectGitBranch(cwd, runner);
+  return _osvEngine.scan({ runner, config, cwd, ecosystemRegistry: registry, branch });
 }

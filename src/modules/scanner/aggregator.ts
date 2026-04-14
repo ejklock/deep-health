@@ -2,6 +2,15 @@ import type { ScanResultJson, EcosystemScanResult } from '@core/types/scan';
 import type { EngineWarning } from './types';
 
 /**
+ * Canonical id for the OSV scanner engine.
+ *
+ * Exported as a named constant so all aggregator callers and the orchestrator
+ * can reference the same string — avoids magic-string duplication and keeps
+ * primary-engine selection explicit and refactor-safe.
+ */
+export const OSV_ENGINE_ID = 'osv' as const;
+
+/**
  * The result of aggregating scan output from one or more scanner engines.
  *
  * The `primary` field points to the canonical result used for Gate A validation
@@ -82,7 +91,10 @@ function mergeEcosystems(
 /**
  * Aggregate a set of per-engine scan results into a single AggregatedScanResult.
  *
- * The first engine in `engineResults` is treated as the primary (drives Gate A).
+ * The OSV engine result (id === OSV_ENGINE_ID) is always used as the primary,
+ * regardless of registration order or position in `engineResults`.
+ * Throws if no OSV result is present — the orchestrator must ensure OSV ran.
+ *
  * Warnings are passed through from the caller — engines that fail non-fatally
  * emit an EngineWarning instead of throwing.
  */
@@ -99,8 +111,15 @@ export function aggregateScanResults(
     byId[engineId] = result;
   }
 
-  const primaryEntry = engineResults[0]!;
-  const primaryRaw = primaryEntry.result;
+  // Primary is always OSV — selected explicitly by engine id, never by array position.
+  const primaryRaw = byId[OSV_ENGINE_ID];
+  if (!primaryRaw) {
+    throw new Error(
+      `aggregateScanResults: OSV engine result is required but was not found. ` +
+      `Received engine ids: [${engineResults.map((e) => e.engineId).join(', ')}]. ` +
+      `Ensure the OSV engine ran successfully before calling aggregateScanResults.`,
+    );
+  }
 
   // Merge ecosystems across all successful engine results
   const successfulResults = engineResults

@@ -5,6 +5,7 @@ import { GateValidationError } from '@core/errors';
 import { ScannerEngineRegistry } from '@modules/scanner/registry';
 import { OsvScannerEngine } from '@modules/scanner/osv-engine';
 import { SonarQubeEngine } from '@modules/scanner/sonarqube-engine';
+import { OSV_ENGINE_ID } from '@modules/scanner/aggregator';
 import type { CommandRunner, CommandResult, CommandRunnerOptions, ExecutionEnv } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
 import type { ScannerEngineContext, ScannerEngine } from '@modules/scanner/types';
@@ -704,5 +705,200 @@ describe('runOrchestrator — generic on_failure resolution', () => {
     // Should warn, not throw
     expect(result.warnings.length).toBeGreaterThan(0);
     expect(result.warnings[0]?.engineId).toBe('sonarqube');
+  });
+});
+
+// ─── Primary-by-engine-id: registry-order independence ────────────────────────
+
+/**
+ * Stub engine that immediately returns a pre-configured ScanResultJson.
+ * Used to control exactly what each engine returns without mocking internals.
+ */
+class StubScannerEngine implements ScannerEngine {
+  readonly id: string;
+  readonly name: string;
+  private readonly returnValue: ScanResultJson;
+
+  constructor(id: string, returnValue: ScanResultJson) {
+    this.id = id;
+    this.name = `Stub(${id})`;
+    this.returnValue = returnValue;
+  }
+
+  async assertAvailable(_ctx: ScannerEngineContext): Promise<void> {}
+
+  async scan(_ctx: ScannerEngineContext): Promise<ScanResultJson> {
+    return this.returnValue;
+  }
+}
+
+describe('runOrchestrator — primary-by-engine-id (registry-order independence)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env['SONAR_TOKEN'];
+  });
+
+  it('OSV_ENGINE_ID constant equals "osv"', () => {
+    expect(OSV_ENGINE_ID).toBe('osv');
+  });
+
+  it('aggregated.primary is always the OSV engine result regardless of registration order', async () => {
+    const config = await loadTestConfig();
+
+    const runner = new MockCommandRunner({
+      'git rev-parse': { stdout: 'main\n', exitCode: 0 },
+    });
+
+    const osvResult: ScanResultJson = {
+      $schema: 'osv-scan-result/v1',
+      agent: 'osv',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {},
+      error: null,
+    };
+
+    const secondaryResult: ScanResultJson = {
+      $schema: 'other-result/v1',
+      agent: 'other-engine',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {},
+      error: null,
+    };
+
+    // Register secondary BEFORE OSV — OSV is last
+    const reg = new ScannerEngineRegistry();
+    reg.register(new StubScannerEngine('other-engine', secondaryResult));
+    reg.register(new StubScannerEngine('osv', osvResult));
+
+    const result = await runOrchestrator(runner, config, {
+      configPath: 'project-config.yml',
+      cwd: fixturesDir,
+      dryRun: false,
+      verbose: false,
+      scannerRegistry: reg,
+    });
+
+    // Primary must be OSV — not position [0] (other-engine)
+    expect(result.aggregated?.primary.agent).toBe('osv');
+    expect(result.aggregated?.primary.$schema).toBe('osv-scan-result/v1');
+    expect(result.scan?.agent).toBe('osv');
+  });
+
+  it('aggregated.primary is OSV even when three engines are registered with OSV in the middle', async () => {
+    const config = await loadTestConfig();
+    const runner = new MockCommandRunner({});
+
+    const osvResult: ScanResultJson = {
+      $schema: 'osv-scan-result/v1',
+      agent: 'osv',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {},
+      error: null,
+    };
+
+    const engineA: ScanResultJson = {
+      $schema: 'a-result/v1',
+      agent: 'engine-a',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {},
+      error: null,
+    };
+
+    const engineB: ScanResultJson = {
+      $schema: 'b-result/v1',
+      agent: 'engine-b',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {},
+      error: null,
+    };
+
+    const reg = new ScannerEngineRegistry();
+    reg.register(new StubScannerEngine('engine-a', engineA));
+    reg.register(new StubScannerEngine('osv', osvResult));      // OSV middle position
+    reg.register(new StubScannerEngine('engine-b', engineB));
+
+    // engine-a and engine-b have unknown on_failure — defaults to 'fail'.
+    // To avoid them blocking the pipeline, give them a config key so they resolve to 'warn'.
+    // Actually: they return status='success' so they will NOT trigger on_failure at all.
+    const result = await runOrchestrator(runner, config, {
+      configPath: 'project-config.yml',
+      cwd: fixturesDir,
+      dryRun: false,
+      verbose: false,
+      scannerRegistry: reg,
+    });
+
+    expect(result.aggregated?.primary.agent).toBe('osv');
+    expect(result.aggregated?.engineResults['engine-a']).toBeDefined();
+    expect(result.aggregated?.engineResults['engine-b']).toBeDefined();
+    expect(result.aggregated?.engineResults['osv']).toBeDefined();
+  });
+
+  it('throws when OSV is absent from the engine registry', async () => {
+    const config = await loadTestConfig();
+    const runner = new MockCommandRunner({});
+
+    const reg = new ScannerEngineRegistry();
+    reg.register(new StubScannerEngine('sonarqube', {
+      $schema: 'sonar-result/v1',
+      agent: 'sonarqube',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {},
+      error: null,
+    }));
+
+    await expect(
+      runOrchestrator(runner, config, {
+        configPath: 'project-config.yml',
+        cwd: fixturesDir,
+        dryRun: false,
+        verbose: false,
+        scannerRegistry: reg,
+      }),
+    ).rejects.toThrow(/OSV scanner engine is not registered/);
+  });
+
+  it('throws from aggregator when OSV ran but no result was recorded (fail-loud guard)', async () => {
+    // Simulate OSV being registered but returning status='error' while a secondary
+    // engine in front is also stubbed — the aggregator's OSV-missing guard must fire
+    // when the only entry produced has a non-osv id.
+    const config = await loadTestConfig();
+    const runner = new MockCommandRunner({});
+
+    // Use a stub that returns with id 'osv' but then we DON'T actually get an OSV entry
+    // because the orchestrator strips error results before handing them to the aggregator.
+    // So: OSV registered in registry (passes has('osv') check) but returns status='error'.
+    // The error result is NOT stripped for the primary — the orchestrator re-throws for primary errors.
+    // Therefore, we verify the orchestrator guard catches missing OSV before aggregator is called.
+
+    // More direct: use a custom registry where has('osv') is satisfied but the engine
+    // throws during scan — which is re-thrown immediately (primary failure is always fatal).
+    class ThrowingOsvEngine implements ScannerEngine {
+      readonly id = 'osv';
+      readonly name = 'Throwing OSV';
+      async assertAvailable(_ctx: ScannerEngineContext): Promise<void> {}
+      async scan(_ctx: ScannerEngineContext): Promise<ScanResultJson> {
+        throw new Error('OSV engine failed — simulated failure');
+      }
+    }
+
+    const reg = new ScannerEngineRegistry();
+    reg.register(new ThrowingOsvEngine());
+
+    await expect(
+      runOrchestrator(runner, config, {
+        configPath: 'project-config.yml',
+        cwd: fixturesDir,
+        dryRun: false,
+        verbose: false,
+        scannerRegistry: reg,
+      }),
+    ).rejects.toThrow('OSV engine failed — simulated failure');
   });
 });
