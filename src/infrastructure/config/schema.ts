@@ -5,7 +5,7 @@ const ProtectedPackageSchema = z.object({
   package: z.string(),
   constraint: z.string(),
   reason: z.string(),
-});
+}).strict();
 
 /** Fixer strategy identifier */
 const FixerStrategyIdSchema = z.enum(['osv', 'npm-audit']);
@@ -14,13 +14,13 @@ const FixerStrategyIdSchema = z.enum(['osv', 'npm-audit']);
 const AdvisorConfigSchema = z.object({
   name: z.string(),
   command: z.string(),
-});
+}).strict();
 
 /** Validation command config */
 const ValidationCommandConfigSchema = z.object({
   name: z.string(),
   command: z.string(),
-});
+}).strict();
 
 /** OSV scanner engine config */
 const OsvScannerConfigSchema = z.object({
@@ -37,7 +37,7 @@ const OsvScannerConfigSchema = z.object({
    * Defaults to 'ghcr.io/google/osv-scanner:latest'.
    */
   image: z.string().optional(),
-});
+}).strict();
 
 /** Output format — markdown for reports */
 const OutputFormatSchema = z.enum(['markdown']);
@@ -46,7 +46,7 @@ const OutputFormatSchema = z.enum(['markdown']);
 const OutputsConfigSchema = z.object({
   formats: z.array(OutputFormatSchema).optional(),
   dir: z.string().optional(),
-});
+}).strict();
 
 /** Declarative ecosystem config entry */
 const EcosystemConfigSchema = z.object({
@@ -55,7 +55,7 @@ const EcosystemConfigSchema = z.object({
   fixer: FixerStrategyIdSchema.optional(),
   validationCommands: z.array(ValidationCommandConfigSchema).optional(),
   advisors: z.array(AdvisorConfigSchema).optional(),
-});
+}).strict();
 
 const SonarQubeConfigSchema = z.object({
   enabled: z.boolean().default(false),
@@ -81,30 +81,30 @@ const SonarQubeConfigSchema = z.object({
    * Defaults to 'sonarsource/sonar-scanner-cli:latest'.
    */
   scanner_image: z.string().optional(),
-});
+}).strict();
 
 const ScannersConfigSchema = z.object({
   sonarqube: SonarQubeConfigSchema.optional(),
   osv: OsvScannerConfigSchema.optional(),
-});
+}).strict();
 
 const CloudStorageConfigSchema = z.object({
   provider: z.enum(['google_drive']),
   folder_id: z.string(),
   credentials: z.string().optional(),
   credentials_env: z.string().optional(),
-});
+}).strict();
 
 const SafeUpdatePolicySchema = z.object({
   allow_patch_and_minor_within_constraints: z.boolean(),
   require_authorization_for_constraint_change: z.boolean(),
-});
+}).strict();
 
 export const ProjectConfigSchema = z.object({
   project: z.object({
     name: z.string(),
     client: z.string(),
-  }),
+  }).strict(),
   /**
    * At least one ecosystem must be declared.
    * Each entry must have a unique id (validated at runtime by the plugin registry).
@@ -121,6 +121,6 @@ export const ProjectConfigSchema = z.object({
   cloud_storage: CloudStorageConfigSchema.optional(),
   scanners: ScannersConfigSchema.optional(),
   outputs: OutputsConfigSchema.optional(),
-});
+}).strict();
 
 export type ProjectConfigInput = z.input<typeof ProjectConfigSchema>;

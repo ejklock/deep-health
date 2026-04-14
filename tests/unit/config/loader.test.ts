@@ -322,3 +322,61 @@ describe('SonarQube project_key schema validation', () => {
     }
   });
 });
+
+describe('strict schema enforcement — unknown keys', () => {
+  it('rejects unknown top-level config key', async () => {
+    const { writeFile, unlink } = await import('node:fs/promises');
+    const tempPath = resolve(fixturesDir, '_temp_unknown_top.yml');
+    await writeFile(
+      tempPath,
+      `project:\n  name: test\n  client: test\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nunknown_top_key: oops\n`,
+    );
+    try {
+      await expect(loadConfig('_temp_unknown_top.yml', fixturesDir)).rejects.toThrow(ConfigLoadError);
+    } finally {
+      await unlink(tempPath).catch(() => {});
+    }
+  });
+
+  it('rejects unknown key inside project block', async () => {
+    const { writeFile, unlink } = await import('node:fs/promises');
+    const tempPath = resolve(fixturesDir, '_temp_unknown_project.yml');
+    await writeFile(
+      tempPath,
+      `project:\n  name: test\n  client: test\n  extra_field: oops\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\n`,
+    );
+    try {
+      await expect(loadConfig('_temp_unknown_project.yml', fixturesDir)).rejects.toThrow(ConfigLoadError);
+    } finally {
+      await unlink(tempPath).catch(() => {});
+    }
+  });
+
+  it('rejects unknown key inside scanners.osv block', async () => {
+    const { writeFile, unlink } = await import('node:fs/promises');
+    const tempPath = resolve(fixturesDir, '_temp_unknown_osv.yml');
+    await writeFile(
+      tempPath,
+      `project:\n  name: test\n  client: test\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nscanners:\n  osv:\n    runner: local\n    unknown_osv_key: oops\n`,
+    );
+    try {
+      await expect(loadConfig('_temp_unknown_osv.yml', fixturesDir)).rejects.toThrow(ConfigLoadError);
+    } finally {
+      await unlink(tempPath).catch(() => {});
+    }
+  });
+
+  it('rejects unknown key inside ecosystems[] entry', async () => {
+    const { writeFile, unlink } = await import('node:fs/promises');
+    const tempPath = resolve(fixturesDir, '_temp_unknown_eco_key.yml');
+    await writeFile(
+      tempPath,
+      `project:\n  name: test\n  client: test\necosystems:\n  - id: npm\n    unknown_eco_key: oops\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\n`,
+    );
+    try {
+      await expect(loadConfig('_temp_unknown_eco_key.yml', fixturesDir)).rejects.toThrow(ConfigLoadError);
+    } finally {
+      await unlink(tempPath).catch(() => {});
+    }
+  });
+});

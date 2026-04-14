@@ -62,6 +62,9 @@ export interface RawLocale {
     advisor_skipped: string;
     /** vars: output — truncated advisor output */
     advisor_output: string;            // vars: output
+    /** Branch/engine metadata labels */
+    label_branch: string;
+    label_scanners: string;
   };
   consolidated: {
     title: string;                // vars: projectName
@@ -95,5 +98,8 @@ export interface RawLocale {
     advisor_skipped: string;
     /** vars: output */
     advisor_output: string;
+    /** Branch/engine metadata labels */
+    label_branch: string;
+    label_scanners: string;
   };
 }

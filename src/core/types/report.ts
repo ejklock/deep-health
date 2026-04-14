@@ -34,6 +34,17 @@ export interface ConsolidatedReport {
    * Optional — present when advisors were configured and executed.
    */
   advisorResults?: Record<string, AdvisorResult[]>;
+  /**
+   * Git branch the scan was executed on.
+   * Optional — rendered in report header when present.
+   */
+  branch?: string | null;
+  /**
+   * Summary of scanner engines used during this run.
+   * Optional — rendered in report header when present.
+   * Example: ['osv', 'sonarqube']
+   */
+  scannerEngines?: string[];
 }
 
 export interface ExecutiveReportOptions {
@@ -55,4 +66,15 @@ export interface ExecutiveReportOptions {
    * Optional — present when advisors were configured and executed.
    */
   advisorResults?: Record<string, AdvisorResult[]>;
+  /**
+   * Git branch the scan was executed on.
+   * Optional — rendered in report header when present.
+   */
+  branch?: string | null;
+  /**
+   * Summary of scanner engines used during this run.
+   * Optional — rendered in report header when present.
+   * Example: ['osv', 'sonarqube']
+   */
+  scannerEngines?: string[];
 }

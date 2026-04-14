@@ -45,6 +45,9 @@ export interface ExecLocale {
   advisor_fail: string;
   advisor_skipped: string;
   advisor_output(output: string): string;
+  /** Branch/engine metadata labels */
+  label_branch: string;
+  label_scanners: string;
 }
 
 export interface ConsolidatedLocale {
@@ -76,6 +79,9 @@ export interface ConsolidatedLocale {
   advisor_fail: string;
   advisor_skipped: string;
   advisor_output(output: string): string;
+  /** Branch/engine metadata labels */
+  label_branch: string;
+  label_scanners: string;
 }
 
 export interface ReasonLocale {

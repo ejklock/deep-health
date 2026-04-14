@@ -2,7 +2,9 @@ export default `\
 {{t.label_client}}: {{client}}
 {{t.label_project}}: {{project}}
 {{t.label_period}}: {{monthFull}} {{year}}
-
+{{#if hasBranch}}{{t.label_branch}}: {{branch}}
+{{/if}}{{#if scannerEngines}}{{t.label_scanners}}: {{scannerEngines}}
+{{/if}}
 {{t.section_task}}
 
 {{t.task_title}}

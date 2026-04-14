@@ -252,3 +252,47 @@ describe('generateExecutiveReport — generic validations rendering', () => {
     expect(report).toContain('No lint errors');
   });
 });
+
+describe('generateExecutiveReport — branch and scanner engine metadata', () => {
+  it('renders branch label when branch is provided', () => {
+    const report = generateExecutiveReport({ ...baseOpts, branch: 'main' });
+    expect(report).toContain('main');
+    expect(report).toContain('Branch');
+  });
+
+  it('does not render branch line when branch is absent', () => {
+    const report = generateExecutiveReport(baseOpts);
+    expect(report).not.toContain('Branch:');
+  });
+
+  it('does not render branch line when branch is null', () => {
+    const report = generateExecutiveReport({ ...baseOpts, branch: null });
+    expect(report).not.toContain('Branch:');
+  });
+
+  it('renders scanner engines when scannerEngines is provided', () => {
+    const report = generateExecutiveReport({ ...baseOpts, scannerEngines: ['osv', 'sonarqube'] });
+    expect(report).toContain('osv, sonarqube');
+    expect(report).toContain('Scanners');
+  });
+
+  it('does not render scanner engines line when scannerEngines is absent', () => {
+    const report = generateExecutiveReport(baseOpts);
+    expect(report).not.toContain('Scanners:');
+  });
+
+  it('does not render scanner engines line when scannerEngines is empty array', () => {
+    const report = generateExecutiveReport({ ...baseOpts, scannerEngines: [] });
+    expect(report).not.toContain('Scanners:');
+  });
+
+  it('renders both branch and scannerEngines when both are provided', () => {
+    const report = generateExecutiveReport({
+      ...baseOpts,
+      branch: 'release/1.0',
+      scannerEngines: ['osv'],
+    });
+    expect(report).toContain('release/1.0');
+    expect(report).toContain('osv');
+  });
+});

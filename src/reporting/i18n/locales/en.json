@@ -52,7 +52,9 @@
     "advisor_pass": "✅ pass",
     "advisor_fail": "❌ fail",
     "advisor_skipped": "— skipped",
-    "advisor_output": "```\n{{output}}\n```"
+    "advisor_output": "```\n{{output}}\n```",
+    "label_branch": "Branch",
+    "label_scanners": "Scanners"
   },
   "consolidated": {
     "title": "# Security Report — {{projectName}}",
@@ -80,6 +82,8 @@
     "advisor_pass": "✅ pass",
     "advisor_fail": "❌ fail",
     "advisor_skipped": "— skipped",
-    "advisor_output": "```\n{{output}}\n```"
+    "advisor_output": "```\n{{output}}\n```",
+    "label_branch": "Branch",
+    "label_scanners": "Scanners"
   }
 }

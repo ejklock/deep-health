@@ -201,3 +201,47 @@ describe('generateConsolidatedReport', () => {
     expect(report).toContain('All good');
   });
 });
+
+describe('generateConsolidatedReport — branch and scanner engine metadata', () => {
+  it('renders branch label when branch is provided', () => {
+    const report = generateConsolidatedReport({ ...mockReport, branch: 'main' });
+    expect(report).toContain('main');
+    expect(report).toContain('Branch');
+  });
+
+  it('does not render branch line when branch is absent', () => {
+    const report = generateConsolidatedReport(mockReport);
+    expect(report).not.toContain('Branch:');
+  });
+
+  it('does not render branch line when branch is null', () => {
+    const report = generateConsolidatedReport({ ...mockReport, branch: null });
+    expect(report).not.toContain('Branch:');
+  });
+
+  it('renders scanner engines when scannerEngines is provided', () => {
+    const report = generateConsolidatedReport({ ...mockReport, scannerEngines: ['osv', 'sonarqube'] });
+    expect(report).toContain('osv, sonarqube');
+    expect(report).toContain('Scanners');
+  });
+
+  it('does not render scanner engines line when scannerEngines is absent', () => {
+    const report = generateConsolidatedReport(mockReport);
+    expect(report).not.toContain('Scanners:');
+  });
+
+  it('does not render scanner engines line when scannerEngines is empty array', () => {
+    const report = generateConsolidatedReport({ ...mockReport, scannerEngines: [] });
+    expect(report).not.toContain('Scanners:');
+  });
+
+  it('renders both branch and scannerEngines when both are provided', () => {
+    const report = generateConsolidatedReport({
+      ...mockReport,
+      branch: 'develop',
+      scannerEngines: ['osv'],
+    });
+    expect(report).toContain('develop');
+    expect(report).toContain('osv');
+  });
+});

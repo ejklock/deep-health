@@ -2,7 +2,9 @@ export default `\
 {{t.title}}
 **{{t.label_date}}:** {{date}}
 **{{t.label_environment}}:** {{environment}}
-
+{{#if hasBranch}}**{{t.label_branch}}:** {{branch}}
+{{/if}}{{#if scannerEngines}}**{{t.label_scanners}}:** {{scannerEngines}}
+{{/if}}
 ## {{t.section_vulns}}
 - **{{t.label_total}}:** {{totalVulns}}
 {{#each ecosystemSections}}- **{{reportLabel}} (auto-safe/breaking/manual):** {{eco.auto_safe}}/{{eco.breaking}}/{{eco.manual}}
