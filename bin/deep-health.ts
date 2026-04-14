@@ -12,11 +12,7 @@ if (nodeMajor < 22) {
 
 import { Command } from "commander";
 import { DEFAULT_CONFIG_PATH } from "@infra/config/loader";
-import {
-  ConfigLoadError,
-  GateValidationError,
-  PhaseError,
-} from "@core/errors";
+import { formatCliError } from "@app/diagnostics";
 import { runCloudSetup } from "@app/commands/cloud-setup";
 import { runInitCommand } from "@app/commands/init";
 import { createRunContext } from "@app/run-context";
@@ -69,7 +65,13 @@ program
   .option("--output <path>", "Output path (default: ./project-config.yml)")
   .option("--force", "Overwrite existing file", false)
   .action(async (opts) => {
-    await runInitCommand(opts);
+    try {
+      await runInitCommand(opts);
+    } catch (err) {
+      const { message, exitCode } = formatCliError(err);
+      process.stderr.write(`${message}\n`);
+      process.exit(exitCode);
+    }
   });
 
 // scan command
@@ -135,7 +137,7 @@ program
 
 /**
  * Shared error/exit wrapper for all main CLI actions.
- * Invokes `fn`, maps known error types to exit codes, then exits.
+ * Invokes `fn`, maps known error types to exit codes via formatCliError, then exits.
  *
  * Exit codes:
  *   0 — success
@@ -149,22 +151,9 @@ async function runCliAction(fn: () => Promise<number>): Promise<void> {
   try {
     exitCode = await fn();
   } catch (err) {
-    if (err instanceof ConfigLoadError) {
-      process.stderr.write(`Configuration error: ${err.message}\n`);
-      exitCode = 3;
-    } else if (err instanceof GateValidationError) {
-      process.stderr.write(`Gate ${err.gate} validation failed:\n`);
-      for (const e of err.errors) process.stderr.write(`  - ${e}\n`);
-      exitCode = 2;
-    } else if (err instanceof PhaseError) {
-      process.stderr.write(`Phase "${err.phase}" failed: ${err.message}\n`);
-      exitCode = 2;
-    } else {
-      process.stderr.write(
-        `Unexpected error: ${err instanceof Error ? err.message : String(err)}\n`,
-      );
-      exitCode = 2;
-    }
+    const result = formatCliError(err);
+    process.stderr.write(`${result.message}\n`);
+    exitCode = result.exitCode;
   }
 
   process.exit(exitCode);

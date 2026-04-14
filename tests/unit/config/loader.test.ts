@@ -7,6 +7,7 @@ import { EcosystemRegistry } from '@modules/ecosystem/registry';
 import { npmPlugin } from '@modules/ecosystem/plugins/npm';
 import { composerPlugin } from '@modules/ecosystem/plugins/composer';
 import type { ProjectConfig } from '@core/types/config';
+import { withTempConfig, minimalConfigYaml, minimalConfigWith } from '../../helpers/config-fixtures';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = resolve(__dirname, '../../fixtures');
@@ -54,34 +55,35 @@ describe('loadConfig', () => {
     await expect(loadConfig('nonexistent.yml', fixturesDir)).rejects.toThrow(ConfigLoadError);
   });
 
+  it('file-not-found error includes actionable hint', async () => {
+    const err = await loadConfig('nonexistent.yml', fixturesDir).catch((e) => e);
+    expect(err).toBeInstanceOf(ConfigLoadError);
+    expect(err.message).toMatch(/deep-health init/i);
+  });
+
   it('throws ConfigLoadError for missing required fields', async () => {
-    // Write a temp config missing required fields
-    const { writeFile, unlink } = await import('node:fs/promises');
-    const tempPath = resolve(fixturesDir, '_temp_test_config.yml');
-    await writeFile(tempPath, 'project:\n  name: test\n');
-    try {
-      await expect(loadConfig('_temp_test_config.yml', fixturesDir)).rejects.toThrow(
-        ConfigLoadError,
-      );
-    } finally {
-      await unlink(tempPath).catch(() => {});
-    }
+    await withTempConfig('project:\n  name: test\n', async (absPath, filename) => {
+      const dir = require('node:path').dirname(absPath);
+      await expect(loadConfig(filename, dir)).rejects.toThrow(ConfigLoadError);
+    });
   });
 
   it('throws ConfigLoadError when ecosystems[] is empty', async () => {
-    const { writeFile, unlink } = await import('node:fs/promises');
-    const tempPath = resolve(fixturesDir, '_temp_no_ecosystems.yml');
-    await writeFile(
-      tempPath,
-      `project:\n  name: test\n  client: test\necosystems: []\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: true\nconflict_resolution: stop_and_ask\n`,
-    );
-    try {
-      await expect(loadConfig('_temp_no_ecosystems.yml', fixturesDir)).rejects.toThrow(
-        ConfigLoadError,
-      );
-    } finally {
-      await unlink(tempPath).catch(() => {});
-    }
+    const yaml = [
+      'project:',
+      '  name: test',
+      '  client: test',
+      'ecosystems: []',
+      'protected_packages: {}',
+      'safe_update_policy:',
+      '  allow_patch_and_minor_within_constraints: true',
+      '  require_authorization_for_constraint_change: true',
+      'conflict_resolution: stop_and_ask',
+    ].join('\n') + '\n';
+    await withTempConfig(yaml, async (absPath, filename) => {
+      const dir = require('node:path').dirname(absPath);
+      await expect(loadConfig(filename, dir)).rejects.toThrow(ConfigLoadError);
+    });
   });
 
   it('correctly loads protected packages', async () => {
@@ -101,20 +103,23 @@ describe('loadConfig', () => {
   });
 
   it('throws ConfigLoadError when ecosystem id is not in registry', async () => {
-    const { writeFile, unlink } = await import('node:fs/promises');
-    const tempPath = resolve(fixturesDir, '_temp_unknown_eco.yml');
-    await writeFile(
-      tempPath,
-      `project:\n  name: test\n  client: test\necosystems:\n  - id: 'unknown-eco'\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\n`,
-    );
-    try {
+    const yaml = [
+      'project:',
+      '  name: test',
+      '  client: test',
+      'ecosystems:',
+      "  - id: 'unknown-eco'",
+      'protected_packages: {}',
+      'safe_update_policy:',
+      '  allow_patch_and_minor_within_constraints: true',
+      '  require_authorization_for_constraint_change: false',
+      'conflict_resolution: fail',
+    ].join('\n') + '\n';
+    await withTempConfig(yaml, async (absPath, filename) => {
+      const dir = require('node:path').dirname(absPath);
       const registry = makeRegistry();
-      await expect(loadConfig('_temp_unknown_eco.yml', fixturesDir, registry)).rejects.toThrow(
-        ConfigLoadError,
-      );
-    } finally {
-      await unlink(tempPath).catch(() => {});
-    }
+      await expect(loadConfig(filename, dir, registry)).rejects.toThrow(ConfigLoadError);
+    });
   });
 });
 
@@ -180,203 +185,178 @@ describe('validateEcosystemsAgainstRegistry', () => {
 
 describe('OSV scanner config schema — runner + image fields', () => {
   it('accepts osv.runner: docker with a custom image', async () => {
-    const { writeFile, unlink } = await import('node:fs/promises');
-    const tempPath = resolve(fixturesDir, '_temp_osv_docker_runner.yml');
-    await writeFile(
-      tempPath,
-      `project:\n  name: test\n  client: test\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nscanners:\n  osv:\n    runner: docker\n    image: 'ghcr.io/google/osv-scanner:v1.9.0'\n`,
+    const yaml = minimalConfigWith(
+      'scanners:\n  osv:\n    runner: docker\n    image: \'ghcr.io/google/osv-scanner:v1.9.0\'',
     );
-    try {
-      const config = await loadConfig('_temp_osv_docker_runner.yml', fixturesDir);
+    await withTempConfig(yaml, async (absPath, filename) => {
+      const dir = require('node:path').dirname(absPath);
+      const config = await loadConfig(filename, dir);
       expect(config.scanners?.osv?.runner).toBe('docker');
       expect(config.scanners?.osv?.image).toBe('ghcr.io/google/osv-scanner:v1.9.0');
-    } finally {
-      await unlink(tempPath).catch(() => {});
-    }
+    });
   });
 
   it('accepts osv.runner: local', async () => {
-    const { writeFile, unlink } = await import('node:fs/promises');
-    const tempPath = resolve(fixturesDir, '_temp_osv_local_runner.yml');
-    await writeFile(
-      tempPath,
-      `project:\n  name: test\n  client: test\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nscanners:\n  osv:\n    runner: local\n`,
-    );
-    try {
-      const config = await loadConfig('_temp_osv_local_runner.yml', fixturesDir);
+    const yaml = minimalConfigWith('scanners:\n  osv:\n    runner: local');
+    await withTempConfig(yaml, async (absPath, filename) => {
+      const dir = require('node:path').dirname(absPath);
+      const config = await loadConfig(filename, dir);
       expect(config.scanners?.osv?.runner).toBe('local');
-    } finally {
-      await unlink(tempPath).catch(() => {});
-    }
+    });
   });
 
   it('accepts osv.runner: auto', async () => {
-    const { writeFile, unlink } = await import('node:fs/promises');
-    const tempPath = resolve(fixturesDir, '_temp_osv_auto_runner.yml');
-    await writeFile(
-      tempPath,
-      `project:\n  name: test\n  client: test\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nscanners:\n  osv:\n    runner: auto\n`,
-    );
-    try {
-      const config = await loadConfig('_temp_osv_auto_runner.yml', fixturesDir);
+    const yaml = minimalConfigWith('scanners:\n  osv:\n    runner: auto');
+    await withTempConfig(yaml, async (absPath, filename) => {
+      const dir = require('node:path').dirname(absPath);
+      const config = await loadConfig(filename, dir);
       expect(config.scanners?.osv?.runner).toBe('auto');
-    } finally {
-      await unlink(tempPath).catch(() => {});
-    }
+    });
   });
 
   it('defaults osv.runner to auto when not specified', async () => {
-    const { writeFile, unlink } = await import('node:fs/promises');
-    const tempPath = resolve(fixturesDir, '_temp_osv_no_runner.yml');
-    await writeFile(
-      tempPath,
-      `project:\n  name: test\n  client: test\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nscanners:\n  osv: {}\n`,
-    );
-    try {
-      const config = await loadConfig('_temp_osv_no_runner.yml', fixturesDir);
+    const yaml = minimalConfigWith('scanners:\n  osv: {}');
+    await withTempConfig(yaml, async (absPath, filename) => {
+      const dir = require('node:path').dirname(absPath);
+      const config = await loadConfig(filename, dir);
       expect(config.scanners?.osv?.runner).toBe('auto');
-    } finally {
-      await unlink(tempPath).catch(() => {});
-    }
+    });
   });
 
   it('rejects an invalid osv.runner value', async () => {
-    const { writeFile, unlink } = await import('node:fs/promises');
-    const tempPath = resolve(fixturesDir, '_temp_osv_bad_runner.yml');
-    await writeFile(
-      tempPath,
-      `project:\n  name: test\n  client: test\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nscanners:\n  osv:\n    runner: kubernetes\n`,
-    );
-    try {
-      await expect(loadConfig('_temp_osv_bad_runner.yml', fixturesDir)).rejects.toThrow(
-        ConfigLoadError,
-      );
-    } finally {
-      await unlink(tempPath).catch(() => {});
-    }
+    const yaml = minimalConfigWith('scanners:\n  osv:\n    runner: kubernetes');
+    await withTempConfig(yaml, async (absPath, filename) => {
+      const dir = require('node:path').dirname(absPath);
+      await expect(loadConfig(filename, dir)).rejects.toThrow(ConfigLoadError);
+    });
+  });
+
+  it('invalid enum error message includes expected values', async () => {
+    const yaml = minimalConfigWith('scanners:\n  osv:\n    runner: kubernetes');
+    await withTempConfig(yaml, async (absPath, filename) => {
+      const dir = require('node:path').dirname(absPath);
+      const err = await loadConfig(filename, dir).catch((e) => e);
+      expect(err).toBeInstanceOf(ConfigLoadError);
+      // Should show expected enum values
+      expect(err.message).toMatch(/"auto"/);
+      expect(err.message).toMatch(/"local"/);
+      expect(err.message).toMatch(/"docker"/);
+    });
   });
 
   it('accepts image field without runner (image is optional)', async () => {
-    const { writeFile, unlink } = await import('node:fs/promises');
-    const tempPath = resolve(fixturesDir, '_temp_osv_image_only.yml');
-    await writeFile(
-      tempPath,
-      `project:\n  name: test\n  client: test\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nscanners:\n  osv:\n    image: 'ghcr.io/google/osv-scanner:v1.9.0'\n`,
+    const yaml = minimalConfigWith(
+      'scanners:\n  osv:\n    image: \'ghcr.io/google/osv-scanner:v1.9.0\'',
     );
-    try {
-      const config = await loadConfig('_temp_osv_image_only.yml', fixturesDir);
+    await withTempConfig(yaml, async (absPath, filename) => {
+      const dir = require('node:path').dirname(absPath);
+      const config = await loadConfig(filename, dir);
       expect(config.scanners?.osv?.image).toBe('ghcr.io/google/osv-scanner:v1.9.0');
       // runner defaults to 'auto'
       expect(config.scanners?.osv?.runner).toBe('auto');
-    } finally {
-      await unlink(tempPath).catch(() => {});
-    }
+    });
   });
 });
 
 describe('SonarQube project_key schema validation', () => {
   it('rejects an invalid project_key containing spaces', async () => {
-    const { writeFile, unlink } = await import('node:fs/promises');
-    const tempPath = resolve(fixturesDir, '_temp_invalid_sonar_key.yml');
-    await writeFile(
-      tempPath,
-      `project:\n  name: test\n  client: test\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nscanners:\n  sonarqube:\n    enabled: true\n    project_key: 'My Invalid Key'\n`,
+    const yaml = minimalConfigWith(
+      'scanners:\n  sonarqube:\n    enabled: true\n    project_key: \'My Invalid Key\'',
     );
-    try {
-      await expect(loadConfig('_temp_invalid_sonar_key.yml', fixturesDir)).rejects.toThrow(
-        ConfigLoadError,
-      );
-    } finally {
-      await unlink(tempPath).catch(() => {});
-    }
+    await withTempConfig(yaml, async (absPath, filename) => {
+      const dir = require('node:path').dirname(absPath);
+      await expect(loadConfig(filename, dir)).rejects.toThrow(ConfigLoadError);
+    });
   });
 
   it('rejects an invalid project_key containing special characters', async () => {
-    const { writeFile, unlink } = await import('node:fs/promises');
-    const tempPath = resolve(fixturesDir, '_temp_invalid_sonar_key2.yml');
-    await writeFile(
-      tempPath,
-      `project:\n  name: test\n  client: test\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nscanners:\n  sonarqube:\n    enabled: true\n    project_key: 'my project!'\n`,
+    const yaml = minimalConfigWith(
+      'scanners:\n  sonarqube:\n    enabled: true\n    project_key: \'my project!\'',
     );
-    try {
-      await expect(loadConfig('_temp_invalid_sonar_key2.yml', fixturesDir)).rejects.toThrow(
-        ConfigLoadError,
-      );
-    } finally {
-      await unlink(tempPath).catch(() => {});
-    }
+    await withTempConfig(yaml, async (absPath, filename) => {
+      const dir = require('node:path').dirname(absPath);
+      await expect(loadConfig(filename, dir)).rejects.toThrow(ConfigLoadError);
+    });
   });
 
   it('accepts a valid project_key with hyphens and colons', async () => {
-    const { writeFile, unlink } = await import('node:fs/promises');
-    const tempPath = resolve(fixturesDir, '_temp_valid_sonar_key.yml');
-    await writeFile(
-      tempPath,
-      `project:\n  name: test\n  client: test\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nscanners:\n  sonarqube:\n    enabled: true\n    project_key: 'org:my-project_v2'\n`,
+    const yaml = minimalConfigWith(
+      'scanners:\n  sonarqube:\n    enabled: true\n    project_key: \'org:my-project_v2\'',
     );
-    try {
-      const config = await loadConfig('_temp_valid_sonar_key.yml', fixturesDir);
+    await withTempConfig(yaml, async (absPath, filename) => {
+      const dir = require('node:path').dirname(absPath);
+      const config = await loadConfig(filename, dir);
       expect(config.scanners?.sonarqube?.project_key).toBe('org:my-project_v2');
-    } finally {
-      await unlink(tempPath).catch(() => {});
-    }
+    });
   });
 });
 
 describe('strict schema enforcement — unknown keys', () => {
   it('rejects unknown top-level config key', async () => {
-    const { writeFile, unlink } = await import('node:fs/promises');
-    const tempPath = resolve(fixturesDir, '_temp_unknown_top.yml');
-    await writeFile(
-      tempPath,
-      `project:\n  name: test\n  client: test\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nunknown_top_key: oops\n`,
-    );
-    try {
-      await expect(loadConfig('_temp_unknown_top.yml', fixturesDir)).rejects.toThrow(ConfigLoadError);
-    } finally {
-      await unlink(tempPath).catch(() => {});
-    }
+    const yaml = minimalConfigWith('unknown_top_key: oops');
+    await withTempConfig(yaml, async (absPath, filename) => {
+      const dir = require('node:path').dirname(absPath);
+      await expect(loadConfig(filename, dir)).rejects.toThrow(ConfigLoadError);
+    });
+  });
+
+  it('unknown-key error message shows the rejected key name', async () => {
+    const yaml = minimalConfigWith('unknown_top_key: oops');
+    await withTempConfig(yaml, async (absPath, filename) => {
+      const dir = require('node:path').dirname(absPath);
+      const err = await loadConfig(filename, dir).catch((e) => e);
+      expect(err).toBeInstanceOf(ConfigLoadError);
+      expect(err.message).toMatch(/"unknown_top_key"/);
+    });
   });
 
   it('rejects unknown key inside project block', async () => {
-    const { writeFile, unlink } = await import('node:fs/promises');
-    const tempPath = resolve(fixturesDir, '_temp_unknown_project.yml');
-    await writeFile(
-      tempPath,
-      `project:\n  name: test\n  client: test\n  extra_field: oops\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\n`,
-    );
-    try {
-      await expect(loadConfig('_temp_unknown_project.yml', fixturesDir)).rejects.toThrow(ConfigLoadError);
-    } finally {
-      await unlink(tempPath).catch(() => {});
-    }
+    const yaml = [
+      'project:',
+      '  name: test',
+      '  client: test',
+      '  extra_field: oops',
+      'ecosystems:',
+      '  - id: npm',
+      'protected_packages: {}',
+      'safe_update_policy:',
+      '  allow_patch_and_minor_within_constraints: true',
+      '  require_authorization_for_constraint_change: false',
+      'conflict_resolution: fail',
+    ].join('\n') + '\n';
+    await withTempConfig(yaml, async (absPath, filename) => {
+      const dir = require('node:path').dirname(absPath);
+      await expect(loadConfig(filename, dir)).rejects.toThrow(ConfigLoadError);
+    });
   });
 
   it('rejects unknown key inside scanners.osv block', async () => {
-    const { writeFile, unlink } = await import('node:fs/promises');
-    const tempPath = resolve(fixturesDir, '_temp_unknown_osv.yml');
-    await writeFile(
-      tempPath,
-      `project:\n  name: test\n  client: test\necosystems:\n  - id: npm\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\nscanners:\n  osv:\n    runner: local\n    unknown_osv_key: oops\n`,
+    const yaml = minimalConfigWith(
+      'scanners:\n  osv:\n    runner: local\n    unknown_osv_key: oops',
     );
-    try {
-      await expect(loadConfig('_temp_unknown_osv.yml', fixturesDir)).rejects.toThrow(ConfigLoadError);
-    } finally {
-      await unlink(tempPath).catch(() => {});
-    }
+    await withTempConfig(yaml, async (absPath, filename) => {
+      const dir = require('node:path').dirname(absPath);
+      await expect(loadConfig(filename, dir)).rejects.toThrow(ConfigLoadError);
+    });
   });
 
   it('rejects unknown key inside ecosystems[] entry', async () => {
-    const { writeFile, unlink } = await import('node:fs/promises');
-    const tempPath = resolve(fixturesDir, '_temp_unknown_eco_key.yml');
-    await writeFile(
-      tempPath,
-      `project:\n  name: test\n  client: test\necosystems:\n  - id: npm\n    unknown_eco_key: oops\nprotected_packages: {}\nsafe_update_policy:\n  allow_patch_and_minor_within_constraints: true\n  require_authorization_for_constraint_change: false\nconflict_resolution: fail\n`,
-    );
-    try {
-      await expect(loadConfig('_temp_unknown_eco_key.yml', fixturesDir)).rejects.toThrow(ConfigLoadError);
-    } finally {
-      await unlink(tempPath).catch(() => {});
-    }
+    const yaml = [
+      'project:',
+      '  name: test',
+      '  client: test',
+      'ecosystems:',
+      '  - id: npm',
+      '    unknown_eco_key: oops',
+      'protected_packages: {}',
+      'safe_update_policy:',
+      '  allow_patch_and_minor_within_constraints: true',
+      '  require_authorization_for_constraint_change: false',
+      'conflict_resolution: fail',
+    ].join('\n') + '\n';
+    await withTempConfig(yaml, async (absPath, filename) => {
+      const dir = require('node:path').dirname(absPath);
+      await expect(loadConfig(filename, dir)).rejects.toThrow(ConfigLoadError);
+    });
   });
 });

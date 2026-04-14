@@ -4,6 +4,7 @@ import { DEFAULT_CONFIG_PATH } from '@infra/config/loader';
 import { generateConfigYaml, type GenerateConfigOptions } from '@infra/config/generator';
 import { prompt } from '@infra/utils/prompt';
 import { defaultRegistry } from '@modules/ecosystem/index';
+import { ConfigLoadError } from '@core/errors';
 
 export interface InitCommandOptions {
   projectName?: string;
@@ -35,11 +36,15 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   if (!opts.force) {
     try {
       await access(outputPath);
-      process.stderr.write(
-        `File already exists: ${outputPath}\nUse --force to overwrite.\n`,
+      throw new ConfigLoadError(
+        `File already exists: ${outputPath}\nUse --force to overwrite.`,
+        outputPath,
       );
-      process.exit(3);
-    } catch {
+    } catch (err) {
+      // Re-throw our own error
+      if (err instanceof ConfigLoadError) throw err;
+      // Re-throw unexpected fs errors (e.g. EACCES, EPERM) — only swallow ENOENT
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
       // File doesn't exist — proceed
     }
   }

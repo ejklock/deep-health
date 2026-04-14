@@ -1,12 +1,59 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { parse } from 'yaml';
+import type { ZodIssue } from 'zod';
 import { ProjectConfigSchema } from './schema';
 import type { ProjectConfig } from '@core/types/config';
 import { ConfigLoadError } from '@core/errors';
 import type { EcosystemRegistry } from '@modules/ecosystem/registry';
 
 export const DEFAULT_CONFIG_PATH = 'project-config.yml';
+
+/**
+ * Formats a Zod path array into a human-readable dot+bracket string.
+ * Array indices are rendered as `[N]`; object keys are separated by `.`.
+ *
+ * Examples:
+ *   [] → '(root)'
+ *   ['project', 'name'] → 'project.name'
+ *   ['ecosystems', 0, 'id'] → 'ecosystems[0].id'
+ */
+export function formatZodPath(path: (string | number)[]): string {
+  if (path.length === 0) return '(root)';
+  let result = '';
+  for (const segment of path) {
+    if (typeof segment === 'number') {
+      result += `[${segment}]`;
+    } else {
+      result += result.length > 0 ? `.${segment}` : segment;
+    }
+  }
+  return result;
+}
+
+/**
+ * Formats a single Zod issue into a human-readable line with actionable detail.
+ *
+ * - `unrecognized_keys`: shows the rejected key(s)
+ * - `invalid_enum_value`: shows expected values
+ * - all: shows path + message
+ */
+export function formatZodIssue(issue: ZodIssue): string {
+  const path = formatZodPath(issue.path);
+  const prefix = `  ${path}: `;
+
+  if (issue.code === 'unrecognized_keys') {
+    const keys = issue.keys.map((k) => `"${k}"`).join(', ');
+    return `${prefix}Unknown key(s) ${keys} — remove or correct the field name`;
+  }
+
+  if (issue.code === 'invalid_enum_value') {
+    const expected = issue.options.map((o) => `"${String(o)}"`).join(', ');
+    return `${prefix}${issue.message} — expected one of: ${expected}`;
+  }
+
+  return `${prefix}${issue.message}`;
+}
 
 /**
  * Cross-validate config.ecosystems[] against the plugin registry.
@@ -64,7 +111,9 @@ export async function loadConfig(
     raw = await readFile(absolutePath, 'utf-8');
   } catch (_err) {
     throw new ConfigLoadError(
-      `Cannot read config file: ${absolutePath}`,
+      `Cannot read config file: ${absolutePath}\n` +
+      `  Hint: Run "deep-health init" to generate a starter config, ` +
+      `or check the --config / --cwd flags.`,
       absolutePath,
     );
   }
@@ -74,16 +123,15 @@ export async function loadConfig(
     parsed = parse(raw);
   } catch (_err) {
     throw new ConfigLoadError(
-      `Invalid YAML in config file: ${absolutePath}`,
+      `Invalid YAML in config file: ${absolutePath}\n` +
+      `  Hint: Validate your YAML syntax at https://yaml.org/spec/ or use a linter.`,
       absolutePath,
     );
   }
 
   const result = ProjectConfigSchema.safeParse(parsed);
   if (!result.success) {
-    const issues = result.error.issues
-      .map((i) => `  ${i.path.join('.')}: ${i.message}`)
-      .join('\n');
+    const issues = result.error.issues.map(formatZodIssue).join('\n');
     throw new ConfigLoadError(
       `Config validation failed in ${absolutePath}:\n${issues}`,
       absolutePath,

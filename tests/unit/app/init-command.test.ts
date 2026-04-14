@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('node:fs/promises', () => ({
   writeFile: vi.fn(),
-  access: vi.fn().mockRejectedValue(new Error('not found')),
+  access: vi.fn().mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
   mkdir: vi.fn(),
   // plugins call readFile for inferVersion; return ENOENT so inference yields undefined
   readFile: vi.fn().mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
@@ -16,12 +16,14 @@ vi.mock('@infra/utils/prompt', () => ({
   prompt: vi.fn(),
 }));
 
-import { writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir, access } from 'node:fs/promises';
 import { generateConfigYaml } from '@infra/config/generator';
 import { prompt } from '@infra/utils/prompt';
 import { runInitCommand } from '@app/commands/init';
+import { ConfigLoadError } from '@core/errors';
 
 const mockPrompt = vi.mocked(prompt);
+const mockAccess = vi.mocked(access);
 
 // ─── Non-interactive mode ─────────────────────────────────────────────────────
 
@@ -232,5 +234,120 @@ describe('runInitCommand — interactive version prompts', () => {
     const call = vi.mocked(generateConfigYaml).mock.calls[0]![0];
     const composerEntry = call.ecosystemConfigs?.find((e) => e.id === 'composer');
     expect(composerEntry).toBeUndefined();
+  });
+});
+
+// ─── Existing file guard ──────────────────────────────────────────────────────
+
+describe('runInitCommand — existing file guard', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Reset access mock entirely (clears all queued once-mocks) then set default to reject
+    mockAccess.mockReset();
+    // Simulate "file not found" (ENOENT) so the guard proceeds by default
+    mockAccess.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+  });
+
+  it('throws ConfigLoadError (exit code 3 semantics) when output file exists and --force is not set', async () => {
+    // Simulate file already exists
+    mockAccess.mockResolvedValueOnce(undefined);
+
+    await expect(
+      runInitCommand({
+        cwd: '/repo',
+        force: false,
+        nonInteractive: true,
+        output: 'project-config.yml',
+      }),
+    ).rejects.toThrow(ConfigLoadError);
+  });
+
+  it('includes the output path and --force hint in the thrown error message', async () => {
+    mockAccess.mockResolvedValueOnce(undefined);
+
+    const err = await runInitCommand({
+      cwd: '/repo',
+      force: false,
+      nonInteractive: true,
+      output: 'project-config.yml',
+    }).catch((e) => e);
+
+    expect(err).toBeInstanceOf(ConfigLoadError);
+    expect(err.message).toMatch(/File already exists/);
+    expect(err.message).toMatch(/--force/);
+  });
+
+  it('proceeds normally when --force is set even if file exists', async () => {
+    // When --force is true, access is not called at all (guard is skipped)
+
+    await expect(
+      runInitCommand({
+        cwd: '/repo',
+        force: true,
+        nonInteractive: true,
+        projectName: 'Force Project',
+        client: 'Client',
+        output: 'project-config.yml',
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(writeFile).toHaveBeenCalled();
+  });
+
+  it('proceeds normally when file does not exist and --force is not set', async () => {
+    // access rejects (set in beforeEach) → file does not exist → proceed
+
+    await expect(
+      runInitCommand({
+        cwd: '/repo',
+        force: false,
+        nonInteractive: true,
+        projectName: 'New Project',
+        client: 'Client',
+        output: 'project-config.yml',
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(writeFile).toHaveBeenCalled();
+  });
+
+  it('proceeds when access rejects with an ENOENT error (code check)', async () => {
+    // Explicitly set ENOENT with code
+    mockAccess.mockRejectedValueOnce(
+      Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' }),
+    );
+
+    await expect(
+      runInitCommand({
+        cwd: '/repo',
+        force: false,
+        nonInteractive: true,
+        projectName: 'ENOENT Project',
+        client: 'Client',
+        output: 'project-config.yml',
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(writeFile).toHaveBeenCalled();
+  });
+
+  it('re-throws unexpected fs errors (e.g. EACCES) instead of swallowing them', async () => {
+    const permissionError = Object.assign(new Error('EACCES: permission denied'), {
+      code: 'EACCES',
+    });
+    mockAccess.mockRejectedValueOnce(permissionError);
+
+    await expect(
+      runInitCommand({
+        cwd: '/repo',
+        force: false,
+        nonInteractive: true,
+        projectName: 'Permission Project',
+        client: 'Client',
+        output: 'project-config.yml',
+      }),
+    ).rejects.toThrow('EACCES: permission denied');
+
+    expect(writeFile).not.toHaveBeenCalled();
   });
 });
