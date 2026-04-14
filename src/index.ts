@@ -2,13 +2,40 @@ export { loadConfig, DEFAULT_CONFIG_PATH } from '@infra/config/loader';
 export { generateConfigYaml } from '@infra/config/generator';
 export { runOrchestrator } from '@orchestration/orchestrator';
 export { generateConsolidatedReport } from '@reporting/consolidated';
-export { generateExecutiveReport, executiveReportFilename } from '@reporting/executive';
+export {
+  generateExecutiveReport,
+  executiveReportFilename,
+  consolidatedReportFilename,
+  sonarqubeReportFilename,
+  generateSonarQubeMarkdownReport,
+} from '@reporting/executive';
 export { validateGateA, validateEcosystemGate } from '@core/gates/validator';
 export { LocalExecutor } from '@infra/executor/local-executor';
 export { DockerExecutor } from '@infra/executor/docker-executor';
 export { detectEnvironment } from '@infra/environment/detector';
+export { resolveReportsDir, saveReport } from '@app/report-saver';
 export type { OrchestratorOptions, OrchestratorResult } from '@orchestration/orchestrator';
-export type { ProjectConfig } from '@core/types/config';
+export type {
+  ProjectConfig,
+  EcosystemConfig,
+  FixerStrategyId,
+  OutputFormat,
+  OutputsConfig,
+  AdvisorConfig,
+  ValidationCommandConfig,
+  OsvScannerConfig,
+  RuntimeConfig,
+  CloudStorageConfig,
+  SonarQubeConfig,
+  ScannersConfig,
+  SafeUpdatePolicy,
+  ProtectedPackage,
+} from '@core/types/config';
 export type { ScanResultJson } from '@core/types/scan';
 export type { UpdateResultJson } from '@core/types/update';
 export type { CommandRunner } from '@core/types/common';
+export type {
+  ConsolidatedReport,
+  ExecutiveReportOptions,
+  AdvisorResult,
+} from '@core/types/report';

@@ -1,5 +1,7 @@
 import type { ExecutionEnv } from './common';
 import type { SupportedLocale } from './locale';
+// AdvisorResult has moved to report.ts; re-exported here for backward compatibility.
+export type { AdvisorResult } from './report';
 
 export interface ProtectedPackage {
   package: string;
@@ -117,15 +119,4 @@ export interface ProjectConfig {
   cloud_storage?: CloudStorageConfig;
   scanners?: ScannersConfig;
   outputs?: OutputsConfig;
-}
-
-/** Result produced by an advisor command execution */
-export interface AdvisorResult {
-  name: string;
-  command: string;
-  /** Exit code of the advisor command */
-  exitCode: number;
-  /** Last N lines of stdout (truncated for reports; full output in logs) */
-  output: string;
-  status: 'pass' | 'fail' | 'skipped';
 }

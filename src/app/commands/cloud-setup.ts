@@ -32,7 +32,7 @@ async function resolveCredentials(
     type: 'text',
     name: 'credPath',
     message: 'Path to Google service account JSON file (relative to project):',
-    initial: '.osv-scanner/gdrive-service-account.json',
+    initial: '.deep-health/gdrive-service-account.json',
   });
   if (!credPath) throw new Error('No credentials path provided');
 

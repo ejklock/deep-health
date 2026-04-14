@@ -96,5 +96,5 @@ export function resolveReportsDir(
   cwd: string,
   configReportsDir: string | undefined,
 ): string {
-  return resolve(cwd, configReportsDir ?? ".osv-scanner/reports");
+  return resolve(cwd, configReportsDir ?? ".deep-health/reports");
 }

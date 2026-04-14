@@ -2,7 +2,17 @@ import type { ScanResultJson } from './scan';
 import type { UpdateResultJson } from './update';
 import type { PhaseStatus } from './common';
 import type { SupportedLocale } from './locale';
-import type { AdvisorResult } from './config';
+
+/** Result produced by an advisor command execution */
+export interface AdvisorResult {
+  name: string;
+  command: string;
+  /** Exit code of the advisor command */
+  exitCode: number;
+  /** Last N lines of stdout (truncated for reports; full output in logs) */
+  output: string;
+  status: 'pass' | 'fail' | 'skipped';
+}
 
 export interface ConsolidatedReport {
   projectName: string;
