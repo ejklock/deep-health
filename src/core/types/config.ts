@@ -126,6 +126,35 @@ export interface SonarQubeConfig {
    * and branch analysis is configured on your SonarQube instance.
    */
   send_branch_name?: boolean;
+  /**
+   * Maximum seconds to wait for the SonarQube Compute Engine (CE) task to complete
+   * before fetching the quality gate status.  Polling uses exponential back-off.
+   *
+   * When the CE task completes within the timeout, quality gate results are accurate.
+   * If the timeout is exceeded, the engine falls back to an immediate quality-gate
+   * fetch (best-effort) and emits a warning — the pipeline is NOT hard-failed.
+   *
+   * Defaults to 120 seconds.  Set to 0 to disable CE waiting entirely.
+   */
+  ce_task_timeout_seconds?: number;
+  /**
+   * Glob patterns forwarded to sonar-scanner as `-Dsonar.exclusions`.
+   * When absent, ecosystem-specific defaults are used:
+   *   - npm:      node_modules/**, tests/**
+   *   - composer: vendor/**, tests/**
+   * If explicitly set (even to an empty array), the value is used as-is (full override —
+   * no merging with defaults).
+   */
+  exclusions?: string[];
+  /**
+   * Glob patterns forwarded to sonar-scanner as `-Dsonar.coverage.exclusions`.
+   * When absent, ecosystem-specific defaults are used:
+   *   - npm:      node_modules/**, tests/**
+   *   - composer: vendor/**, tests/**
+   * If explicitly set (even to an empty array), the value is used as-is (full override —
+   * no merging with defaults).
+   */
+  coverage_exclusions?: string[];
 }
 
 export interface ScannersConfig {

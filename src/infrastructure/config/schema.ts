@@ -88,6 +88,21 @@ const SonarQubeConfigSchema = z.object({
    * Defaults to false (CE-safe).
    */
   send_branch_name: z.boolean().default(false),
+  /**
+   * Maximum seconds to wait for the SonarQube Compute Engine (CE) task to complete
+   * before fetching the quality gate status.  Defaults to 120.  Set to 0 to disable.
+   */
+  ce_task_timeout_seconds: z.number().int().nonnegative().default(120),
+  /**
+   * Glob patterns for sonar.exclusions.  When omitted, ecosystem-specific defaults apply.
+   * When set (even to []), the value is used verbatim (full override).
+   */
+  exclusions: z.array(z.string()).optional(),
+  /**
+   * Glob patterns for sonar.coverage.exclusions.  When omitted, ecosystem-specific defaults apply.
+   * When set (even to []), the value is used verbatim (full override).
+   */
+  coverage_exclusions: z.array(z.string()).optional(),
 }).strict();
 
 const ScannersConfigSchema = z.object({

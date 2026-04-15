@@ -5,6 +5,7 @@ import type { ScannerEngineContext } from '@modules/scanner/types';
 import type { CommandRunner, CommandResult, CommandRunnerOptions, ExecutionEnv } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
 import type { EcosystemRegistry } from '@modules/ecosystem/registry';
+import fs from 'node:fs';
 
 // ─── Mock DockerSonarQubeProvisioner for unit tests ────────────────────────────
 // We do NOT want real Docker calls in unit tests.
@@ -1074,3 +1075,407 @@ describe('SonarQubeEngine — branch forwarding', () => {
     expect(runArgs.some((a: string) => a.startsWith('-Dsonar.branch.name'))).toBe(false);
   });
 });
+
+// ─── Exclusion args ───────────────────────────────────────────────────────────
+
+describe('SonarQubeEngine — exclusion args', () => {
+  const engine = new SonarQubeEngine();
+
+  beforeEach(() => {
+    process.env['SONAR_TOKEN'] = 'test-token';
+  });
+  afterEach(() => {
+    delete process.env['SONAR_TOKEN'];
+    vi.clearAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function makeConfigWithEcosystems(
+    ecosystemIds: string[],
+    sonarOverrides: Partial<{ exclusions: string[]; coverage_exclusions: string[]; ce_task_timeout_seconds: number }> = {},
+  ): ProjectConfig {
+    return {
+      project: { name: 'test', client: 'client' },
+      ecosystems: ecosystemIds.map((id) => ({ id })),
+      protected_packages: {},
+      safe_update_policy: {
+        allow_patch_and_minor_within_constraints: true,
+        require_authorization_for_constraint_change: false,
+      },
+      conflict_resolution: 'stop_and_ask',
+      scanners: {
+        sonarqube: {
+          enabled: true,
+          mode: 'external',
+          host_url: 'http://localhost:9000',
+          project_key: 'my-project',
+          token_env: 'SONAR_TOKEN',
+          on_failure: 'warn',
+          ...sonarOverrides,
+        },
+      },
+    } as ProjectConfig;
+  }
+
+  it('applies npm ecosystem defaults when exclusions not set (node_modules/**, tests/**)', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfigWithEcosystems(['npm']);
+
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
+
+    await engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
+
+    const scanCmd = runner.calledCommands.find((c) => c.includes('-Dsonar.projectKey'));
+    expect(scanCmd).toBeDefined();
+    expect(scanCmd).toContain('-Dsonar.exclusions=node_modules/**,tests/**');
+    expect(scanCmd).toContain('-Dsonar.coverage.exclusions=node_modules/**,tests/**');
+  });
+
+  it('applies composer ecosystem defaults when exclusions not set (vendor/**, tests/**)', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfigWithEcosystems(['composer']);
+
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
+
+    await engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
+
+    const scanCmd = runner.calledCommands.find((c) => c.includes('-Dsonar.projectKey'));
+    expect(scanCmd).toBeDefined();
+    expect(scanCmd).toContain('-Dsonar.exclusions=vendor/**,tests/**');
+    expect(scanCmd).toContain('-Dsonar.coverage.exclusions=vendor/**,tests/**');
+  });
+
+  it('deduplicates exclusion patterns when both npm and composer are active', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfigWithEcosystems(['npm', 'composer']);
+
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
+
+    await engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
+
+    const scanCmd = runner.calledCommands.find((c) => c.includes('-Dsonar.projectKey'));
+    expect(scanCmd).toBeDefined();
+    // tests/** appears in both npm and composer defaults — must NOT be duplicated
+    const excl = scanCmd?.match(/-Dsonar\.exclusions=([^ ]+)/)?.[1] ?? '';
+    const parts = excl.split(',');
+    const uniqueParts = new Set(parts);
+    expect(parts.length).toBe(uniqueParts.size);
+    // Should contain all four unique patterns
+    expect(excl).toContain('node_modules/**');
+    expect(excl).toContain('vendor/**');
+    expect(excl).toContain('tests/**');
+  });
+
+  it('uses explicit exclusions as full override (no merge with defaults)', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfigWithEcosystems(['npm'], {
+      exclusions: ['dist/**', 'build/**'],
+      coverage_exclusions: ['**/*.spec.ts'],
+    });
+
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
+
+    await engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
+
+    const scanCmd = runner.calledCommands.find((c) => c.includes('-Dsonar.projectKey'));
+    expect(scanCmd).toBeDefined();
+    expect(scanCmd).toContain('-Dsonar.exclusions=dist/**,build/**');
+    expect(scanCmd).toContain('-Dsonar.coverage.exclusions=**/*.spec.ts');
+    // defaults must NOT appear when explicit override is set
+    expect(scanCmd).not.toContain('node_modules/**');
+  });
+
+  it('omits -Dsonar.exclusions entirely when explicit override is empty array', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfigWithEcosystems(['npm'], {
+      exclusions: [],
+      coverage_exclusions: [],
+    });
+
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
+
+    await engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
+
+    const scanCmd = runner.calledCommands.find((c) => c.includes('-Dsonar.projectKey'));
+    expect(scanCmd).toBeDefined();
+    expect(scanCmd).not.toContain('-Dsonar.exclusions=');
+    expect(scanCmd).not.toContain('-Dsonar.coverage.exclusions=');
+  });
+
+  it('produces no exclusion args for unknown ecosystem without explicit config', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfigWithEcosystems(['ruby']); // no defaults defined
+
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
+
+    await engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
+
+    const scanCmd = runner.calledCommands.find((c) => c.includes('-Dsonar.projectKey'));
+    expect(scanCmd).toBeDefined();
+    expect(scanCmd).not.toContain('-Dsonar.exclusions=');
+    expect(scanCmd).not.toContain('-Dsonar.coverage.exclusions=');
+  });
+
+  it('passes exclusion args through to container fallback path in managed mode', async () => {
+    // Local scanner unavailable — forces container fallback
+    const runner = new MockRunner({ '--version': { exitCode: 127, stderr: 'not found' } });
+    const config: ProjectConfig = {
+      project: { name: 'test', client: 'client' },
+      ecosystems: [{ id: 'npm' }],
+      protected_packages: {},
+      safe_update_policy: { allow_patch_and_minor_within_constraints: true, require_authorization_for_constraint_change: false },
+      conflict_resolution: 'stop_and_ask',
+      scanners: {
+        sonarqube: {
+          enabled: true,
+          mode: 'managed',
+          host_url: 'http://localhost:9000',
+          project_key: 'my-project',
+          token_env: 'SONAR_TOKEN',
+          on_failure: 'warn',
+          exclusions: ['custom/**'],
+        },
+      },
+    } as ProjectConfig;
+
+    stubFetchForManagedMode(
+      { projectStatus: { status: 'OK', conditions: [] } },
+      { component: { measures: [] } },
+    );
+
+    await engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
+
+    const MockScannerRunner = vi.mocked(DockerSonarScannerRunner);
+    const scannerInstance = MockScannerRunner.mock.results[0]?.value as {
+      run: ReturnType<typeof vi.fn>;
+    };
+    const runArgs: string[] = scannerInstance.run.mock.calls[0]?.[0] ?? [];
+    expect(runArgs.some((a: string) => a === '-Dsonar.exclusions=custom/**')).toBe(true);
+  });
+});
+
+// ─── CE-task waiting ──────────────────────────────────────────────────────────
+
+describe('SonarQubeEngine — CE-task waiting', () => {
+  const engine = new SonarQubeEngine();
+
+  beforeEach(() => {
+    process.env['SONAR_TOKEN'] = 'test-token';
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    delete process.env['SONAR_TOKEN'];
+    vi.restoreAllMocks(); // restores fs.readFileSync spy + clears all mocks
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  /**
+   * Helper: write a fake report-task.txt with the given ceTaskId to a temp path
+   * and make parseCeTaskId find it by spying on fs.readFileSync.
+   */
+  function stubReportTaskFile(ceTaskId: string): void {
+    vi.spyOn(fs, 'readFileSync').mockImplementation((path: unknown) => {
+      if (typeof path === 'string' && path.endsWith('report-task.txt')) {
+        return `projectKey=my-project\nceTaskId=${ceTaskId}\nserverUrl=http://internal:9000\n`;
+      }
+      // For any other path, use real implementation via error (tests don't need other files)
+      throw new Error(`ENOENT: no such file: ${String(path)}`);
+    });
+  }
+
+  it('polls CE task and proceeds to quality gate after SUCCESS status (no timeout)', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfig(true);
+
+    stubReportTaskFile('task-abc-123');
+
+    // fetch sequence:
+    // 1. CE task poll → SUCCESS
+    // 2. qualitygates/project_status
+    // 3. measures/component
+    // 4. issues/search (optional — 404)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        // CE task poll
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ task: { status: 'SUCCESS' } }) })
+        // quality gate
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ projectStatus: { status: 'OK', conditions: [] } }) })
+        // measures
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ component: { measures: [] } }) })
+        // issues (best-effort 404 → null)
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }),
+    );
+
+    const resultPromise = engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
+
+    // The CE poller fires immediately on first poll — advance past the initial fetch
+    await vi.runAllTimersAsync();
+
+    const result = await resultPromise;
+    expect(result.status).toBe('success');
+    expect(result.metadata?.qualityGateStatus).toBe('OK');
+
+    // Verify CE task was polled using hostUrl (http://localhost:9000), NOT the serverUrl from the file
+    const fetchMock = vi.mocked(fetch);
+    const ceCallUrl = fetchMock.mock.calls[0]?.[0] as string;
+    expect(ceCallUrl).toContain('localhost:9000');
+    expect(ceCallUrl).toContain('/api/ce/task?id=task-abc-123');
+    // Must NOT use the internal Docker URL from report-task.txt
+    expect(ceCallUrl).not.toContain('internal:9000');
+  });
+
+  it('degrades gracefully when CE task times out — pipeline is NOT hard-failed', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    // ce_task_timeout_seconds=1 → very short timeout to force timeout path
+    const config: ProjectConfig = {
+      ...makeConfig(true),
+      scanners: {
+        sonarqube: {
+          enabled: true,
+          mode: 'external',
+          host_url: 'http://localhost:9000',
+          project_key: 'my-project',
+          token_env: 'SONAR_TOKEN',
+          on_failure: 'warn',
+          ce_task_timeout_seconds: 1,
+        },
+      },
+    } as ProjectConfig;
+
+    stubReportTaskFile('task-timeout-test');
+
+    // CE task always returns IN_PROGRESS → timeout will be hit
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        // CE polls (IN_PROGRESS repeatedly) then quality gate fetch after timeout
+        .mockResolvedValue({ ok: true, status: 200, json: async () => ({ task: { status: 'IN_PROGRESS' } }) }),
+    );
+
+    const resultPromise = engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
+
+    // Advance time well past the 1s timeout
+    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.runAllTimersAsync();
+
+    // After timeout, stub fetch to resolve quality gate + measures + issues
+    vi.mocked(fetch)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ projectStatus: { status: 'NONE', conditions: [] } }) } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ component: { measures: [] } }) } as Response)
+      .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) } as Response);
+
+    await vi.runAllTimersAsync();
+
+    const result = await resultPromise;
+
+    // Pipeline must NOT fail — should be 'success' (metadata may show NONE)
+    expect(result.status).toBe('success');
+  });
+});
+
+describe('SonarQubeEngine — CE-task waiting (no fake timers)', () => {
+  const engine = new SonarQubeEngine();
+
+  beforeEach(() => {
+    process.env['SONAR_TOKEN'] = 'test-token';
+  });
+  afterEach(() => {
+    delete process.env['SONAR_TOKEN'];
+    vi.restoreAllMocks(); // restores any fs.readFileSync spies from previous suites
+    vi.unstubAllGlobals();
+  });
+
+  it('falls back to immediate quality gate fetch when report-task.txt is missing (graceful)', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfig(true);
+
+    // No stub → fs.readFileSync throws → parseCeTaskId returns null → CE wait skipped
+    // fetch: directly quality gate + measures + issues
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ projectStatus: { status: 'OK', conditions: [] } }) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ component: { measures: [] } }) })
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }),
+    );
+
+    const result = await engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
+
+    expect(result.status).toBe('success');
+    expect(result.metadata?.qualityGateStatus).toBe('OK');
+  });
+
+  it('skips CE waiting when ce_task_timeout_seconds is 0', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config: ProjectConfig = {
+      ...makeConfig(true),
+      scanners: {
+        sonarqube: {
+          enabled: true,
+          mode: 'external',
+          host_url: 'http://localhost:9000',
+          project_key: 'my-project',
+          token_env: 'SONAR_TOKEN',
+          on_failure: 'warn',
+          ce_task_timeout_seconds: 0,
+        },
+      },
+    } as ProjectConfig;
+
+    vi.spyOn(fs, 'readFileSync').mockImplementation((path: unknown) => {
+      if (typeof path === 'string' && path.endsWith('report-task.txt')) {
+        return `ceTaskId=task-disabled-wait\n`;
+      }
+      throw new Error(`ENOENT: no such file: ${String(path)}`);
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ projectStatus: { status: 'OK', conditions: [] } }) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ component: { measures: [] } }) })
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }),
+    );
+
+    const result = await engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
+
+    expect(result.status).toBe('success');
+
+    // Verify the CE task API was NOT called (no /api/ce/task calls)
+    const fetchMock = vi.mocked(fetch);
+    const ceCalls = fetchMock.mock.calls.filter(([url]) => typeof url === 'string' && String(url).includes('/api/ce/task'));
+    expect(ceCalls).toHaveLength(0);
+  });
+})

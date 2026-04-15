@@ -6,6 +6,7 @@ import { EnvironmentError } from '@core/errors';
 import { logger } from '@infra/utils/logger';
 import { getPlatformInstallHint } from '@infra/utils/platform';
 import { SONARQUBE_PROJECT_KEY_REGEX } from '@core/types/config';
+import fs from 'node:fs';
 
 // ─── SonarQube API types (minimal) ─────────────────────────────────────────────
 
@@ -52,6 +53,173 @@ interface SonarQubeUserTokensResponse {
 interface SonarQubeGenerateTokenResponse {
   token?: string;
   name?: string;
+}
+
+interface SonarQubeCeTaskResponse {
+  task?: {
+    status: 'PENDING' | 'IN_PROGRESS' | 'SUCCESS' | 'FAILED' | 'CANCELED';
+    analysisId?: string;
+  };
+}
+
+// ─── Ecosystem-aware exclusion defaults ───────────────────────────────────────
+
+/**
+ * Default sonar.exclusions / sonar.coverage.exclusions patterns per ecosystem.
+ * Applied only when the user has NOT explicitly set `exclusions` / `coverage_exclusions`
+ * in their config.
+ */
+const ECOSYSTEM_DEFAULT_EXCLUSIONS: Record<string, string[]> = {
+  npm: ['node_modules/**', 'tests/**'],
+  composer: ['vendor/**', 'tests/**'],
+};
+
+/**
+ * Derive the effective exclusion list for a given set of ecosystem ids.
+ * - If `explicit` is set (even to `[]`), it is returned as-is (full override).
+ * - Otherwise, gather the union of defaults for all active ecosystems,
+ *   deduplicating entries. Falls back to an empty list if no ecosystems match.
+ */
+function resolveExclusions(
+  explicit: string[] | undefined,
+  ecosystemIds: string[],
+): string[] {
+  if (explicit !== undefined) {
+    // User set the field — treat as full override, no merging
+    return explicit;
+  }
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const id of ecosystemIds) {
+    for (const pattern of ECOSYSTEM_DEFAULT_EXCLUSIONS[id] ?? []) {
+      if (!seen.has(pattern)) {
+        seen.add(pattern);
+        result.push(pattern);
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * Build `-Dsonar.exclusions` and `-Dsonar.coverage.exclusions` args
+ * from the resolved pattern lists. Returns an empty array when both lists are empty.
+ */
+function buildExclusionArgs(exclusions: string[], coverageExclusions: string[]): string[] {
+  const args: string[] = [];
+  if (exclusions.length > 0) {
+    args.push(`-Dsonar.exclusions=${exclusions.join(',')}`);
+  }
+  if (coverageExclusions.length > 0) {
+    args.push(`-Dsonar.coverage.exclusions=${coverageExclusions.join(',')}`);
+  }
+  return args;
+}
+
+// ─── CE-task waiting ──────────────────────────────────────────────────────────
+
+/**
+ * Parse the sonar-scanner CE task ID from `.scannerwork/report-task.txt`.
+ *
+ * sonar-scanner writes this file to `<cwd>/.scannerwork/report-task.txt`
+ * after completing analysis submission.  It contains lines of `key=value`.
+ *
+ * We read `ceTaskId` from that file using `hostUrl` for subsequent API calls
+ * (NOT `serverUrl` from the file — the file's serverUrl may reflect an internal
+ * Docker network address, whereas hostUrl is always the address we can reach).
+ *
+ * Returns null when the file is absent or the key is not found.
+ */
+function parseCeTaskId(cwd: string): string | null {
+  try {
+    const reportTaskPath = `${cwd}/.scannerwork/report-task.txt`;
+    const content = fs.readFileSync(reportTaskPath, 'utf8');
+    for (const line of content.split('\n')) {
+      const eq = line.indexOf('=');
+      if (eq < 0) continue;
+      const key = line.slice(0, eq).trim();
+      const value = line.slice(eq + 1).trim();
+      if (key === 'ceTaskId') return value || null;
+    }
+    return null;
+  } catch {
+    // File absent or unreadable — not an error; fall back to immediate QG fetch
+    return null;
+  }
+}
+
+/**
+ * Poll the SonarQube CE task until it reaches a terminal state (SUCCESS/FAILED/CANCELED)
+ * or until `timeoutMs` is exceeded.
+ *
+ * Uses `hostUrl` (not the serverUrl written by sonar-scanner to report-task.txt) because
+ * the file's serverUrl may reflect an internal Docker network address.
+ *
+ * Back-off: starts at 2 s, doubles each poll, capped at 15 s.
+ *
+ * @returns `'success'` | `'failed'` | `'timeout'` | `'skipped'` (task id unavailable)
+ */
+async function waitForCeTask(
+  hostUrl: string,
+  taskId: string | null,
+  token: string,
+  timeoutMs: number,
+): Promise<'success' | 'failed' | 'timeout' | 'skipped'> {
+  if (!taskId) {
+    logger.debug('SonarQube CE: no task ID available — skipping CE wait, proceeding to quality gate fetch immediately');
+    return 'skipped';
+  }
+  if (timeoutMs <= 0) {
+    logger.debug('SonarQube CE: ce_task_timeout_seconds=0 — CE wait disabled');
+    return 'skipped';
+  }
+
+  const base = hostUrl.replace(/\/$/, '');
+  const deadline = Date.now() + timeoutMs;
+  let delay = 2_000; // start at 2 s
+
+  logger.info(`SonarQube CE: waiting for task ${taskId} to complete (timeout: ${Math.round(timeoutMs / 1000)}s)...`);
+
+  while (Date.now() < deadline) {
+    try {
+      const url = `${base}/api/ce/task?id=${encodeURIComponent(taskId)}`;
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!response.ok) {
+        logger.warn(`SonarQube CE: task poll returned HTTP ${response.status} — will retry`);
+      } else {
+        const data = (await response.json()) as SonarQubeCeTaskResponse;
+        const status = data.task?.status;
+        logger.debug(`SonarQube CE: task status = ${status ?? 'unknown'}`);
+
+        if (status === 'SUCCESS') {
+          logger.info('SonarQube CE: task completed successfully');
+          return 'success';
+        }
+        if (status === 'FAILED' || status === 'CANCELED') {
+          logger.warn(`SonarQube CE: task ended with status "${status}"`);
+          return 'failed';
+        }
+        // PENDING or IN_PROGRESS — keep polling
+      }
+    } catch (err) {
+      logger.warn(`SonarQube CE: poll error — ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    const wait = Math.min(delay, remaining);
+    await new Promise<void>((resolve) => setTimeout(resolve, wait));
+    delay = Math.min(delay * 2, 15_000); // cap at 15 s
+  }
+
+  logger.warn(
+    `SonarQube CE: task ${taskId} did not complete within timeout (${Math.round(timeoutMs / 1000)}s). ` +
+    `Proceeding to quality gate fetch — results may be from a previous analysis.`,
+  );
+  return 'timeout';
 }
 
 // ─── Metrics to collect ────────────────────────────────────────────────────────
@@ -251,6 +419,8 @@ function buildAuthArgs(token: string): string[] {
  * @param branch - Git branch to forward as -Dsonar.branch.name, or null to omit it.
  *   Callers must only pass a non-null value when send_branch_name is explicitly enabled;
  *   the default (CE-safe) behaviour is to pass null regardless of detected branch.
+ * @param exclusionArgs - Pre-built `-Dsonar.exclusions` / `-Dsonar.coverage.exclusions` args.
+ * @param ceTimeoutMs - Milliseconds to wait for CE task completion before quality gate fetch.
  */
 async function executeSonarScan(
   ctx: ScannerEngineContext,
@@ -259,6 +429,8 @@ async function executeSonarScan(
   token: string,
   base: ScanResultJson,
   branch: string | null,
+  exclusionArgs: string[],
+  ceTimeoutMs: number,
 ): Promise<ScanResultJson> {
   const { runner, cwd } = ctx;
 
@@ -277,6 +449,7 @@ async function executeSonarScan(
     `-Dsonar.projectKey=${projectKey}`,
     `-Dsonar.token=${token}`,
     ...(branch ? [`-Dsonar.branch.name=${branch}`] : []),
+    ...exclusionArgs,
   ];
 
   logger.debug(
@@ -297,6 +470,10 @@ async function executeSonarScan(
     };
   }
 
+  // Wait for CE task before fetching quality gate
+  const taskId = parseCeTaskId(cwd);
+  await waitForCeTask(hostUrl, taskId, token, ceTimeoutMs);
+
   return collectSonarMetadataAndBuildResult(hostUrl, projectKey, token, base);
 }
 
@@ -312,6 +489,8 @@ async function executeSonarScanViaContainer(
   base: ScanResultJson,
   scannerImage?: string,
   branch?: string | null,
+  exclusionArgs: string[] = [],
+  ceTimeoutMs: number = 120_000,
 ): Promise<ScanResultJson> {
   const scannerRunner = new DockerSonarScannerRunner({
     projectDir: cwd,
@@ -324,6 +503,7 @@ async function executeSonarScanViaContainer(
     `-Dsonar.projectKey=${projectKey}`,
     ...authArgs,
     ...(branch ? [`-Dsonar.branch.name=${branch}`] : []),
+    ...exclusionArgs,
   ];
 
   logger.debug(
@@ -341,6 +521,11 @@ async function executeSonarScanViaContainer(
       error: `sonar-scanner (container) exited with code ${scanRun.exitCode}: ${scanRun.stderr || scanRun.stdout}`,
     };
   }
+
+  // Wait for CE task before fetching quality gate.
+  // For the container path, report-task.txt is mounted from cwd — same location.
+  const taskId = parseCeTaskId(cwd);
+  await waitForCeTask(hostUrl, taskId, token, ceTimeoutMs);
 
   return collectSonarMetadataAndBuildResult(hostUrl, projectKey, token, base);
 }
@@ -492,11 +677,20 @@ export class SonarQubeEngine implements ScannerEngine {
       );
     }
 
+    // ─── Resolve ecosystem IDs for exclusion defaults ───────────────────────────
+    const ecosystemIds = config.ecosystems?.map((e) => e.id) ?? [];
+    const exclusions = resolveExclusions(sonarConfig.exclusions, ecosystemIds);
+    const coverageExclusions = resolveExclusions(sonarConfig.coverage_exclusions, ecosystemIds);
+    const exclusionArgs = buildExclusionArgs(exclusions, coverageExclusions);
+
+    // CE task timeout (config field default is 120, Zod ensures non-negative integer)
+    const ceTimeoutMs = (sonarConfig.ce_task_timeout_seconds ?? 120) * 1_000;
+
     const mode = sonarConfig.mode ?? 'external';
 
     // ─── Managed mode ────────────────────────────────────────────────────────
     if (mode === 'managed') {
-      return this._scanManaged(ctx, project_key, sonarConfig.scanner_image, base, sonarConfig.send_branch_name ?? false);
+      return this._scanManaged(ctx, project_key, sonarConfig.scanner_image, base, sonarConfig.send_branch_name ?? false, exclusionArgs, ceTimeoutMs);
     }
 
     // ─── External mode ────────────────────────────────────────────────────────
@@ -517,7 +711,7 @@ export class SonarQubeEngine implements ScannerEngine {
     // Only forward branch when explicitly opted-in — Community Edition does not support branch analysis.
     const effectiveBranch = sonarConfig.send_branch_name ? (ctx.branch ?? null) : null;
 
-    return executeSonarScan(ctx, sonarConfig.host_url, project_key, token, base, effectiveBranch);
+    return executeSonarScan(ctx, sonarConfig.host_url, project_key, token, base, effectiveBranch, exclusionArgs, ceTimeoutMs);
   }
 
   // ─── Private: managed mode execution ─────────────────────────────────────────
@@ -528,6 +722,8 @@ export class SonarQubeEngine implements ScannerEngine {
     scannerImage: string | undefined,
     base: ScanResultJson,
     sendBranchName: boolean,
+    exclusionArgs: string[],
+    ceTimeoutMs: number,
   ): Promise<ScanResultJson> {
     const { runner, cwd } = ctx;
 
@@ -582,10 +778,10 @@ export class SonarQubeEngine implements ScannerEngine {
 
       if (localAvailable) {
         // ── Local scanner path ──────────────────────────────────────────────
-        return await executeSonarScan(ctx, hostUrl, projectKey, ephemeralToken, base, branch);
+        return await executeSonarScan(ctx, hostUrl, projectKey, ephemeralToken, base, branch, exclusionArgs, ceTimeoutMs);
       } else {
         // ── Container fallback path ─────────────────────────────────────────
-        return await executeSonarScanViaContainer(cwd, hostUrl, projectKey, ephemeralToken, base, scannerImage, branch);
+        return await executeSonarScanViaContainer(cwd, hostUrl, projectKey, ephemeralToken, base, scannerImage, branch, exclusionArgs, ceTimeoutMs);
       }
     } finally {
       await provisioner.teardown();

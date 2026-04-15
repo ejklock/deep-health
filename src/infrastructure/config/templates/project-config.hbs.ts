@@ -70,6 +70,15 @@ scanners:
     project_key: '{{sonarProjectKey}}'
     token_env: 'SONAR_TOKEN'
     on_failure: 'warn'
+    # ce_task_timeout_seconds: 120     # optional — seconds to wait for Compute Engine task before
+    #                                  #   fetching quality gate; 0 disables waiting (default: 120)
+    # exclusions:                      # optional — sonar.exclusions glob patterns (full override)
+    #   - 'node_modules/**'            #   When absent, ecosystem-specific defaults apply:
+    #   - 'tests/**'                   #     npm:      node_modules/**, tests/**
+    #   - 'dist/**'                    #     composer: vendor/**, tests/**
+    # coverage_exclusions:             # optional — sonar.coverage.exclusions glob patterns
+    #   - 'node_modules/**'
+    #   - 'tests/**'
 {{else}}
 # scanners:                              # optional — additional scanner engines
 #   sonarqube:
@@ -79,6 +88,13 @@ scanners:
 #     project_key: 'my-project'
 #     token_env: 'SONAR_TOKEN'
 #     on_failure: 'warn'
+#     # ce_task_timeout_seconds: 120   # seconds to wait for CE task (0 = disable; default: 120)
+#     # exclusions:                    # sonar.exclusions (full override; omit for ecosystem defaults)
+#     #   - 'node_modules/**'
+#     #   - 'tests/**'
+#     # coverage_exclusions:           # sonar.coverage.exclusions (full override; omit for defaults)
+#     #   - 'node_modules/**'
+#     #   - 'tests/**'
 #   osv:
 #     runner: 'auto'                     # 'auto' (default) | 'local' | 'docker'
 #                                        #   auto   — try local osv-scanner, fall back to Docker
