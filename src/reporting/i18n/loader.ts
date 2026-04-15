@@ -31,6 +31,7 @@ export function buildLocale(raw: RawLocale): Locale {
       validation_verified: (validationLabel, detail) => interp(raw.exec.validation_verified, { validationLabel, detail }),
       fixed_version: (version) => interp(raw.exec.fixed_version, { version }),
       sonarqube_quality_gate: (status) => interp(raw.exec.sonarqube_quality_gate, { status }),
+      sonarqube_issue_count: (n) => interp(raw.exec.sonarqube_issue_count, { n }),
       sonarqube_warning: (message) => interp(raw.exec.sonarqube_warning, { message }),
       advisor_header: (name) => interp(raw.exec.advisor_header, { name }),
       advisor_output: (output) => interp(raw.exec.advisor_output, { output }),

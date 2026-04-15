@@ -50,6 +50,13 @@ export interface OsvScannerConfig {
 export interface OutputsConfig {
   formats?: OutputFormat[];
   dir?: string;
+  /**
+   * When true, engine-specific reports are written to sub-folders inside the reports dir:
+   *   - SonarQube artifacts → {dir}/sonarqube/
+   * Consolidated and executive reports always stay at the root of the reports dir.
+   * Defaults to false (flat layout — all files at the root level).
+   */
+  sub_folders?: boolean;
 }
 
 /** Declarative ecosystem configuration entry */

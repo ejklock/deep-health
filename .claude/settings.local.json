@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm test:*)",
+      "Bash(rtk grep:*)",
+      "Bash(cat)",
+      "Read(//tmp/**)",
+      "Bash(npm list:*)",
+      "Bash(node:*)",
+      "Bash(rtk read:*)"
+    ]
+  }
+}

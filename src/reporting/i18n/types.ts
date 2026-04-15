@@ -35,7 +35,11 @@ export interface ExecLocale {
   /** SonarQube executive section */
   sonarqube_section: string;
   sonarqube_quality_gate(status: string): string;
+  sonarqube_conditions: string;
   sonarqube_metrics: string;
+  sonarqube_issues_by_file: string;
+  sonarqube_no_issues: string;
+  sonarqube_issue_count(n: number): string;
   sonarqube_skipped: string;
   sonarqube_warning(message: string): string;
   /** Advisor section */

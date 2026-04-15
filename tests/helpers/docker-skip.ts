@@ -4,7 +4,7 @@
  * Provides:
  *  - `isDockerAvailable()` — probes `docker info` once per process (cached).
  *  - `skipIfNoDocker()` — `beforeAll` callback that skips the suite when Docker
- *    is absent, using Vitest's `test.skip()` global.
+ *    is absent, using a special error that Vitest recognizes as a skip.
  *
  * Usage:
  *
@@ -40,11 +40,26 @@ export async function isDockerAvailable(): Promise<boolean> {
 }
 
 /**
+ * Error class that Vitest recognizes as a skip marker.
+ * When this error is thrown from beforeAll, Vitest skips all tests in the suite.
+ */
+class DockerNotAvailableError extends Error {
+  constructor() {
+    super('Docker not available');
+    this.name = 'DockerNotAvailableError';
+  }
+}
+
+/**
+ * Check if an error indicates Docker is not available.
+ */
+export function isDockerNotAvailableError(error: unknown): error is Error {
+  return error instanceof DockerNotAvailableError || 
+    (error instanceof Error && error.message === 'Docker not available' && error.name === 'DockerNotAvailableError');
+}
+
+/**
  * `beforeAll` callback that skips the enclosing test suite when Docker is absent.
- *
- * Vitest `globals: true` exposes `test` on globalThis.  When Docker is missing
- * we call `test.skip()` which marks the whole test-file as skipped in the same
- * way as writing `test.skip('...', ...)` at the top level.
  *
  * @example
  *   beforeAll(skipIfNoDocker);
@@ -52,9 +67,6 @@ export async function isDockerAvailable(): Promise<boolean> {
 export async function skipIfNoDocker(): Promise<void> {
   const available = await isDockerAvailable();
   if (!available) {
-    // `test` is injected into globalThis when globals:true is set in vitest config.
-    // Calling test.skip() from inside beforeAll marks the file as skipped.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (globalThis as any).test.skip();
+    throw new DockerNotAvailableError();
   }
 }

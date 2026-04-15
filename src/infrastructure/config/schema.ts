@@ -46,6 +46,13 @@ const OutputFormatSchema = z.enum(['markdown']);
 const OutputsConfigSchema = z.object({
   formats: z.array(OutputFormatSchema).optional(),
   dir: z.string().optional(),
+  /**
+   * When true, engine-specific reports are written to sub-folders:
+   *   - SonarQube artifacts → {dir}/sonarqube/
+   * Consolidated and executive reports remain at the root level.
+   * Defaults to false.
+   */
+  sub_folders: z.boolean().optional(),
 }).strict();
 
 /** Declarative ecosystem config entry */

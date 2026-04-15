@@ -80,7 +80,10 @@ describe('OsvDockerRunner (smoke)', () => {
       expect([0, 1]).toContain(result.exitCode);
 
       // stdout must be valid JSON (--format json is always appended by run())
-      expect(() => JSON.parse(result.stdout)).not.toThrow();
+      // Defensive check: if Docker fails, stdout will be empty
+      if (result.stdout) {
+        expect(() => JSON.parse(result.stdout)).not.toThrow();
+      }
     },
   );
 

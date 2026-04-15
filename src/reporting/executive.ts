@@ -54,37 +54,88 @@ function pendingStatus(vuln: VulnerabilityEntry, locale: Locale): string {
 
 // ── SonarQube executive section builder ──────────────────────────────────────
 
+interface SonarQubeConditionEntry {
+  metricKey: string;
+  status: string;
+  statusIcon: string;
+  comparator: string;
+  errorThreshold: string;
+  actualValue: string;
+}
+
+interface SonarQubeIssueEntry {
+  severity: string;
+  severityIcon: string;
+  rule: string;
+  line: string;
+  message: string;
+  type: string;
+}
+
+interface SonarQubeFileGroup {
+  file: string;
+  issues: SonarQubeIssueEntry[];
+}
+
 interface SonarQubeExecSectionData {
   present: boolean;
   skipped: boolean;
   warning: string | null;
   qualityGate: string | null;
+  hasConditions: boolean;
+  conditions: SonarQubeConditionEntry[];
+  conditionsLabel: string;
   metrics: Array<{ key: string; value: string }> | null;
+  hasIssues: boolean;
+  noIssues: boolean;
+  issueCountLabel: string;
+  issuesByFile: SonarQubeFileGroup[];
+  issuesByFileLabel: string;
+}
+
+function severityIcon(severity: string): string {
+  switch (severity.toUpperCase()) {
+    case 'BLOCKER': return '🔴';
+    case 'CRITICAL': return '🔴';
+    case 'MAJOR': return '🟠';
+    case 'MINOR': return '🟡';
+    case 'INFO': return '🔵';
+    default: return '⚪';
+  }
+}
+
+function conditionStatusIcon(status: string): string {
+  return status === 'OK' ? '✅' : status === 'ERROR' ? '❌' : '⚠️';
 }
 
 function buildSonarQubeExecSection(
   engineResults: Record<string, ScanResultJson> | undefined,
   locale: ExecLocale,
 ): SonarQubeExecSectionData {
-  if (!engineResults) {
-    return { present: false, skipped: false, warning: null, qualityGate: null, metrics: null };
-  }
+  const empty: SonarQubeExecSectionData = {
+    present: false, skipped: false, warning: null, qualityGate: null,
+    hasConditions: false, conditions: [], conditionsLabel: locale.sonarqube_conditions,
+    metrics: null, hasIssues: false, noIssues: false,
+    issueCountLabel: '', issuesByFile: [], issuesByFileLabel: locale.sonarqube_issues_by_file,
+  };
+
+  if (!engineResults) return empty;
 
   const sonarResult = engineResults['sonarqube'];
-  if (!sonarResult) {
-    return { present: false, skipped: false, warning: null, qualityGate: null, metrics: null };
-  }
+  if (!sonarResult) return empty;
 
   if (sonarResult.status === 'skipped') {
-    return { present: true, skipped: true, warning: null, qualityGate: null, metrics: null };
+    return { ...empty, present: true, skipped: true };
   }
 
   if (sonarResult.status === 'error') {
     const msg = sonarResult.error ?? 'scan error';
-    return { present: true, skipped: false, warning: locale.sonarqube_warning(msg), qualityGate: null, metrics: null };
+    return { ...empty, present: true, warning: locale.sonarqube_warning(msg) };
   }
 
   const meta = sonarResult.metadata ?? {};
+
+  // Quality gate label
   const qualityGateStatus = meta['qualityGateStatus'] as string | undefined;
   const qualityGateLabel = qualityGateStatus
     ? locale.sonarqube_quality_gate(
@@ -92,17 +143,67 @@ function buildSonarQubeExecSection(
       )
     : null;
 
+  // Quality gate conditions
+  const rawConditions = meta['qualityGateConditions'] as Array<{
+    status: string; metricKey: string; comparator: string; errorThreshold?: string; actualValue?: string;
+  }> | undefined;
+  const conditions: SonarQubeConditionEntry[] = (rawConditions ?? []).map((c) => ({
+    metricKey: c.metricKey,
+    status: c.status,
+    statusIcon: conditionStatusIcon(c.status),
+    comparator: c.comparator,
+    errorThreshold: c.errorThreshold ?? '—',
+    actualValue: c.actualValue ?? '—',
+  }));
+
+  // Metrics
   const rawMetrics = meta['metrics'] as Record<string, string> | undefined;
   const metricsForDisplay = rawMetrics
     ? Object.entries(rawMetrics).map(([key, value]) => ({ key, value }))
     : null;
+
+  // Issues grouped by file
+  const rawIssues = meta['issues'] as Array<{
+    key: string; rule: string; severity: string; component: string;
+    line?: number; message: string; type: string; status: string;
+  }> | undefined;
+
+  const fileMap = new Map<string, SonarQubeIssueEntry[]>();
+  for (const issue of rawIssues ?? []) {
+    const colon = issue.component.indexOf(':');
+    const file = colon >= 0 ? issue.component.slice(colon + 1) : issue.component;
+    const entry: SonarQubeIssueEntry = {
+      severity: issue.severity,
+      severityIcon: severityIcon(issue.severity),
+      rule: issue.rule,
+      line: issue.line !== undefined ? String(issue.line) : '—',
+      message: issue.message,
+      type: issue.type,
+    };
+    const arr = fileMap.get(file) ?? [];
+    arr.push(entry);
+    fileMap.set(file, arr);
+  }
+  const issuesByFile: SonarQubeFileGroup[] = [...fileMap.entries()].map(([file, issues]) => ({ file, issues }));
+
+  const totalIssues = rawIssues?.length ?? 0;
+  const hasIssues = totalIssues > 0;
+  const noIssues = rawIssues !== undefined && totalIssues === 0;
 
   return {
     present: true,
     skipped: false,
     warning: null,
     qualityGate: qualityGateLabel,
+    hasConditions: conditions.length > 0,
+    conditions,
+    conditionsLabel: locale.sonarqube_conditions,
     metrics: metricsForDisplay,
+    hasIssues,
+    noIssues,
+    issueCountLabel: hasIssues ? locale.sonarqube_issue_count(totalIssues) : '',
+    issuesByFile,
+    issuesByFileLabel: locale.sonarqube_issues_by_file,
   };
 }
 
@@ -390,8 +491,7 @@ export function sonarqubeReportFilename(project: string, date: string): string {
  * Generate a standalone SonarQube markdown report artifact.
  * Returns null when SonarQube results are absent or skipped.
  *
- * This is intentionally a lightweight summary — full SonarQube data continues
- * to appear inline in the consolidated and executive reports.
+ * Renders the full rich section: quality gate, conditions, metrics, issues by file.
  */
 export function generateSonarQubeMarkdownReport(
   engineResults: Record<string, ScanResultJson> | undefined,
@@ -409,15 +509,25 @@ export function generateSonarQubeMarkdownReport(
   if (section.warning) {
     lines.push(`> ⚠️ ${section.warning}`);
     lines.push('');
+    return lines.join('\n');
   }
 
   if (section.qualityGate) {
-    lines.push(`**Quality Gate:** ${section.qualityGate}`);
+    lines.push(section.qualityGate);
+    lines.push('');
+  }
+
+  if (section.hasConditions) {
+    lines.push(section.conditionsLabel);
+    lines.push('');
+    for (const c of section.conditions) {
+      lines.push(`- ${c.statusIcon} **${c.metricKey}**: actual \`${c.actualValue}\` / threshold \`${c.errorThreshold}\``);
+    }
     lines.push('');
   }
 
   if (section.metrics && section.metrics.length > 0) {
-    lines.push('## Metrics');
+    lines.push(reportLocale.exec.sonarqube_metrics);
     lines.push('');
     lines.push('| Metric | Value |');
     lines.push('|--------|-------|');
@@ -425,6 +535,25 @@ export function generateSonarQubeMarkdownReport(
       lines.push(`| ${m.key} | ${m.value} |`);
     }
     lines.push('');
+  }
+
+  if (section.noIssues) {
+    lines.push(reportLocale.exec.sonarqube_no_issues);
+    lines.push('');
+  } else if (section.hasIssues) {
+    lines.push(section.issueCountLabel);
+    lines.push('');
+    lines.push(section.issuesByFileLabel);
+    lines.push('');
+    for (const group of section.issuesByFile) {
+      lines.push(`**\`${group.file}\`**`);
+      lines.push('');
+      for (const issue of group.issues) {
+        const linePart = issue.line !== '—' ? ` · linha ${issue.line}` : '';
+        lines.push(`- ${issue.severityIcon} \`${issue.severity}\` · ${issue.rule}${linePart} — ${issue.message}`);
+      }
+      lines.push('');
+    }
   }
 
   return lines.join('\n');

@@ -92,9 +92,26 @@ export default `\
 {{else}}
 {{sonarSection.qualityGate}}
 
+{{#if sonarSection.hasConditions}}
+{{sonarSection.conditionsLabel}}
+{{#each sonarSection.conditions}}- {{statusIcon}} **{{metricKey}}**: actual \`{{actualValue}}\` / threshold \`{{errorThreshold}}\`
+{{/each}}
+{{/if}}
 {{#if sonarSection.metrics}}
 {{t.sonarqube_metrics}}
 {{#each sonarSection.metrics}}- **{{key}}:** {{value}}
+{{/each}}
+{{/if}}
+{{#if sonarSection.noIssues}}
+{{t.sonarqube_no_issues}}
+{{else if sonarSection.hasIssues}}
+{{sonarSection.issueCountLabel}}
+
+{{sonarSection.issuesByFileLabel}}
+{{#each sonarSection.issuesByFile}}
+**\`{{file}}\`**
+{{#each issues}}- {{severityIcon}} \`{{severity}}\` · {{rule}}{{#if line}} · linha {{line}}{{/if}} — {{message}}
+{{/each}}
 {{/each}}
 {{/if}}
 {{/if}}

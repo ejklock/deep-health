@@ -17,9 +17,15 @@ vi.mock('@reporting/executive', () => ({
   sonarqubeReportFilename: vi.fn(() => 'sonarqube-demo-app-2026-04-14.md'),
 }));
 
+vi.mock('@reporting/sonarqube-report', () => ({
+  generateSonarQubeHtmlReport: vi.fn(() => null),
+  sonarqubeHtmlReportFilename: vi.fn(() => '[Client Demo App] SonarQube Report - 2026-04 - April.html'),
+}));
+
 vi.mock('@app/report-saver', () => ({
   saveReport: vi.fn(),
   resolveReportsDir: vi.fn(() => '/abs/reports'),
+  resolveEngineReportsDir: vi.fn(() => '/abs/reports'),
 }));
 
 import { runScanner } from '@modules/scanner/index';
@@ -27,6 +33,7 @@ import { runOrchestrator } from '@orchestration/orchestrator';
 import { runExecutiveReportCommand } from '@app/commands/executive-report';
 import { saveReport } from '@app/report-saver';
 import { generateSonarQubeMarkdownReport } from '@reporting/executive';
+import { generateSonarQubeHtmlReport } from '@reporting/sonarqube-report';
 
 const scanResult = {
   $schema: 'osv-scan-result/v1' as const,
@@ -63,6 +70,8 @@ describe('runExecutiveReportCommand', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(runScanner).mockResolvedValue(scanResult);
+    // Reset sonarqube-report mocks to null defaults so tests don't bleed into each other
+    vi.mocked(generateSonarQubeHtmlReport).mockReturnValue(null);
   });
 
   it('does not save reports when markdown output is disabled', async () => {
@@ -173,6 +182,48 @@ describe('runExecutiveReportCommand', () => {
 
     // Both the executive report and the separate SonarQube artifact are saved
     expect(saveReport).toHaveBeenCalledTimes(2);
+  });
+
+  it('saves executive + markdown + html when all three are non-null', async () => {
+    vi.mocked(runOrchestrator).mockResolvedValue({
+      scan: scanResult,
+      updates: {},
+      overallStatus: 'success',
+      warnings: [],
+      aggregated: {
+        primary: scanResult,
+        engineResults: {
+          sonarqube: {
+            ...scanResult,
+            $schema: 'sonarqube-scan-result/v1',
+            agent: 'sonarqube',
+          },
+        },
+      },
+      advisorResults: {},
+    });
+    vi.mocked(generateSonarQubeMarkdownReport).mockReturnValue('# SonarQube\n');
+    vi.mocked(generateSonarQubeHtmlReport).mockReturnValue('<html></html>');
+
+    const ctx: RunContext = {
+      config: {
+        ...baseConfig,
+        outputs: { formats: ['markdown'], dir: '.deep-health/reports' },
+      },
+      runner: { environment: 'local', run: vi.fn() },
+    };
+
+    await runExecutiveReportCommand(ctx, {
+      config: 'project-config.yml',
+      cwd: '/repo',
+      dryRun: false,
+      verbose: false,
+      quiet: false,
+      json: false,
+    });
+
+    // executive + sonarqube markdown + sonarqube html
+    expect(saveReport).toHaveBeenCalledTimes(3);
   });
 
   it('does not save sonarqube artifact when sonarqube markdown is null (skipped/absent)', async () => {

@@ -98,3 +98,20 @@ export function resolveReportsDir(
 ): string {
   return resolve(cwd, configReportsDir ?? ".deep-health/reports");
 }
+
+/**
+ * When sub_folders is enabled, engine-specific reports are placed in a named
+ * sub-folder inside reportsDir.  Consolidated and executive reports always
+ * stay at the root level (pass sub_folders=false for those).
+ *
+ * @param reportsDir   Absolute path to the base reports directory.
+ * @param subFolder    Sub-folder name (e.g. 'sonarqube').  Pass undefined or
+ *                     empty string to keep files at the root level.
+ */
+export function resolveEngineReportsDir(
+  reportsDir: string,
+  subFolder: string | undefined,
+): string {
+  if (!subFolder) return reportsDir;
+  return resolve(reportsDir, subFolder);
+}

@@ -50,7 +50,11 @@ export interface RawLocale {
     /** SonarQube executive section */
     sonarqube_section: string;
     sonarqube_quality_gate: string;    // vars: status
+    sonarqube_conditions: string;
     sonarqube_metrics: string;
+    sonarqube_issues_by_file: string;
+    sonarqube_no_issues: string;
+    sonarqube_issue_count: string;     // vars: n
     sonarqube_skipped: string;
     sonarqube_warning: string;         // vars: message
     /** Advisors section header */

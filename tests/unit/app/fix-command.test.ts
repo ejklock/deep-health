@@ -22,6 +22,11 @@ vi.mock('@reporting/executive', () => ({
   sonarqubeReportFilename: vi.fn(() => 'sonarqube.md'),
 }));
 
+vi.mock('@reporting/sonarqube-report', () => ({
+  generateSonarQubeHtmlReport: vi.fn(() => null),
+  sonarqubeHtmlReportFilename: vi.fn(() => '[Client Demo App] SonarQube Report - 2026-04 - April.html'),
+}));
+
 vi.mock('@app/output-writer', () => ({
   writeOutput: vi.fn(),
 }));
@@ -29,6 +34,7 @@ vi.mock('@app/output-writer', () => ({
 vi.mock('@app/report-saver', () => ({
   saveReport: vi.fn(),
   resolveReportsDir: vi.fn(() => '/abs/reports'),
+  resolveEngineReportsDir: vi.fn(() => '/abs/reports'),
 }));
 
 import { runScanner } from '@modules/scanner/index';

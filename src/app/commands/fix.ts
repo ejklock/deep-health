@@ -13,7 +13,12 @@ import { writeOutput } from "@app/output-writer";
 import {
   saveReport,
   resolveReportsDir,
+  resolveEngineReportsDir,
 } from "@app/report-saver";
+import {
+  generateSonarQubeHtmlReport,
+  sonarqubeHtmlReportFilename,
+} from "@reporting/sonarqube-report";
 import type { RunContext } from "@app/run-context";
 import type { ConsolidatedReport } from "@core/types/report";
 
@@ -101,6 +106,8 @@ export async function runFixCommand(
   // Resolve outputs config (canonical location for reports settings)
   const outputsConfig = config.outputs;
   const reportsDir = resolveReportsDir(opts.cwd, outputsConfig?.dir ?? config.reports_dir);
+  const subFoldersEnabled = outputsConfig?.sub_folders ?? false;
+  const sonarReportsDir = resolveEngineReportsDir(reportsDir, subFoldersEnabled ? 'sonarqube' : undefined);
   const reportLanguage = config.report_language;
   // Markdown output is opt-in: only save to reportsDir when outputs.formats includes 'markdown'
   const markdownEnabled =
@@ -170,9 +177,11 @@ export async function runFixCommand(
       opts.cwd,
     );
 
-    // Save a separate SonarQube markdown artifact when SonarQube results are present
+    const engineResults = result.aggregated?.engineResults;
+
+    // Standalone SonarQube Markdown artifact (rich: conditions + issues by file)
     const sonarMarkdown = generateSonarQubeMarkdownReport(
-      result.aggregated?.engineResults,
+      engineResults,
       config.project.name,
       reportLanguage,
     );
@@ -182,7 +191,24 @@ export async function runFixCommand(
       await saveReport(
         sonarFilename,
         sonarMarkdown,
-        reportsDir,
+        sonarReportsDir,
+        config.cloud_storage,
+        opts.cwd,
+      );
+    }
+
+    // Standalone SonarQube HTML artifact
+    const sonarHtml = generateSonarQubeHtmlReport(
+      engineResults,
+      config.project.client,
+      config.project.name,
+    );
+    if (sonarHtml) {
+      const htmlFilename = sonarqubeHtmlReportFilename(config.project.client, config.project.name);
+      await saveReport(
+        htmlFilename,
+        sonarHtml,
+        sonarReportsDir,
         config.cloud_storage,
         opts.cwd,
       );

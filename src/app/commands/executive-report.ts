@@ -7,8 +7,13 @@ import {
   sonarqubeReportFilename,
 } from "@reporting/executive";
 import {
+  generateSonarQubeHtmlReport,
+  sonarqubeHtmlReportFilename,
+} from "@reporting/sonarqube-report";
+import {
   saveReport,
   resolveReportsDir,
+  resolveEngineReportsDir,
 } from "@app/report-saver";
 import type { RunContext } from "@app/run-context";
 
@@ -71,6 +76,8 @@ export async function runExecutiveReportCommand(
 
   // Use outputs.dir if present, fall back to legacy reports_dir
   const reportsDir = resolveReportsDir(opts.cwd, outputsConfig?.dir ?? config.reports_dir);
+  const subFoldersEnabled = outputsConfig?.sub_folders ?? false;
+  const sonarReportsDir = resolveEngineReportsDir(reportsDir, subFoldersEnabled ? 'sonarqube' : undefined);
 
   if (markdownEnabled) {
     const filename = executiveReportFilename(client, project);
@@ -82,9 +89,11 @@ export async function runExecutiveReportCommand(
       opts.cwd,
     );
 
-    // Save a separate SonarQube markdown artifact when SonarQube results are present
+    const engineResults = orchestratorResult.aggregated?.engineResults;
+
+    // Standalone SonarQube Markdown artifact (rich: conditions + issues by file)
     const sonarMarkdown = generateSonarQubeMarkdownReport(
-      orchestratorResult.aggregated?.engineResults,
+      engineResults,
       project,
       config.report_language,
     );
@@ -94,7 +103,20 @@ export async function runExecutiveReportCommand(
       await saveReport(
         sonarFilename,
         sonarMarkdown,
-        reportsDir,
+        sonarReportsDir,
+        config.cloud_storage,
+        opts.cwd,
+      );
+    }
+
+    // Standalone SonarQube HTML artifact
+    const sonarHtml = generateSonarQubeHtmlReport(engineResults, client, project);
+    if (sonarHtml) {
+      const htmlFilename = sonarqubeHtmlReportFilename(client, project);
+      await saveReport(
+        htmlFilename,
+        sonarHtml,
+        sonarReportsDir,
         config.cloud_storage,
         opts.cwd,
       );
