@@ -36,15 +36,5 @@ export function buildLocale(raw: RawLocale): Locale {
       advisor_header: (name) => interp(raw.exec.advisor_header, { name }),
       advisor_output: (output) => interp(raw.exec.advisor_output, { output }),
     },
-
-    consolidated: {
-      ...raw.consolidated,
-      title: (projectName) => interp(raw.consolidated.title, { projectName }),
-      ecosystem_header: (name) => interp(raw.consolidated.ecosystem_header, { name }),
-      sonarqube_quality_gate: (status) => interp(raw.consolidated.sonarqube_quality_gate, { status }),
-      sonarqube_warning: (message) => interp(raw.consolidated.sonarqube_warning, { message }),
-      advisor_header: (name) => interp(raw.consolidated.advisor_header, { name }),
-      advisor_output: (output) => interp(raw.consolidated.advisor_output, { output }),
-    },
   };
 }

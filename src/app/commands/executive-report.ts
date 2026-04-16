@@ -3,8 +3,6 @@ import { runOrchestrator } from "@orchestration/orchestrator";
 import {
   generateExecutiveReport,
   executiveReportFilename,
-  generateSonarQubeMarkdownReport,
-  sonarqubeReportFilename,
 } from "@reporting/executive";
 import {
   generateSonarQubeHtmlReport,
@@ -89,28 +87,12 @@ export async function runExecutiveReportCommand(
       opts.cwd,
     );
 
-    const engineResults = orchestratorResult.aggregated?.engineResults;
-
-    // Standalone SonarQube Markdown artifact (rich: conditions + issues by file)
-    const sonarMarkdown = generateSonarQubeMarkdownReport(
-      engineResults,
-      project,
-      config.report_language,
-    );
-    if (sonarMarkdown) {
-      const date = new Date().toISOString().split('T')[0]!;
-      const sonarFilename = sonarqubeReportFilename(project, date);
-      await saveReport(
-        sonarFilename,
-        sonarMarkdown,
-        sonarReportsDir,
-        config.cloud_storage,
-        opts.cwd,
-      );
-    }
-
     // Standalone SonarQube HTML artifact
-    const sonarHtml = generateSonarQubeHtmlReport(engineResults, client, project);
+    const sonarHtml = generateSonarQubeHtmlReport(
+      orchestratorResult.aggregated?.engineResults,
+      client,
+      project,
+    );
     if (sonarHtml) {
       const htmlFilename = sonarqubeHtmlReportFilename(client, project);
       await saveReport(

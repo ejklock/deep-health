@@ -13,8 +13,6 @@ vi.mock('@orchestration/orchestrator', () => ({
 vi.mock('@reporting/executive', () => ({
   generateExecutiveReport: vi.fn(() => '# executive report'),
   executiveReportFilename: vi.fn(() => 'executive.md'),
-  generateSonarQubeMarkdownReport: vi.fn(),
-  sonarqubeReportFilename: vi.fn(() => 'sonarqube-demo-app-2026-04-14.md'),
 }));
 
 vi.mock('@reporting/sonarqube-report', () => ({
@@ -32,7 +30,6 @@ import { runScanner } from '@modules/scanner/index';
 import { runOrchestrator } from '@orchestration/orchestrator';
 import { runExecutiveReportCommand } from '@app/commands/executive-report';
 import { saveReport } from '@app/report-saver';
-import { generateSonarQubeMarkdownReport } from '@reporting/executive';
 import { generateSonarQubeHtmlReport } from '@reporting/sonarqube-report';
 
 const scanResult = {
@@ -120,8 +117,6 @@ describe('runExecutiveReportCommand', () => {
       aggregated: undefined,
       advisorResults: {},
     });
-    vi.mocked(generateSonarQubeMarkdownReport).mockReturnValue(null);
-
     const ctx: RunContext = {
       config: {
         ...baseConfig,
@@ -143,7 +138,7 @@ describe('runExecutiveReportCommand', () => {
     expect(saveReport).toHaveBeenCalledTimes(1);
   });
 
-  it('saves both executive report and sonarqube markdown artifact when markdown enabled and sonarqube results exist', async () => {
+  it('saves executive report and sonarqube html artifact when markdown enabled and sonarqube results exist', async () => {
     vi.mocked(runOrchestrator).mockResolvedValue({
       scan: scanResult,
       updates: {},
@@ -161,48 +156,6 @@ describe('runExecutiveReportCommand', () => {
       },
       advisorResults: {},
     });
-    vi.mocked(generateSonarQubeMarkdownReport).mockReturnValue('# SonarQube — Demo App\n');
-
-    const ctx: RunContext = {
-      config: {
-        ...baseConfig,
-        outputs: { formats: ['markdown'], dir: '.deep-health/reports' },
-      },
-      runner: { environment: 'local', run: vi.fn() },
-    };
-
-    await runExecutiveReportCommand(ctx, {
-      config: 'project-config.yml',
-      cwd: '/repo',
-      dryRun: false,
-      verbose: false,
-      quiet: false,
-      json: false,
-    });
-
-    // Both the executive report and the separate SonarQube artifact are saved
-    expect(saveReport).toHaveBeenCalledTimes(2);
-  });
-
-  it('saves executive + markdown + html when all three are non-null', async () => {
-    vi.mocked(runOrchestrator).mockResolvedValue({
-      scan: scanResult,
-      updates: {},
-      overallStatus: 'success',
-      warnings: [],
-      aggregated: {
-        primary: scanResult,
-        engineResults: {
-          sonarqube: {
-            ...scanResult,
-            $schema: 'sonarqube-scan-result/v1',
-            agent: 'sonarqube',
-          },
-        },
-      },
-      advisorResults: {},
-    });
-    vi.mocked(generateSonarQubeMarkdownReport).mockReturnValue('# SonarQube\n');
     vi.mocked(generateSonarQubeHtmlReport).mockReturnValue('<html></html>');
 
     const ctx: RunContext = {
@@ -222,11 +175,11 @@ describe('runExecutiveReportCommand', () => {
       json: false,
     });
 
-    // executive + sonarqube markdown + sonarqube html
-    expect(saveReport).toHaveBeenCalledTimes(3);
+    // Both the executive report and the SonarQube HTML artifact are saved
+    expect(saveReport).toHaveBeenCalledTimes(2);
   });
 
-  it('does not save sonarqube artifact when sonarqube markdown is null (skipped/absent)', async () => {
+  it('saves executive and html when both are available', async () => {
     vi.mocked(runOrchestrator).mockResolvedValue({
       scan: scanResult,
       updates: {},
@@ -239,13 +192,12 @@ describe('runExecutiveReportCommand', () => {
             ...scanResult,
             $schema: 'sonarqube-scan-result/v1',
             agent: 'sonarqube',
-            status: 'skipped' as const,
           },
         },
       },
       advisorResults: {},
     });
-    vi.mocked(generateSonarQubeMarkdownReport).mockReturnValue(null);
+    vi.mocked(generateSonarQubeHtmlReport).mockReturnValue('<html></html>');
 
     const ctx: RunContext = {
       config: {
@@ -264,8 +216,46 @@ describe('runExecutiveReportCommand', () => {
       json: false,
     });
 
-    // Only the executive report; no sonarqube artifact when it returns null
+    expect(saveReport).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not save sonarqube html artifact when html generation returns null', async () => {
+    vi.mocked(runOrchestrator).mockResolvedValue({
+      scan: scanResult,
+      updates: {},
+      overallStatus: 'success',
+      warnings: [],
+      aggregated: {
+        primary: scanResult,
+        engineResults: {
+          sonarqube: {
+            ...scanResult,
+            $schema: 'sonarqube-scan-result/v1',
+            agent: 'sonarqube',
+            status: 'skipped' as const,
+          },
+        },
+      },
+      advisorResults: {},
+    });
+    const ctx: RunContext = {
+      config: {
+        ...baseConfig,
+        outputs: { formats: ['markdown'], dir: '.deep-health/reports' },
+      },
+      runner: { environment: 'local', run: vi.fn() },
+    };
+
+    await runExecutiveReportCommand(ctx, {
+      config: 'project-config.yml',
+      cwd: '/repo',
+      dryRun: false,
+      verbose: false,
+      quiet: false,
+      json: false,
+    });
+
+    // Only the executive report; no SonarQube HTML artifact when it returns null
     expect(saveReport).toHaveBeenCalledTimes(1);
   });
 });
-

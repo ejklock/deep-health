@@ -1,6 +1,5 @@
 import type { ScanResultJson } from './scan';
 import type { UpdateResultJson } from './update';
-import type { PhaseStatus } from './common';
 import type { SupportedLocale } from './locale';
 
 /** Result produced by an advisor command execution */
@@ -12,39 +11,6 @@ export interface AdvisorResult {
   /** Last N lines of stdout (truncated for reports; full output in logs) */
   output: string;
   status: 'pass' | 'fail' | 'skipped';
-}
-
-export interface ConsolidatedReport {
-  projectName: string;
-  date: string;
-  environment: string;
-  scan: ScanResultJson;
-  /** Update results keyed by plugin id (e.g. 'npm', 'composer') */
-  updates: Record<string, UpdateResultJson>;
-  overallStatus: PhaseStatus;
-  locale?: SupportedLocale;
-  /**
-   * Per-engine raw scan results for multi-source reporting.
-   * Optional — reports gracefully omit engine sections when this map is absent
-   * or the engine is not present. Key is the engine id (e.g. 'sonarqube').
-   */
-  engineResults?: Record<string, ScanResultJson>;
-  /**
-   * Advisor results keyed by ecosystem id.
-   * Optional — present when advisors were configured and executed.
-   */
-  advisorResults?: Record<string, AdvisorResult[]>;
-  /**
-   * Git branch the scan was executed on.
-   * Optional — rendered in report header when present.
-   */
-  branch?: string | null;
-  /**
-   * Summary of scanner engines used during this run.
-   * Optional — rendered in report header when present.
-   * Example: ['osv', 'sonarqube']
-   */
-  scannerEngines?: string[];
 }
 
 export interface ExecutiveReportOptions {

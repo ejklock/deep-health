@@ -35,7 +35,7 @@ export interface SonarQubeQualityGateConditionExport {
 
 /**
  * Detailed SonarQube export payload.
- * Written as JSON alongside the consolidated report when SonarQube ran successfully.
+ * Written as a standalone JSON artifact when SonarQube ran successfully.
  */
 export interface SonarQubeDetailedExport {
   $schema: 'sonarqube-export/v1';
@@ -141,7 +141,7 @@ export function buildSonarQubeExport(
 
 /**
  * Determine the filename for the SonarQube export JSON.
- * Naming mirrors the consolidated report convention.
+ * Naming mirrors the project/date artifact convention.
  */
 export function sonarQubeExportFilename(projectName: string, date: string): string {
   return `sonarqube-export-${projectName.toLowerCase().replace(/\s+/g, '-')}-${date}.json`;

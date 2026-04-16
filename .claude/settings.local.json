@@ -7,7 +7,9 @@
       "Read(//tmp/**)",
       "Bash(npm list:*)",
       "Bash(node:*)",
-      "Bash(rtk read:*)"
+      "Bash(rtk read:*)",
+      "Bash(rtk find:*)"
     ]
-  }
+  },
+  "outputStyle": "Explanatory"
 }

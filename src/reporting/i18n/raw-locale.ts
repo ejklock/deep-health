@@ -70,40 +70,4 @@ export interface RawLocale {
     label_branch: string;
     label_scanners: string;
   };
-  consolidated: {
-    title: string;                // vars: projectName
-    label_date: string;
-    label_environment: string;
-    section_vulns: string;
-    label_total: string;
-    section_fixes: string;
-    /** vars: name — ecosystem name, e.g. "npm", "Composer" */
-    ecosystem_header: string;
-    no_packages_updated: string;
-    section_validation: string;
-    section_pending: string;
-    breaking_title: string;
-    breaking_authorize: string;
-    no_safe_version_title: string;
-    /** SonarQube consolidated section */
-    sonarqube_section: string;
-    sonarqube_quality_gate: string;    // vars: status
-    sonarqube_metrics: string;
-    sonarqube_affected_files: string;
-    sonarqube_no_issues: string;
-    sonarqube_skipped: string;
-    sonarqube_warning: string;         // vars: message
-    /** Advisors section in consolidated report */
-    advisors_section: string;
-    /** vars: name */
-    advisor_header: string;
-    advisor_pass: string;
-    advisor_fail: string;
-    advisor_skipped: string;
-    /** vars: output */
-    advisor_output: string;
-    /** Branch/engine metadata labels */
-    label_branch: string;
-    label_scanners: string;
-  };
 }

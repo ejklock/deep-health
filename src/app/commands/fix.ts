@@ -1,12 +1,8 @@
 import { runScanner } from "@modules/scanner/index";
 import { runOrchestrator } from "@orchestration/orchestrator";
-import { generateConsolidatedReport } from "@reporting/consolidated";
 import {
   generateExecutiveReport,
   executiveReportFilename,
-  consolidatedReportFilename,
-  generateSonarQubeMarkdownReport,
-  sonarqubeReportFilename,
 } from "@reporting/executive";
 import { defaultRegistry } from "@modules/ecosystem/index";
 import { writeOutput } from "@app/output-writer";
@@ -20,7 +16,6 @@ import {
   sonarqubeHtmlReportFilename,
 } from "@reporting/sonarqube-report";
 import type { RunContext } from "@app/run-context";
-import type { ConsolidatedReport } from "@core/types/report";
 
 export interface FixCommandOptions {
   config: string;
@@ -115,39 +110,8 @@ export async function runFixCommand(
     // Legacy: if reports_dir is set but no outputs config, default to saving
     (!outputsConfig && !!config.reports_dir);
 
-  if (result.scan) {
-    const report: ConsolidatedReport = {
-      projectName: config.project.name,
-      date: new Date().toISOString().split("T")[0]!,
-      environment: runner.environment,
-      scan: result.scan,
-      updates: result.updates,
-      overallStatus: result.overallStatus,
-      engineResults: result.aggregated?.engineResults,
-      locale: reportLanguage,
-      // Wire advisorResults from orchestrator into consolidated report
-      advisorResults: Object.keys(result.advisorResults).length > 0
-        ? result.advisorResults
-        : undefined,
-    };
-
-    const consolidatedMarkdown = opts.json ? '' : generateConsolidatedReport(report);
-    const output = opts.json
-      ? JSON.stringify(result, null, 2)
-      : consolidatedMarkdown;
-    await writeOutput(output, opts.output);
-
-    // Save consolidated report to reportsDir when markdown is enabled
-    if (!opts.json && markdownEnabled) {
-      const consolidatedFilename = consolidatedReportFilename(config.project.name, report.date);
-      await saveReport(
-        consolidatedFilename,
-        consolidatedMarkdown,
-        reportsDir,
-        config.cloud_storage,
-        opts.cwd,
-      );
-    }
+  if (opts.json) {
+    await writeOutput(JSON.stringify(result, null, 2), opts.output);
   }
 
   if (!opts.noReport && markdownEnabled && result.scan) {
@@ -177,29 +141,9 @@ export async function runFixCommand(
       opts.cwd,
     );
 
-    const engineResults = result.aggregated?.engineResults;
-
-    // Standalone SonarQube Markdown artifact (rich: conditions + issues by file)
-    const sonarMarkdown = generateSonarQubeMarkdownReport(
-      engineResults,
-      config.project.name,
-      reportLanguage,
-    );
-    if (sonarMarkdown) {
-      const date = new Date().toISOString().split('T')[0]!;
-      const sonarFilename = sonarqubeReportFilename(config.project.name, date);
-      await saveReport(
-        sonarFilename,
-        sonarMarkdown,
-        sonarReportsDir,
-        config.cloud_storage,
-        opts.cwd,
-      );
-    }
-
     // Standalone SonarQube HTML artifact
     const sonarHtml = generateSonarQubeHtmlReport(
-      engineResults,
+      result.aggregated?.engineResults,
       config.project.client,
       config.project.name,
     );

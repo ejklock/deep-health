@@ -1,13 +1,9 @@
 export { loadConfig, DEFAULT_CONFIG_PATH } from '@infra/config/loader';
 export { generateConfigYaml } from '@infra/config/generator';
 export { runOrchestrator } from '@orchestration/orchestrator';
-export { generateConsolidatedReport } from '@reporting/consolidated';
 export {
   generateExecutiveReport,
   executiveReportFilename,
-  consolidatedReportFilename,
-  sonarqubeReportFilename,
-  generateSonarQubeMarkdownReport,
 } from '@reporting/executive';
 export { validateGateA, validateEcosystemGate } from '@core/gates/validator';
 export { LocalExecutor } from '@infra/executor/local-executor';
@@ -32,7 +28,6 @@ export type { ScanResultJson } from '@core/types/scan';
 export type { UpdateResultJson } from '@core/types/update';
 export type { CommandRunner } from '@core/types/common';
 export type {
-  ConsolidatedReport,
   ExecutiveReportOptions,
   AdvisorResult,
 } from '@core/types/report';

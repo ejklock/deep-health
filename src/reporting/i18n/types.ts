@@ -54,40 +54,6 @@ export interface ExecLocale {
   label_scanners: string;
 }
 
-export interface ConsolidatedLocale {
-  title(projectName: string): string;
-  label_date: string;
-  label_environment: string;
-  section_vulns: string;
-  label_total: string;
-  section_fixes: string;
-  ecosystem_header(name: string): string;
-  no_packages_updated: string;
-  section_validation: string;
-  section_pending: string;
-  breaking_title: string;
-  breaking_authorize: string;
-  no_safe_version_title: string;
-  /** SonarQube consolidated section */
-  sonarqube_section: string;
-  sonarqube_quality_gate(status: string): string;
-  sonarqube_metrics: string;
-  sonarqube_affected_files: string;
-  sonarqube_no_issues: string;
-  sonarqube_skipped: string;
-  sonarqube_warning(message: string): string;
-  /** Advisor section in consolidated report */
-  advisors_section: string;
-  advisor_header(name: string): string;
-  advisor_pass: string;
-  advisor_fail: string;
-  advisor_skipped: string;
-  advisor_output(output: string): string;
-  /** Branch/engine metadata labels */
-  label_branch: string;
-  label_scanners: string;
-}
-
 export interface ReasonLocale {
   no_safe_version: string;
   major_bump(targetVersion: string): string;
@@ -107,5 +73,4 @@ export interface Locale {
   exec: ExecLocale;
   reason: ReasonLocale;
   status: StatusLocale;
-  consolidated: ConsolidatedLocale;
 }
