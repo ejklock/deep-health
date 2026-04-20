@@ -20,7 +20,7 @@
     "label_project": "Projeto",
     "label_period": "Período",
     "section_task": "Tarefa",
-    "task_title": "Manutenção de Segurança — OSV Scanner (rotina mensal)",
+    "task_title": "Manutenção de Segurança — Rotina Mensal",
     "task_description": "Verificação mensal das dependências instaladas para identificar pacotes com vulnerabilidades conhecidas e aplicar correções disponíveis.",
     "section_resolution": "Resolução",
     "no_vulns": "Nenhuma vulnerabilidade foi identificada nas dependências do projeto. O projeto está atualizado e seguro.",
@@ -62,6 +62,10 @@
     "advisor_output": "```\n{{output}}\n```",
     "advisor_findings_label": "**Achados:**",
     "advisor_no_findings": "_Nenhum problema encontrado._",
+    "advisor_col_ecosystem": "Ecossistema",
+    "advisor_col_advisor": "Advisor",
+    "advisor_col_status": "Status",
+    "advisor_col_findings": "Achados",
     "label_branch": "Branch",
     "label_scanners": "Scanners"
   }

@@ -20,7 +20,7 @@
     "label_project": "Project",
     "label_period": "Period",
     "section_task": "Task",
-    "task_title": "Security Maintenance — OSV Scanner (monthly routine)",
+    "task_title": "Security Maintenance — Monthly Routine",
     "task_description": "Monthly scan of installed dependencies to identify packages with known vulnerabilities and apply available fixes.",
     "section_resolution": "Resolution",
     "no_vulns": "No vulnerabilities were identified in the project dependencies. The project is up to date and secure.",
@@ -62,6 +62,10 @@
     "advisor_output": "```\n{{output}}\n```",
     "advisor_findings_label": "**Findings:**",
     "advisor_no_findings": "_No issues found._",
+    "advisor_col_ecosystem": "Ecosystem",
+    "advisor_col_advisor": "Advisor",
+    "advisor_col_status": "Status",
+    "advisor_col_findings": "Findings",
     "label_branch": "Branch",
     "label_scanners": "Scanners"
   }

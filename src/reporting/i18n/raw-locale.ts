@@ -73,6 +73,11 @@ export interface RawLocale {
     advisor_output: string;            // vars: output
     advisor_findings_label: string;
     advisor_no_findings: string;
+    /** Advisor overview table column headers */
+    advisor_col_ecosystem: string;
+    advisor_col_advisor: string;
+    advisor_col_status: string;
+    advisor_col_findings: string;
     /** Branch/engine metadata labels */
     label_branch: string;
     label_scanners: string;

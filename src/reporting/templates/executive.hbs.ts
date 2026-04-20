@@ -1,17 +1,17 @@
 export default `\
-{{t.label_client}}: {{client}}
-{{t.label_project}}: {{project}}
-{{t.label_period}}: {{monthFull}} {{year}}
-{{#if hasBranch}}{{t.label_branch}}: {{branch}}
-{{/if}}{{#if scannerEngines}}{{t.label_scanners}}: {{scannerEngines}}
+**{{t.label_client}}:** {{client}}
+**{{t.label_project}}:** {{project}}
+**{{t.label_period}}:** {{monthFull}} {{year}}
+{{#if hasBranch}}**{{t.label_branch}}:** {{branch}}
+{{/if}}{{#if scannerEngines}}**{{t.label_scanners}}:** {{scannerEngines}}
 {{/if}}
-{{t.section_task}}
+## {{t.section_task}}
 
 {{t.task_title}}
 
 {{t.task_description}}
 
-{{t.section_resolution}}
+## {{t.section_resolution}}
 
 {{#if noVulns}}
 {{t.no_vulns}}
@@ -32,7 +32,7 @@ export default `\
 
 ---
 
-{{t.section_evidence_before}}
+## {{t.section_evidence_before}}
 
 {{t.table_before_header}}
 {{#each allVulnsBefore}}| {{ecoLabel}} | {{ghsaId}} | {{cvss}} | {{package}} | {{currentVersion}} | {{risk}} |
@@ -41,7 +41,7 @@ export default `\
 
 ---
 
-{{t.section_evidence_after}}
+## {{t.section_evidence_after}}
 
 {{#each evidenceSections}}
 {{#if hasVulns}}
@@ -65,7 +65,7 @@ export default `\
 
 ---
 
-{{t.section_summary}}
+## {{t.section_summary}}
 
 {{#if noVulns}}
 {{t.no_vulns}}
@@ -102,18 +102,6 @@ export default `\
 {{#each sonarSection.metrics}}- **{{key}}:** {{value}}
 {{/each}}
 {{/if}}
-{{#if sonarSection.noIssues}}
-{{t.sonarqube_no_issues}}
-{{else if sonarSection.hasIssues}}
-{{sonarSection.issueCountLabel}}
-
-{{sonarSection.issuesByFileLabel}}
-{{#each sonarSection.issuesByFile}}
-**\`{{file}}\`**
-{{#each issues}}- {{severityIcon}} \`{{severity}}\` · {{rule}}{{#if line}} · linha {{line}}{{/if}} — {{message}}
-{{/each}}
-{{/each}}
-{{/if}}
 {{/if}}
 {{/if}}
 
@@ -122,24 +110,27 @@ export default `\
 
 {{t.advisors_section}}
 
+| {{t.advisor_col_ecosystem}} | {{t.advisor_col_advisor}} | {{t.advisor_col_status}} | {{t.advisor_col_findings}} |
+|---|---|---|---|
+{{#each advisorSection.ecosystems}}{{#each advisors}}| {{../../name}} | {{name}} | {{statusLabel}} | {{findingsSummary}} |
+{{/each}}{{/each}}
+
 {{#each advisorSection.ecosystems}}
 {{#each advisors}}
+{{#if hasFindings}}
 {{header}}
 
-**Status:** {{statusLabel}}
-{{#if hasFindings}}
 {{../../../t.advisor_findings_label}}
 
 | Package | Severity | Title | Range | Fix Available |
 |---------|----------|-------|-------|---------------|
 {{#each findings}}| {{package}} | {{severity}} | {{title}} | {{range}} | {{fixAvailable}} |
 {{/each}}
-{{else if noFindings}}
-{{../../../t.advisor_no_findings}}
 {{else if hasOutput}}
+{{header}}
+
 {{outputBlock}}
 {{/if}}
-
 {{/each}}
 {{/each}}
 {{/if}}

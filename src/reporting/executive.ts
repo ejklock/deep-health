@@ -277,6 +277,18 @@ function buildAdvisorExecSection(
         fixAvailable: f.fixAvailable ?? '—',
       }));
 
+      // Summary cell for the overview table
+      let findingsSummary: string;
+      if (hasFindings) {
+        findingsSummary = `${rawFindings.length} finding(s)`;
+      } else if (r.status === 'clean') {
+        findingsSummary = '—';
+      } else if (hasOutput) {
+        findingsSummary = '_see output_';
+      } else {
+        findingsSummary = '—';
+      }
+
       return {
         name: r.name,
         header: locale.advisor_header(r.name),
@@ -286,6 +298,7 @@ function buildAdvisorExecSection(
         hasFindings,
         noFindings,
         findings,
+        findingsSummary,
       };
     });
 
@@ -496,5 +509,5 @@ export function executiveReportFilename(client: string, project: string): string
   const now = new Date();
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
-  return `[${client} ${project}] Report OSV Scanner - ${year}-${month} - ${monthName(now)}.md`;
+  return `[${client} ${project}] Security Report - ${year}-${month} - ${monthName(now)}.md`;
 }
