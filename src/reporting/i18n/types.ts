@@ -2,6 +2,7 @@
 export type { SupportedLocale } from '@core/types/locale';
 
 export interface ExecLocale {
+  report_title: string;
   label_client: string;
   label_project: string;
   label_period: string;
@@ -33,7 +34,7 @@ export interface ExecLocale {
   pending_manual: string;
   fixed_version(version: string): string;
   /** SonarQube executive section */
-  sonarqube_section: string;
+  sonarqube_title: string;
   sonarqube_quality_gate(status: string): string;
   sonarqube_conditions: string;
   sonarqube_metrics: string;
@@ -42,8 +43,10 @@ export interface ExecLocale {
   sonarqube_issue_count(n: number): string;
   sonarqube_skipped: string;
   sonarqube_warning(message: string): string;
+  /** Optional map of known SonarQube metric keys to human-readable labels */
+  sonarqube_metric_labels?: Record<string, string>;
   /** Advisor section */
-  advisors_section: string;
+  advisors_title: string;
   advisor_header(name: string): string;
   /** @deprecated Use advisor_clean/findings/error/skipped */
   advisor_pass: string;

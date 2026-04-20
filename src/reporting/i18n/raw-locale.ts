@@ -17,6 +17,7 @@ export interface RawLocale {
     pending: string;
   };
   exec: {
+    report_title: string;
     label_client: string;
     label_project: string;
     label_period: string;
@@ -48,7 +49,7 @@ export interface RawLocale {
     pending_manual: string;
     fixed_version: string;        // vars: version
     /** SonarQube executive section */
-    sonarqube_section: string;
+    sonarqube_title: string;
     sonarqube_quality_gate: string;    // vars: status
     sonarqube_conditions: string;
     sonarqube_metrics: string;
@@ -57,8 +58,10 @@ export interface RawLocale {
     sonarqube_issue_count: string;     // vars: n
     sonarqube_skipped: string;
     sonarqube_warning: string;         // vars: message
+    /** Optional map of known SonarQube metric keys to human-readable labels */
+    sonarqube_metric_labels?: Record<string, string>;
     /** Advisors section header */
-    advisors_section: string;
+    advisors_title: string;
     /** vars: name — advisor name, e.g. "audit" */
     advisor_header: string;            // vars: name
     /** @deprecated retained for backward compat; use advisor_clean/findings/error/skipped */

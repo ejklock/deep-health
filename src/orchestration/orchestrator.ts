@@ -371,19 +371,29 @@ async function resolveNpmContainerRunner(
   // Resolve explicit image or infer from node version
   let image = npmRunnerConfig?.image;
   if (!image) {
-    // Attempt to infer node version from the npm plugin
-    const npmPlugin = ecosystemRegistry.getAll().find((p) => p.id === 'npm');
-    let nodeVersion: string | undefined;
-    if (npmPlugin?.inferVersion) {
-      try {
-        nodeVersion = await npmPlugin.inferVersion(cwd);
-        if (nodeVersion) {
-          logger.info(`[npm runner] Inferred Node version: ${nodeVersion} → resolving Docker image`);
+    // Precedence for node version:
+    // 1) scanners.npm.runtime_version (explicit config)
+    // 2) inferVersion() from the npm plugin (project file inference)
+    // 3) resolveNpmDockerImage fallback → 'node:lts-slim'
+    let nodeVersion: string | undefined = npmRunnerConfig?.runtime_version;
+
+    if (!nodeVersion) {
+      // Attempt to infer node version from the npm plugin
+      const npmPlugin = ecosystemRegistry.getAll().find((p) => p.id === 'npm');
+      if (npmPlugin?.inferVersion) {
+        try {
+          nodeVersion = await npmPlugin.inferVersion(cwd);
+          if (nodeVersion) {
+            logger.info(`[npm runner] Inferred Node version: ${nodeVersion} → resolving Docker image`);
+          }
+        } catch {
+          // inferVersion must never throw — defensive guard
         }
-      } catch {
-        // inferVersion must never throw — defensive guard
       }
+    } else {
+      logger.info(`[npm runner] Using configured runtime_version: ${nodeVersion} → resolving Docker image`);
     }
+
     image = resolveNpmDockerImage(nodeVersion);
   }
 

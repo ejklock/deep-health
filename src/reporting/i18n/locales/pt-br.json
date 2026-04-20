@@ -16,6 +16,7 @@
     "pending": "pendente"
   },
   "exec": {
+    "report_title": "Relatório de Segurança",
     "label_client": "Cliente",
     "label_project": "Projeto",
     "label_period": "Período",
@@ -42,7 +43,7 @@
     "pending_needs_action_intro": "Todas as vulnerabilidades que puderam ser corrigidas sem mudanças disruptivas foram aplicadas. Os itens listados abaixo requerem avaliação ou autorização de versão principal:",
     "pending_manual": "Vulnerabilidades identificadas requerem ação manual — nenhuma correção automática foi aplicada.",
     "fixed_version": "corrigido ({{version}})",
-    "sonarqube_section": "## Análise de Qualidade — SonarQube",
+    "sonarqube_title": "Análise de Qualidade — SonarQube",
     "sonarqube_quality_gate": "**Quality Gate:** {{status}}",
     "sonarqube_conditions": "**Condições do Quality Gate:**",
     "sonarqube_metrics": "**Métricas:**",
@@ -51,7 +52,20 @@
     "sonarqube_issue_count": "{{n}} issue(s) encontrado(s)",
     "sonarqube_skipped": "_SonarQube: análise não executada ou desativada neste ciclo._",
     "sonarqube_warning": "_SonarQube: análise com aviso — {{message}}_",
-    "advisors_section": "## Análise de Advisors",
+    "sonarqube_metric_labels": {
+      "alert_status": "Status do Quality Gate",
+      "bugs": "Bugs",
+      "code_smells": "Code Smells",
+      "coverage": "Cobertura",
+      "duplicated_lines_density": "Linhas Duplicadas (%)",
+      "ncloc": "Linhas de Código",
+      "reliability_rating": "Avaliação de Confiabilidade",
+      "security_rating": "Avaliação de Segurança",
+      "sqale_index": "Débito Técnico",
+      "sqale_rating": "Avaliação de Manutenibilidade",
+      "vulnerabilities": "Vulnerabilidades"
+    },
+    "advisors_title": "Análise de Advisors",
     "advisor_header": "### {{name}}",
     "advisor_pass": "✅ limpo",
     "advisor_fail": "⚠️ achados",

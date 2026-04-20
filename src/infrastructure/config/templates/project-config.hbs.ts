@@ -79,6 +79,19 @@ scanners:
     # coverage_exclusions:             # optional — sonar.coverage.exclusions glob patterns
     #   - 'node_modules/**'
     #   - 'tests/**'
+{{#if npmRuntimeVersion}}
+  npm:
+    runtime_version: '{{npmRuntimeVersion}}'
+    # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
+    # image: 'node:{{npmRuntimeVersion}}-slim'  # optional — override resolved Node image
+{{/if}}
+{{else}}
+{{#if npmRuntimeVersion}}
+scanners:
+  npm:
+    runtime_version: '{{npmRuntimeVersion}}'
+    # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
+    # image: 'node:{{npmRuntimeVersion}}-slim'  # optional — override resolved Node image
 {{else}}
 # scanners:                              # optional — additional scanner engines
 #   sonarqube:
@@ -106,7 +119,10 @@ scanners:
 #                                        #   docker — run npm inside an ephemeral Node container (default)
 #                                        #   local  — use the locally installed npm binary ⚠ warns
 #                                        #   auto   — deprecated escape hatch ⚠ warns
+#     runtime_version: '20'             # optional — Node version for Docker image resolution
+#                                        #   Overrides inferVersion(); ignored when 'image' is set.
 #     image: 'node:20-slim'              # optional — override resolved Node image
+{{/if}}
 {{/if}}
 
 # cloud_storage:                         # optional — upload reports to cloud storage after generation

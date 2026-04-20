@@ -101,8 +101,8 @@ describe('generateExecutiveReport — SonarQube section', () => {
     expect(report).toContain('SonarQube');
     expect(report).toContain('Quality Gate');
     expect(report).toContain('OK');
-    expect(report).toContain('bugs');
-    expect(report).toContain('coverage');
+    expect(report).toContain('Bugs');
+    expect(report).toContain('Cobertura'); // pt-br translated metric label
   });
 
   it('renders en locale SonarQube strings correctly', () => {
@@ -129,7 +129,7 @@ describe('generateExecutiveReport — advisorResults section', () => {
     expect(report).not.toContain('Advisor');
   });
 
-  it('renders advisor section when advisorResults are provided', () => {
+  it('does NOT render advisor section even when advisorResults are provided', () => {
     const report = generateExecutiveReport({
       ...baseOpts,
       advisorResults: {
@@ -144,12 +144,10 @@ describe('generateExecutiveReport — advisorResults section', () => {
         ],
       },
     });
-    expect(report).toContain('Advisor');
-    expect(report).toContain('audit');
-    expect(report).toContain('found 0 vulnerabilities');
+    expect(report).not.toContain('Advisor');
   });
 
-  it('renders fail status for failed advisors', () => {
+  it('does NOT render advisor section for failed advisors either', () => {
     const report = generateExecutiveReport({
       ...baseOpts,
       advisorResults: {
@@ -164,12 +162,10 @@ describe('generateExecutiveReport — advisorResults section', () => {
         ],
       },
     });
-    expect(report).toContain('Advisor');
-    expect(report).toContain('audit');
-    expect(report).toContain('Found 2 vulnerabilities');
+    expect(report).not.toContain('Advisor');
   });
 
-  it('renders advisor section in en locale', () => {
+  it('does NOT render advisor section in en locale', () => {
     const report = generateExecutiveReport({
       ...baseOpts,
       locale: 'en',
@@ -185,8 +181,7 @@ describe('generateExecutiveReport — advisorResults section', () => {
         ],
       },
     });
-    expect(report).toContain('Advisor');
-    expect(report).toContain('clean');
+    expect(report).not.toContain('Advisor Analysis');
   });
 });
 

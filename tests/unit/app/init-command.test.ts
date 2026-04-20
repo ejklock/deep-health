@@ -81,12 +81,19 @@ describe('runInitCommand — non-interactive', () => {
 
     expect(generateConfigYaml).toHaveBeenCalledWith(
       expect.objectContaining({
+        // npm runtime version is now routed to scanners.npm.runtime_version, not ecosystem entry
+        npmRuntimeVersion: '20',
         ecosystemConfigs: expect.arrayContaining([
-          expect.objectContaining({ id: 'npm', version: '20' }),
-          expect.objectContaining({ id: 'composer', version: undefined }),
+          // version must NOT be present on npm ecosystem entry
+          expect.objectContaining({ id: 'npm' }),
+          expect.objectContaining({ id: 'composer' }),
         ]),
       }),
     );
+    // Verify version is NOT on the npm ecosystem entry
+    const call = vi.mocked(generateConfigYaml).mock.calls[0]![0];
+    const npmEntry = call.ecosystemConfigs?.find((e) => e.id === 'npm');
+    expect(npmEntry?.version).toBeUndefined();
   });
 });
 
@@ -141,12 +148,17 @@ describe('runInitCommand — interactive version prompts', () => {
 
     expect(generateConfigYaml).toHaveBeenCalledWith(
       expect.objectContaining({
+        // npm runtime version routed to top-level npmRuntimeVersion, not ecosystem entry
+        npmRuntimeVersion: '20',
         ecosystemConfigs: expect.arrayContaining([
-          // npm: inferred "20" accepted → version: "20"
-          expect.objectContaining({ id: 'npm', version: '20' }),
+          expect.objectContaining({ id: 'npm' }),
         ]),
       }),
     );
+    // Verify version is NOT on the npm ecosystem entry
+    const npmEntryCheck = vi.mocked(generateConfigYaml).mock.calls[0]![0];
+    const npmEcoEntry = npmEntryCheck.ecosystemConfigs?.find((e) => e.id === 'npm');
+    expect(npmEcoEntry?.version).toBeUndefined();
 
     // Verify that the version prompt for npm was called with the inferred value as default
     const npmVersionPromptCall = mockPrompt.mock.calls.find(
@@ -185,12 +197,17 @@ describe('runInitCommand — interactive version prompts', () => {
 
     expect(generateConfigYaml).toHaveBeenCalledWith(
       expect.objectContaining({
+        // Blank response → npmRuntimeVersion should be undefined
+        npmRuntimeVersion: undefined,
         ecosystemConfigs: expect.arrayContaining([
-          // Blank response → version should be undefined
-          expect.objectContaining({ id: 'npm', version: undefined }),
+          expect.objectContaining({ id: 'npm' }),
         ]),
       }),
     );
+    // Verify version is NOT on the npm ecosystem entry
+    const blankVersionCall = vi.mocked(generateConfigYaml).mock.calls[0]![0];
+    const npmBlankEntry = blankVersionCall.ecosystemConfigs?.find((e) => e.id === 'npm');
+    expect(npmBlankEntry?.version).toBeUndefined();
   });
 
   it('does not prompt for version of a non-selected ecosystem', async () => {

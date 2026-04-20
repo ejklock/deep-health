@@ -156,10 +156,11 @@ function buildSonarQubeExecSection(
     actualValue: c.actualValue ?? '—',
   }));
 
-  // Metrics
+  // Metrics (with i18n label lookup, fallback to raw key)
   const rawMetrics = meta['metrics'] as Record<string, string> | undefined;
+  const metricLabels = locale.sonarqube_metric_labels ?? {};
   const metricsForDisplay = rawMetrics
-    ? Object.entries(rawMetrics).map(([key, value]) => ({ key, value }))
+    ? Object.entries(rawMetrics).map(([key, value]) => ({ key: metricLabels[key] ?? key, value }))
     : null;
 
   // Issues grouped by file
@@ -281,10 +282,8 @@ function buildAdvisorExecSection(
       let findingsSummary: string;
       if (hasFindings) {
         findingsSummary = `${rawFindings.length} finding(s)`;
-      } else if (r.status === 'clean') {
-        findingsSummary = '—';
-      } else if (hasOutput) {
-        findingsSummary = '_see output_';
+      } else if (r.status === 'error') {
+        findingsSummary = locale.advisor_error;
       } else {
         findingsSummary = '—';
       }
@@ -466,9 +465,6 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
   // Build SonarQube section (graceful: absent when engineResults not provided)
   const sonarSection = buildSonarQubeExecSection(opts.engineResults, locale.exec);
 
-  // Build advisor section
-  const advisorSection = buildAdvisorExecSection(opts.advisorResults, locale.exec);
-
   const context: Record<string, unknown> = {
     t: locale.exec,
     client: opts.client,
@@ -499,7 +495,6 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
     allFixed: fixedVulns.length > 0 && pendingOriginal.length === 0,
     pendingByPkg,
     sonarSection,
-    advisorSection,
   };
 
   return render(executiveTemplate, context);

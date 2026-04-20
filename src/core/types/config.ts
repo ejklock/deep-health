@@ -68,8 +68,18 @@ export interface NpmRunnerConfig {
    * Docker image to use when mode is 'docker'.
    * When absent, the image is resolved from the inferred/configured Node version
    * (e.g. Node 20 → 'node:20-slim').  Falls back to 'node:lts-slim'.
+   * Takes precedence over `runtime_version`.
    */
   image?: string;
+  /**
+   * Node.js runtime version to use when resolving the Docker image.
+   * Example: '20', '20.11', '20.11.1'.
+   * When set, the image is resolved as `node:<major>-slim` (e.g. '20' → 'node:20-slim').
+   * Overrides the version inferred from project files.
+   * Only used when `image` is not set.
+   * Set by `deep-health init` when a Node version can be inferred from .nvmrc / .node-version / package.json.
+   */
+  runtime_version?: string;
 }
 
 /** Outputs/reports configuration */
@@ -89,8 +99,6 @@ export interface OutputsConfig {
 export interface EcosystemConfig {
   /** Plugin id: 'npm', 'composer', etc. */
   id: string;
-  /** Runtime version hint (e.g. '8.2', '20.x') — informational */
-  version?: string;
   /**
    * Fixer strategy to apply when remediating vulnerabilities.
    * Defaults to the plugin's primary supported fixer.

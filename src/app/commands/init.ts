@@ -78,6 +78,8 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   // ─── Per-ecosystem config ────────────────────────────────────────────────────
 
   const ecosystemConfigs: GenerateConfigOptions['ecosystemConfigs'] = [];
+  /** Inferred npm runtime version (written to scanners.npm.runtime_version, not ecosystem entry). */
+  let npmRuntimeVersion: string | undefined;
 
   for (const id of selectedEcosystemIds) {
     const plugin = defaultRegistry.get(id)!;
@@ -132,22 +134,26 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     const inferredVersion = plugin.inferVersion
       ? await plugin.inferVersion(opts.cwd)
       : undefined;
-    let version: string | undefined;
 
-    if (!opts.nonInteractive) {
-      // Interactive: show inferred version as default; blank input → omit
-      const versionDefault = inferredVersion ?? '';
-      const versionPrompt = inferredVersion
-        ? `  [${plugin.name}] Runtime version (inferred: ${inferredVersion}, blank to skip)`
-        : `  [${plugin.name}] Runtime version (blank to skip)`;
-      const versionAnswer = await prompt(versionPrompt, versionDefault);
-      version = versionAnswer.trim() || undefined;
-    } else {
-      // Non-interactive: use inferred value if available, otherwise omit
-      version = inferredVersion;
+    if (id === 'npm') {
+      // npm runtime version is stored in scanners.npm.runtime_version, not in the ecosystem entry.
+      let resolvedVersion: string | undefined;
+      if (!opts.nonInteractive) {
+        const versionDefault = inferredVersion ?? '';
+        const versionPrompt = inferredVersion
+          ? `  [${plugin.name}] Runtime version (inferred: ${inferredVersion}, blank to skip)`
+          : `  [${plugin.name}] Runtime version (blank to skip)`;
+        const versionAnswer = await prompt(versionPrompt, versionDefault);
+        resolvedVersion = versionAnswer.trim() || undefined;
+      } else {
+        resolvedVersion = inferredVersion;
+      }
+      npmRuntimeVersion = resolvedVersion;
     }
+    // Note: version is intentionally not set on the ecosystem entry for npm.
+    // For non-npm ecosystems, version inference is informational only and not currently persisted.
 
-    ecosystemConfigs.push({ id, fixerStrategy, validationCommands, advisors, version });
+    ecosystemConfigs.push({ id, fixerStrategy, validationCommands, advisors });
   }
 
   // ─── Scanner options ─────────────────────────────────────────────────────────
@@ -187,6 +193,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     reportLanguage,
     ecosystemConfigs,
     enableSonarQube,
+    npmRuntimeVersion,
     outputs: outputFormats.length > 0 || outputsDir
       ? { formats: outputFormats, dir: outputsDir }
       : undefined,

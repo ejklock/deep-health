@@ -20,8 +20,6 @@ import configTemplate from './templates/project-config.hbs';
 
 export interface EcosystemConfigEntry {
   id: string;
-  /** Runtime version hint inferred from project files (e.g. '20.11', '8.2'). */
-  version?: string;
   fixerStrategy?: string;
   validationCommands?: Array<{ name: string; command: string }>;
   advisors?: Array<{ name: string; command: string }>;
@@ -40,6 +38,13 @@ export interface GenerateConfigOptions {
   enableSonarQube?: boolean;
   /** Outputs config for report generation */
   outputs?: { formats?: OutputFormat[]; dir?: string };
+  /**
+   * Inferred Node.js runtime version to persist into `scanners.npm.runtime_version`.
+   * When set, the generated config includes this value so the orchestrator can use it
+   * for Docker image resolution without running inferVersion() at scan time.
+   * Example: '20', '20.11'
+   */
+  npmRuntimeVersion?: string;
 }
 
 const compiled = Handlebars.compile(configTemplate, { noEscape: true });
@@ -164,6 +169,7 @@ export function generateConfigYaml(opts: GenerateConfigOptions = {}): string {
     outputFormats,
     outputsDir,
     sonarProjectKey,
+    npmRuntimeVersion: opts.npmRuntimeVersion,
   });
 }
 

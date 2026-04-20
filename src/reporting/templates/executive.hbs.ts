@@ -1,10 +1,14 @@
 export default `\
-**{{t.label_client}}:** {{client}}
-**{{t.label_project}}:** {{project}}
-**{{t.label_period}}:** {{monthFull}} {{year}}
-{{#if hasBranch}}**{{t.label_branch}}:** {{branch}}
-{{/if}}{{#if scannerEngines}}**{{t.label_scanners}}:** {{scannerEngines}}
+# {{t.report_title}}
+
+> **{{t.label_client}}:** {{client}}
+> **{{t.label_project}}:** {{project}}
+> **{{t.label_period}}:** {{monthFull}} {{year}}
+{{#if hasBranch}}> **{{t.label_branch}}:** {{branch}}
+{{/if}}{{#if scannerEngines}}> **{{t.label_scanners}}:** {{scannerEngines}}
 {{/if}}
+---
+
 ## {{t.section_task}}
 
 {{t.task_title}}
@@ -32,7 +36,7 @@ export default `\
 
 ---
 
-## {{t.section_evidence_before}}
+### {{t.section_evidence_before}}
 
 {{t.table_before_header}}
 {{#each allVulnsBefore}}| {{ecoLabel}} | {{ghsaId}} | {{cvss}} | {{package}} | {{currentVersion}} | {{risk}} |
@@ -41,7 +45,7 @@ export default `\
 
 ---
 
-## {{t.section_evidence_after}}
+### {{t.section_evidence_after}}
 
 {{#each evidenceSections}}
 {{#if hasVulns}}
@@ -63,27 +67,10 @@ export default `\
 {{/if}}
 {{/each}}
 
----
-
-## {{t.section_summary}}
-
-{{#if noVulns}}
-{{t.no_vulns}}
-{{else if allFixed}}
-{{t.all_fixed}}
-{{else if pendingByPkg}}
-{{t.pending_needs_action_intro}}
-
-{{#each pendingByPkg}}- {{package}} ({{currentVersion}}): {{motivoPt}}. {{riskLabel}}: {{risk}}{{cvssDisplay}}.
-{{/each}}
-{{else}}
-{{t.pending_manual}}
-{{/if}}
-
 {{#if sonarSection.present}}
 ---
 
-{{t.sonarqube_section}}
+### {{t.sonarqube_title}}
 
 {{#if sonarSection.skipped}}
 {{t.sonarqube_skipped}}
@@ -105,33 +92,20 @@ export default `\
 {{/if}}
 {{/if}}
 
-{{#if advisorSection.present}}
 ---
 
-{{t.advisors_section}}
+## {{t.section_summary}}
 
-| {{t.advisor_col_ecosystem}} | {{t.advisor_col_advisor}} | {{t.advisor_col_status}} | {{t.advisor_col_findings}} |
-|---|---|---|---|
-{{#each advisorSection.ecosystems}}{{#each advisors}}| {{../../name}} | {{name}} | {{statusLabel}} | {{findingsSummary}} |
-{{/each}}{{/each}}
+{{#if noVulns}}
+{{t.no_vulns}}
+{{else if allFixed}}
+{{t.all_fixed}}
+{{else if pendingByPkg}}
+{{t.pending_needs_action_intro}}
 
-{{#each advisorSection.ecosystems}}
-{{#each advisors}}
-{{#if hasFindings}}
-{{header}}
-
-{{../../../t.advisor_findings_label}}
-
-| Package | Severity | Title | Range | Fix Available |
-|---------|----------|-------|-------|---------------|
-{{#each findings}}| {{package}} | {{severity}} | {{title}} | {{range}} | {{fixAvailable}} |
+{{#each pendingByPkg}}- {{package}} ({{currentVersion}}): {{motivoPt}}. {{riskLabel}}: {{risk}}{{cvssDisplay}}.
 {{/each}}
-{{else if hasOutput}}
-{{header}}
-
-{{outputBlock}}
-{{/if}}
-{{/each}}
-{{/each}}
+{{else}}
+{{t.pending_manual}}
 {{/if}}
 `;

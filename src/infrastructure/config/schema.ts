@@ -51,8 +51,16 @@ const NpmRunnerConfigSchema = z.object({
   /**
    * Docker image to use when mode is 'docker'.
    * Defaults to a version-resolved image (e.g. 'node:20-slim'), falling back to 'node:lts-slim'.
+   * Takes precedence over runtime_version.
    */
   image: z.string().optional(),
+  /**
+   * Node.js runtime version hint used to resolve the Docker image when `image` is not set.
+   * Example: '20', '20.11', '20.11.1'.
+   * Overrides the version inferred from project files.
+   * Set by `deep-health init` when a Node version can be inferred automatically.
+   */
+  runtime_version: z.string().optional(),
 }).strict();
 
 /** Output format — markdown for reports */
@@ -74,7 +82,6 @@ const OutputsConfigSchema = z.object({
 /** Declarative ecosystem config entry */
 const EcosystemConfigSchema = z.object({
   id: z.string(),
-  version: z.string().optional(),
   fixer: FixerStrategyIdSchema.optional(),
   validationCommands: z.array(ValidationCommandConfigSchema).optional(),
   advisors: z.array(AdvisorConfigSchema).optional(),

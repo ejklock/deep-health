@@ -16,6 +16,7 @@
     "pending": "pending"
   },
   "exec": {
+    "report_title": "Security Report",
     "label_client": "Client",
     "label_project": "Project",
     "label_period": "Period",
@@ -42,7 +43,7 @@
     "pending_needs_action_intro": "All vulnerabilities that could be fixed without breaking changes have been applied. The items listed below require evaluation or major version authorization:",
     "pending_manual": "Identified vulnerabilities require manual action — no automatic fixes were applied.",
     "fixed_version": "fixed ({{version}})",
-    "sonarqube_section": "## Code Quality Analysis — SonarQube",
+    "sonarqube_title": "Code Quality Analysis — SonarQube",
     "sonarqube_quality_gate": "**Quality Gate:** {{status}}",
     "sonarqube_conditions": "**Quality Gate Conditions:**",
     "sonarqube_metrics": "**Metrics:**",
@@ -51,7 +52,20 @@
     "sonarqube_issue_count": "{{n}} issue(s) found",
     "sonarqube_skipped": "_SonarQube: analysis not executed or disabled in this cycle._",
     "sonarqube_warning": "_SonarQube: analysis warning — {{message}}_",
-    "advisors_section": "## Advisor Analysis",
+    "sonarqube_metric_labels": {
+      "alert_status": "Quality Gate Status",
+      "bugs": "Bugs",
+      "code_smells": "Code Smells",
+      "coverage": "Coverage",
+      "duplicated_lines_density": "Duplicated Lines (%)",
+      "ncloc": "Lines of Code",
+      "reliability_rating": "Reliability Rating",
+      "security_rating": "Security Rating",
+      "sqale_index": "Technical Debt",
+      "sqale_rating": "Maintainability Rating",
+      "vulnerabilities": "Vulnerabilities"
+    },
+    "advisors_title": "Advisor Analysis",
     "advisor_header": "### {{name}}",
     "advisor_pass": "✅ clean",
     "advisor_fail": "⚠️ findings",
