@@ -87,6 +87,8 @@ function withSonarQube(
   return {
     ...base,
     scanners: {
+      // Preserve existing scanner config (e.g. osv.runner=local from fixture) and add sonarqube
+      ...base.scanners,
       sonarqube: {
         enabled: options.enabled ?? true,
         mode: options.mode ?? 'external',

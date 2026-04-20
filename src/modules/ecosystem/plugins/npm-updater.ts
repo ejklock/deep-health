@@ -102,7 +102,6 @@ export async function runNpmUpdater(
     });
 
     if (!validationResult.allPassed) {
-      // Revert changes when validation fails
       logger.error('Validation failed — reverting npm changes...');
       await revertNpmChanges(runner, backups, cwd);
       return {
@@ -113,6 +112,7 @@ export async function runNpmUpdater(
       };
     }
 
+    // Post-update OSV verification (osv-scanner must be available via the runner)
     await verifyResidualVulnerabilities(runner, cwd);
 
     return {

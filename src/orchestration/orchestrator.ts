@@ -4,10 +4,13 @@ import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
 import type { AdvisorResult } from '@core/types/report';
 import type { EngineWarning, ScannerEngineContext } from '@modules/scanner/types';
+import type { EphemeralContainerRunner } from '@infra/provisioner/types';
 import { validateGateA, validateEcosystemGate } from '@core/gates/validator';
 import { GateValidationError } from '@core/errors';
 import { logger } from '@infra/utils/logger';
 import { detectGitBranch } from '@infra/utils/git-branch';
+import { NpmDockerRunner, resolveNpmDockerImage } from '@infra/provisioner/npm-runner';
+import { NpmContainerCommandRunner } from '@infra/executor/npm-container-runner';
 // Ecosystem registry — plugins are registered via modules/ecosystem/index.ts side-effects
 import { EcosystemRegistry, defaultRegistry } from '@modules/ecosystem/index';
 // Scanner registry — engines are registered via modules/scanner/index.ts side-effects
@@ -232,6 +235,62 @@ async function runAdvisors(
   return results;
 }
 
+/**
+ * Resolve the npm container runner based on config.
+ *
+ * - 'docker' (default): create NpmDockerRunner using inferred/configured node version.
+ * - 'local': use local npm (return undefined — no container); emit a warning.
+ * - 'auto': try docker if available; emit a warning about deprecation.
+ */
+async function resolveNpmContainerRunner(
+  config: ProjectConfig,
+  cwd: string,
+  ecosystemRegistry: EcosystemRegistry,
+): Promise<EphemeralContainerRunner<string[]> | undefined> {
+  const npmRunnerConfig = config.scanners?.npm;
+  const mode = npmRunnerConfig?.mode ?? 'docker';
+
+  if (mode === 'local') {
+    logger.warn(
+      '[npm runner] mode=local: using local npm binary. ' +
+      'Docker (mode: docker) is the recommended default for reproducible, ' +
+      'platform-independent npm updates. Set scanners.npm.mode to "docker" in your config.',
+    );
+    return undefined;
+  }
+
+  if (mode === 'auto') {
+    logger.warn(
+      '[npm runner] mode=auto is a deprecated escape hatch. ' +
+      'Docker (mode: docker) is now the default for npm. ' +
+      'Set scanners.npm.mode explicitly to "docker" or "local" in your config.',
+    );
+    // auto: fall through to docker (docker is the preferred path)
+  }
+
+  // Resolve explicit image or infer from node version
+  let image = npmRunnerConfig?.image;
+  if (!image) {
+    // Attempt to infer node version from the npm plugin
+    const npmPlugin = ecosystemRegistry.getAll().find((p) => p.id === 'npm');
+    let nodeVersion: string | undefined;
+    if (npmPlugin?.inferVersion) {
+      try {
+        nodeVersion = await npmPlugin.inferVersion(cwd);
+        if (nodeVersion) {
+          logger.info(`[npm runner] Inferred Node version: ${nodeVersion} → resolving Docker image`);
+        }
+      } catch {
+        // inferVersion must never throw — defensive guard
+      }
+    }
+    image = resolveNpmDockerImage(nodeVersion);
+  }
+
+  logger.info(`[npm runner] Using Docker image: ${image}`);
+  return new NpmDockerRunner({ projectDir: cwd, image });
+}
+
 export async function runOrchestrator(
   runner: CommandRunner,
   config: ProjectConfig,
@@ -359,8 +418,24 @@ export async function runOrchestrator(
     }
 
     logger.info(`=== Phase: ${plugin.name} Updates ===`);
+
+    // Resolve npm container runner for npm ecosystem (once per plugin invocation)
+    // Compose the effective runner here in the orchestration layer — plugins receive
+    // an already-resolved CommandRunner with no knowledge of the container abstraction.
+    let effectiveRunner: CommandRunner = runner;
+    if (plugin.id === 'npm') {
+      const npmContainerRunner = await resolveNpmContainerRunner(config, options.cwd, ecosystemRegistry);
+      if (npmContainerRunner) {
+        effectiveRunner = new NpmContainerCommandRunner({
+          container: npmContainerRunner,
+          fallback: runner,
+          dryRun: runner.dryRun,
+        });
+      }
+    }
+
     const updateResult = await plugin.runUpdater({
-      runner,
+      runner: effectiveRunner,
       config,
       scanResult,
       cwd: options.cwd,

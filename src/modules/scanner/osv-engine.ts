@@ -246,7 +246,7 @@ export class OsvScannerEngine implements ScannerEngine {
   }
 
   async assertAvailable(ctx: ScannerEngineContext): Promise<void> {
-    const runner = ctx.config.scanners?.osv?.runner ?? 'auto';
+    const runner = ctx.config.scanners?.osv?.runner ?? 'docker';
 
     if (runner === 'local') {
       const ok = await this.isLocalAvailable(ctx);
@@ -307,7 +307,22 @@ export class OsvScannerEngine implements ScannerEngine {
         config.ecosystems.some((e) => e.id === p.id),
       );
 
-      const runnerMode = config.scanners?.osv?.runner ?? 'auto';
+      const runnerMode = config.scanners?.osv?.runner ?? 'docker';
+
+      // Warn once for deprecated/non-docker runner modes
+      if (runnerMode === 'local') {
+        logger.warn(
+          '[OSV runner] runner=local: using local osv-scanner binary. ' +
+          'Docker (runner: docker) is the recommended default for reproducible, ' +
+          'platform-independent scans. Set scanners.osv.runner to "docker" in your config.',
+        );
+      } else if (runnerMode === 'auto') {
+        logger.warn(
+          '[OSV runner] runner=auto is a deprecated escape hatch. ' +
+          'Docker (runner: docker) is now the default. ' +
+          'Set scanners.osv.runner explicitly to "docker" or "local" in your config.',
+        );
+      }
 
       // Determine effective runner: for 'auto' re-check local to pick path.
       const useDocker = runnerMode === 'docker' ||

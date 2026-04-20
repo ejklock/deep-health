@@ -1,0 +1,137 @@
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { logger } from '../utils/logger';
+import { needsHostGateway, resolvePlatform } from '../utils/docker-platform';
+import type { EphemeralContainerRunner, ContainerRunResult } from './types';
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * Default Node.js Docker image used when no specific Node version is configured or inferred.
+ * Uses the LTS slim variant for a small footprint.
+ */
+export const NPM_DEFAULT_IMAGE = 'node:lts-slim';
+
+/**
+ * Resolve the Docker image to use for a given Node version hint.
+ *
+ * @param nodeVersion - Inferred/configured Node version string (e.g. "20", "20.11", "22.0").
+ *   When undefined or empty, falls back to `NPM_DEFAULT_IMAGE`.
+ * @returns Docker image name, e.g. `'node:20-slim'` or `'node:lts-slim'`.
+ */
+export function resolveNpmDockerImage(nodeVersion?: string): string {
+  if (!nodeVersion || !nodeVersion.trim()) return NPM_DEFAULT_IMAGE;
+
+  // Use the major version only for the image tag — "20.11.1" → "20-slim"
+  const major = nodeVersion.trim().split('.')[0];
+  if (!major || !/^\d+$/.test(major)) return NPM_DEFAULT_IMAGE;
+
+  return `node:${major}-slim`;
+}
+
+// ─── NpmDockerRunnerOptions ──────────────────────────────────────────────────
+
+export interface NpmDockerRunnerOptions {
+  /**
+   * Absolute path of the project directory to mount into the container.
+   * Mounted read-write at `/project` inside the container so npm can
+   * update `package-lock.json` and `node_modules` in place.
+   */
+  projectDir: string;
+
+  /**
+   * Docker image to use for the Node/npm container.
+   * Defaults to `NPM_DEFAULT_IMAGE` (`node:lts-slim`).
+   */
+  image?: string;
+
+  /**
+   * Docker platform string to pass via `--platform` (e.g. `'linux/amd64'`).
+   * When omitted, no `--platform` flag is injected (native architecture used).
+   */
+  platform?: string;
+}
+
+// ─── NpmDockerRunner ─────────────────────────────────────────────────────────
+
+/**
+ * One-shot ephemeral container runner for npm commands.
+ *
+ * Implements `EphemeralContainerRunner<string[]>`.
+ *
+ * Each `run()` call:
+ *  1. Assembles a `docker run --rm` command with the project directory mounted
+ *     read-write at `/project` and `--workdir /project`.
+ *  2. Executes `npm` inside the container with the provided args array
+ *     (no shell, no injection risk).
+ *  3. Returns `ContainerRunResult` with `exitCode`, `stdout`, and `stderr`.
+ *
+ * On Linux, `--add-host=host.docker.internal:host-gateway` is automatically
+ * added (host-gateway support from `needsHostGateway()`).
+ */
+export class NpmDockerRunner implements EphemeralContainerRunner<string[]> {
+  private readonly image: string;
+  private readonly projectDir: string;
+  private readonly resolvedPlatform: string | undefined;
+
+  constructor(options: NpmDockerRunnerOptions) {
+    this.image = options.image ?? NPM_DEFAULT_IMAGE;
+    this.projectDir = options.projectDir;
+    this.resolvedPlatform = resolvePlatform(options.platform);
+  }
+
+  /**
+   * Run an npm command inside an ephemeral container.
+   *
+   * @param args - npm subcommand + arguments (e.g. `['install']`, `['update', 'pkg']`).
+   *   `'npm'` is automatically prepended as the container entrypoint.
+   * @returns `ContainerRunResult` with exitCode, stdout, and stderr.
+   */
+  async run(args: string[]): Promise<ContainerRunResult> {
+    const dockerArgs = this._buildDockerArgs(args);
+
+    logger.debug(`NpmDockerRunner: docker ${dockerArgs.join(' ')}`);
+
+    try {
+      const { stdout, stderr } = await execFileAsync('docker', dockerArgs);
+      logger.debug('NpmDockerRunner: npm container exited 0');
+      return { exitCode: 0, stdout, stderr };
+    } catch (err: unknown) {
+      const spawnErr = err as { code?: number; stdout?: string; stderr?: string; message?: string };
+      const exitCode = typeof spawnErr.code === 'number' ? spawnErr.code : 1;
+      const stdout = spawnErr.stdout ?? '';
+      const stderr = spawnErr.stderr ?? spawnErr.message ?? String(err);
+      logger.debug(`NpmDockerRunner: npm container exited ${exitCode}`);
+      return { exitCode, stdout, stderr };
+    }
+  }
+
+  // ─── Internal helpers ─────────────────────────────────────────────────────
+
+  /**
+   * Assemble the full `docker run` argument array.
+   * Exposed for testability — does not invoke Docker.
+   */
+  _buildDockerArgs(npmArgs: string[]): string[] {
+    const args: string[] = ['run', '--rm'];
+
+    if (this.resolvedPlatform !== undefined) {
+      args.push('--platform', this.resolvedPlatform);
+    }
+
+    // Read-write mount so npm can update package-lock.json and node_modules
+    args.push('--volume', `${this.projectDir}:/project`);
+    args.push('--workdir', '/project');
+
+    if (needsHostGateway()) {
+      args.push('--add-host', 'host.docker.internal:host-gateway');
+    }
+
+    args.push(this.image);
+
+    // Entrypoint is npm — pass the subcommand args
+    args.push('npm', ...npmArgs);
+
+    return args;
+  }
+}

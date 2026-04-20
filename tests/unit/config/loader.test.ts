@@ -214,12 +214,12 @@ describe('OSV scanner config schema — runner + image fields', () => {
     });
   });
 
-  it('defaults osv.runner to auto when not specified', async () => {
+  it('defaults osv.runner to docker when not specified', async () => {
     const yaml = minimalConfigWith('scanners:\n  osv: {}');
     await withTempConfig(yaml, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
       const config = await loadConfig(filename, dir);
-      expect(config.scanners?.osv?.runner).toBe('auto');
+      expect(config.scanners?.osv?.runner).toBe('docker');
     });
   });
 
@@ -252,8 +252,8 @@ describe('OSV scanner config schema — runner + image fields', () => {
       const dir = require('node:path').dirname(absPath);
       const config = await loadConfig(filename, dir);
       expect(config.scanners?.osv?.image).toBe('ghcr.io/google/osv-scanner:v1.9.0');
-      // runner defaults to 'auto'
-      expect(config.scanners?.osv?.runner).toBe('auto');
+      // runner defaults to 'docker'
+      expect(config.scanners?.osv?.runner).toBe('docker');
     });
   });
 });

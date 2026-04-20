@@ -27,21 +27,41 @@ export interface ValidationCommandConfig {
 /** Runner selection for OSV scanner */
 export type OsvRunnerMode = 'auto' | 'docker' | 'local';
 
+/** Runner selection for npm commands */
+export type NpmRunnerMode = 'auto' | 'docker' | 'local';
+
 /** OSV scanner engine configuration */
 export interface OsvScannerConfig {
   /** Additional CLI args forwarded to osv-scanner */
   args?: string[];
   /**
-   * Runner selection strategy:
-   * - 'auto' (default): try local osv-scanner first; fall back to Docker if unavailable.
-   * - 'local': always use the local osv-scanner binary; fail if not installed.
-   * - 'docker': always run osv-scanner via an ephemeral Docker container.
+   * Runner selection strategy (default: 'docker').
+   * - 'docker': always run osv-scanner via an ephemeral Docker container. ← DEFAULT
+   * - 'local':  always use the local osv-scanner binary; fail if not installed.
+   * - 'auto':   try local first; fall back to Docker if unavailable. ⚠ DEPRECATED escape hatch — emits a warning.
    */
   runner?: OsvRunnerMode;
   /**
-   * Docker image to use when runner is 'docker' or 'auto' falls back to Docker.
+   * Docker image to use when runner is 'docker'.
    * Defaults to 'ghcr.io/google/osv-scanner:latest'.
    * Example: 'ghcr.io/google/osv-scanner:v1.9.0'
+   */
+  image?: string;
+}
+
+/** npm runner configuration */
+export interface NpmRunnerConfig {
+  /**
+   * Runner selection strategy (default: 'docker').
+   * - 'docker': run npm via an ephemeral Node Docker container. ← DEFAULT
+   * - 'local':  use the locally installed npm binary. ⚠ emits a warning.
+   * - 'auto':   try local npm first; fall back to Docker. ⚠ DEPRECATED escape hatch — emits a warning.
+   */
+  mode?: NpmRunnerMode;
+  /**
+   * Docker image to use when mode is 'docker'.
+   * When absent, the image is resolved from the inferred/configured Node version
+   * (e.g. Node 20 → 'node:20-slim').  Falls back to 'node:lts-slim'.
    */
   image?: string;
 }
@@ -167,6 +187,7 @@ export interface SonarQubeConfig {
 export interface ScannersConfig {
   sonarqube?: SonarQubeConfig;
   osv?: OsvScannerConfig;
+  npm?: NpmRunnerConfig;
 }
 
 export interface SafeUpdatePolicy {

@@ -96,11 +96,17 @@ scanners:
 #     #   - 'node_modules/**'
 #     #   - 'tests/**'
 #   osv:
-#     runner: 'auto'                     # 'auto' (default) | 'local' | 'docker'
-#                                        #   auto   — try local osv-scanner, fall back to Docker
-#                                        #   local  — require a locally installed osv-scanner binary
-#                                        #   docker — always run via an ephemeral container
-#     image: 'ghcr.io/google/osv-scanner:latest'  # optional — Docker image override (docker/auto modes)
+#     runner: 'docker'                   # 'docker' (default) | 'local' | 'auto'
+#                                        #   docker — always run via an ephemeral container (default)
+#                                        #   local  — require a locally installed osv-scanner binary ⚠ warns
+#                                        #   auto   — deprecated escape hatch ⚠ warns
+#     image: 'ghcr.io/google/osv-scanner:latest'  # optional — Docker image override
+#   npm:
+#     mode: 'docker'                     # 'docker' (default) | 'local' | 'auto'
+#                                        #   docker — run npm inside an ephemeral Node container (default)
+#                                        #   local  — use the locally installed npm binary ⚠ warns
+#                                        #   auto   — deprecated escape hatch ⚠ warns
+#     image: 'node:20-slim'              # optional — override resolved Node image
 {{/if}}
 
 # cloud_storage:                         # optional — upload reports to cloud storage after generation

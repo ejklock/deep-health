@@ -26,15 +26,31 @@ const ValidationCommandConfigSchema = z.object({
 const OsvScannerConfigSchema = z.object({
   args: z.array(z.string()).optional(),
   /**
-   * Runner selection:
-   * - 'auto' (default): try local osv-scanner, fall back to Docker.
-   * - 'local': require a locally installed osv-scanner binary.
-   * - 'docker': always use an ephemeral Docker container.
+   * Runner selection (default: 'docker'):
+   * - 'docker' (default): always use an ephemeral Docker container.
+   * - 'local': require a locally installed osv-scanner binary. ⚠ Emits a warning.
+   * - 'auto': try local osv-scanner, fall back to Docker. ⚠ Deprecated escape hatch — emits a warning.
    */
-  runner: z.enum(['auto', 'local', 'docker']).default('auto'),
+  runner: z.enum(['auto', 'local', 'docker']).default('docker'),
   /**
-   * Docker image for the OSV container (used when runner is 'docker' or auto-fallback).
+   * Docker image for the OSV container (used when runner is 'docker').
    * Defaults to 'ghcr.io/google/osv-scanner:latest'.
+   */
+  image: z.string().optional(),
+}).strict();
+
+/** npm runner config */
+const NpmRunnerConfigSchema = z.object({
+  /**
+   * Runner selection (default: 'docker'):
+   * - 'docker' (default): run npm via an ephemeral Node Docker container.
+   * - 'local': use the locally installed npm binary. ⚠ Emits a warning.
+   * - 'auto': try local npm first; fall back to Docker. ⚠ Deprecated escape hatch — emits a warning.
+   */
+  mode: z.enum(['auto', 'local', 'docker']).default('docker'),
+  /**
+   * Docker image to use when mode is 'docker'.
+   * Defaults to a version-resolved image (e.g. 'node:20-slim'), falling back to 'node:lts-slim'.
    */
   image: z.string().optional(),
 }).strict();
@@ -115,6 +131,7 @@ const SonarQubeConfigSchema = z.object({
 const ScannersConfigSchema = z.object({
   sonarqube: SonarQubeConfigSchema.optional(),
   osv: OsvScannerConfigSchema.optional(),
+  npm: NpmRunnerConfigSchema.optional(),
 }).strict();
 
 const CloudStorageConfigSchema = z.object({

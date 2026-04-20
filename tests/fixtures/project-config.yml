@@ -42,3 +42,10 @@ safe_update_policy:
   require_authorization_for_constraint_change: true
 
 conflict_resolution: 'stop_and_ask'
+
+# Integration tests run without Docker — force local runner for OSV and npm
+scanners:
+  osv:
+    runner: 'local'
+  npm:
+    mode: 'local'
