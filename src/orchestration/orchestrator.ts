@@ -10,7 +10,9 @@ import { GateValidationError } from '@core/errors';
 import { logger } from '@infra/utils/logger';
 import { detectGitBranch } from '@infra/utils/git-branch';
 import { NpmDockerRunner, resolveNpmDockerImage } from '@infra/provisioner/npm-runner';
+import { OsvDockerRunner } from '@infra/provisioner/osv-runner';
 import { NpmContainerCommandRunner } from '@infra/executor/npm-container-runner';
+import { OsvContainerCommandRunner } from '@infra/executor/osv-container-runner';
 // Ecosystem registry — plugins are registered via modules/ecosystem/index.ts side-effects
 import { EcosystemRegistry, defaultRegistry } from '@modules/ecosystem/index';
 // Scanner registry — engines are registered via modules/scanner/index.ts side-effects
@@ -401,6 +403,81 @@ async function resolveNpmContainerRunner(
   return new NpmDockerRunner({ projectDir: cwd, image });
 }
 
+/**
+ * Resolve a dedicated CommandRunner for OSV commands based on config.
+ *
+ * When the effective OSV runner mode is 'docker', returns an OsvContainerCommandRunner
+ * that routes osv-scanner commands to an ephemeral OsvDockerRunner container.
+ * Returns undefined for 'local' mode or when Docker is not configured.
+ */
+function resolveOsvCommandRunner(
+  config: ProjectConfig,
+  cwd: string,
+  fallback: CommandRunner,
+  dryRun: boolean,
+): CommandRunner {
+  const osvConfig = config.scanners?.osv;
+  const mode = osvConfig?.runner ?? 'docker';
+
+  if (mode === 'local') {
+    // Local mode: use fallback (local runner) directly for OSV commands
+    logger.debug('[OSV runner] mode=local: using local runner for OSV commands');
+    return fallback;
+  }
+
+  // docker or auto: use OsvDockerRunner-backed OsvContainerCommandRunner
+  const image = osvConfig?.image;
+  const osvDockerRunner = new OsvDockerRunner({ projectDir: cwd, image });
+
+  logger.info(`[OSV runner] Resolving dedicated OSV container runner (mode: ${mode}${image ? `, image: ${image}` : ''})`);
+
+  return new OsvContainerCommandRunner({
+    container: osvDockerRunner,
+    fallback,
+    dryRun,
+  });
+}
+
+/** osv-scanner in-place fix command for npm lockfile */
+const OSV_FIX_NPM = 'osv-scanner fix --strategy=in-place -L package-lock.json';
+
+/** osv-scanner post-update residual verification scan for npm lockfile */
+const OSV_SCAN_NPM = 'osv-scanner --lockfile package-lock.json --format json';
+
+/**
+ * Run `osv-scanner fix` for npm lockfile using the dedicated OSV runner.
+ * Best-effort: logs a warning on non-zero exit but does not abort the pipeline.
+ */
+async function runOsvFix(osvRunner: CommandRunner, cwd: string, dryRun: boolean): Promise<void> {
+  if (dryRun) {
+    logger.info(`[DRY-RUN] Would execute: ${OSV_FIX_NPM}`);
+    return;
+  }
+  logger.info(`[OSV fix] Applying OSV in-place fix: ${OSV_FIX_NPM}`);
+  const result = await osvRunner.run(OSV_FIX_NPM, { cwd, stream: true });
+  if (result.exitCode !== 0) {
+    logger.warn(`[OSV fix] osv-scanner fix exited with ${result.exitCode}: ${result.stderr}`);
+  }
+}
+
+/**
+ * Run residual OSV scan verification after npm updates are applied.
+ * Best-effort: logs a warning on failure but does not abort the pipeline.
+ */
+async function runOsvResidualVerification(osvRunner: CommandRunner, cwd: string, dryRun: boolean): Promise<void> {
+  if (dryRun) {
+    logger.info(`[DRY-RUN] Would execute: ${OSV_SCAN_NPM}`);
+    return;
+  }
+  logger.info(`[OSV verify] Running post-update OSV verification: ${OSV_SCAN_NPM}`);
+  try {
+    await osvRunner.run(OSV_SCAN_NPM, { cwd });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.warn(`[OSV verify] Post-update OSV verification failed (non-fatal): ${message}`);
+  }
+}
+
 export async function runOrchestrator(
   runner: CommandRunner,
   config: ProjectConfig,
@@ -530,18 +607,23 @@ export async function runOrchestrator(
     logger.info(`=== Phase: ${plugin.name} Updates ===`);
 
     // Resolve npm container runner for npm ecosystem (once per plugin invocation)
-    // Compose the effective runner here in the orchestration layer — plugins receive
-    // an already-resolved CommandRunner with no knowledge of the container abstraction.
+    // The npm runner is passed exclusively to the npm plugin/updater.
+    // OSV commands (fix + verify) are run separately with a dedicated OSV runner
+    // at the orchestration layer — never inside the npm updater.
     let effectiveRunner: CommandRunner = runner;
     if (plugin.id === 'npm') {
       const npmContainerRunner = await resolveNpmContainerRunner(config, options.cwd, ecosystemRegistry);
-      if (npmContainerRunner) {
-        effectiveRunner = new NpmContainerCommandRunner({
-          container: npmContainerRunner,
-          fallback: runner,
-          dryRun: runner.dryRun,
-        });
-      }
+      effectiveRunner = npmContainerRunner
+        ? new NpmContainerCommandRunner({
+            container: npmContainerRunner,
+            fallback: runner,
+            dryRun: runner.dryRun,
+          })
+        : runner;
+
+      // === Step 1: OSV fix (explicit, orchestrator-coordinated, independent OSV runner) ===
+      const osvRunner = resolveOsvCommandRunner(config, options.cwd, runner, runner.dryRun);
+      await runOsvFix(osvRunner, options.cwd, options.dryRun);
     }
 
     const updateResult = await plugin.runUpdater({
@@ -553,6 +635,12 @@ export async function runOrchestrator(
       validationCommands,
       fixerStrategy,
     });
+
+    // === Step 2 (npm only): OSV residual verification after npm updates ===
+    if (plugin.id === 'npm' && updateResult.status !== 'error') {
+      const osvRunner = resolveOsvCommandRunner(config, options.cwd, runner, runner.dryRun);
+      await runOsvResidualVerification(osvRunner, options.cwd, options.dryRun);
+    }
 
     result.updates[plugin.id] = updateResult;
 

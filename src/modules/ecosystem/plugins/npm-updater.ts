@@ -11,9 +11,6 @@ import { runValidations } from '../utils/validation-runner';
 
 const NPM_FILES = ['package.json', 'package-lock.json'];
 
-/** osv-scanner post-update verification scan for npm lockfile */
-const OSV_SCAN_NPM = 'osv-scanner --lockfile package-lock.json --format json';
-
 async function checkCurrentState(runner: CommandRunner, cwd: string): Promise<void> {
   logger.debug('Running npm outdated and npm audit (informational)...');
   await runner.run('npm outdated', { cwd });
@@ -29,11 +26,6 @@ async function revertNpmChanges(
   await runner.run('npm install', { cwd });
 }
 
-async function verifyResidualVulnerabilities(runner: CommandRunner, cwd: string): Promise<void> {
-  logger.info(`Running post-update OSV verification: ${OSV_SCAN_NPM}`);
-  await runner.run(OSV_SCAN_NPM, { cwd });
-}
-
 export async function runNpmUpdater(
   runner: CommandRunner,
   _config: unknown,
@@ -41,14 +33,24 @@ export async function runNpmUpdater(
   cwd: string,
   authorizeBreaking = false,
   validationCommands: ValidationCommandConfig[] = [],
-  fixerStrategy: FixerStrategyId = 'osv',
+  fixerStrategy: FixerStrategyId = 'npm-audit',
 ): Promise<UpdateResultJson> {
   logger.info('Running npm safe updates...');
 
   const npmEcosystem = scanResult.ecosystems['npm'] ?? emptyEcosystem();
 
-  // Resolve which fixer function to use
-  const fixerFn = FIXER_MAP[fixerStrategy];
+  // Resolve which fixer function to use.
+  // 'osv' strategy is handled by the orchestrator before this updater runs —
+  // if it somehow arrives here, fall back to 'npm-audit' with a warning.
+  const resolvedStrategy: Exclude<FixerStrategyId, 'osv'> =
+    fixerStrategy === 'osv' ? 'npm-audit' : fixerStrategy;
+  if (fixerStrategy === 'osv') {
+    logger.warn(
+      '[npm-updater] fixerStrategy="osv" is not valid here — ' +
+      'osv-scanner fix is coordinated by the orchestrator. Falling back to "npm-audit".',
+    );
+  }
+  const fixerFn = FIXER_MAP[resolvedStrategy];
 
   const skippedValidations: ValidationEntry[] =
     validationCommands.length > 0
@@ -73,7 +75,6 @@ export async function runNpmUpdater(
   if (runner.dryRun) {
     logger.info(`[DRY-RUN] Would execute fixer strategy: ${fixerStrategy}`);
     if (authorizeBreaking) logger.info('[DRY-RUN] Would install authorized breaking-change packages');
-    logger.info(`[DRY-RUN] Would execute: ${OSV_SCAN_NPM}`);
     return { ...base, validations: skippedValidations };
   }
 
@@ -117,9 +118,6 @@ export async function runNpmUpdater(
         error: 'Validation failed after npm update — changes reverted',
       };
     }
-
-    // Post-update OSV verification (osv-scanner must be available via the runner)
-    await verifyResidualVulnerabilities(runner, cwd);
 
     return {
       ...base,

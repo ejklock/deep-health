@@ -218,14 +218,14 @@ describe('runNpmUpdater — OSV-only auto-safe remediation', () => {
     expect(calledCommands.some((cmd) => cmd === 'npm update')).toBe(false);
   });
 
-  it('calls osv-scanner fix as the sole auto-safe step', async () => {
+  it('does NOT call osv-scanner fix (osv fix is orchestrator-coordinated, not updater responsibility)', async () => {
     const runner = makeRunner();
     const runMock = runner.run as ReturnType<typeof vi.fn>;
 
     await runNpmUpdater(runner, baseConfig(), baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]), '/tmp/project');
 
     const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
-    expect(calledCommands.some((cmd) => cmd.includes('osv-scanner fix'))).toBe(true);
+    expect(calledCommands.some((cmd) => cmd.includes('osv-scanner fix'))).toBe(false);
   });
 
   it('no targeted installs even with multiple auto-safe packages', async () => {
@@ -391,7 +391,7 @@ describe('runNpmUpdater — build validation via validationCommands', () => {
     expect(calledCommands).toContain('npm install');
   });
 
-  it('osv-scanner fix and post-update scan still run with validation commands', async () => {
+  it('osv-scanner fix and post-update scan do NOT run inside updater (orchestrator responsibility)', async () => {
     const runner = makeRunner();
     const runMock = runner.run as ReturnType<typeof vi.fn>;
 
@@ -405,8 +405,8 @@ describe('runNpmUpdater — build validation via validationCommands', () => {
     );
 
     const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
-    expect(calledCommands.some((cmd) => cmd.includes('osv-scanner fix'))).toBe(true);
-    expect(calledCommands.some((cmd) => cmd.includes('osv-scanner --lockfile package-lock.json'))).toBe(true);
+    expect(calledCommands.some((cmd) => cmd.includes('osv-scanner fix'))).toBe(false);
+    expect(calledCommands.some((cmd) => cmd.includes('osv-scanner --lockfile package-lock.json'))).toBe(false);
   });
 });
 
@@ -434,7 +434,7 @@ describe('runNpmUpdater — fixer strategy dispatch', () => {
     expect(calledCommands.some((cmd) => cmd.includes('osv-scanner fix'))).toBe(false);
   });
 
-  it('uses osv-scanner fix when fixerStrategy is "osv" (default)', async () => {
+  it('defaults to npm-audit fix when fixerStrategy is "osv" (osv is orchestrator-only, falls back to npm-audit in updater)', async () => {
     const runner = makeRunner();
     const runMock = runner.run as ReturnType<typeof vi.fn>;
 
@@ -449,7 +449,9 @@ describe('runNpmUpdater — fixer strategy dispatch', () => {
     );
 
     const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
-    expect(calledCommands.some((cmd) => cmd.includes('osv-scanner fix'))).toBe(true);
-    expect(calledCommands.some((cmd) => cmd === 'npm audit fix')).toBe(false);
+    // osv-scanner fix is NOT called by the updater (it's orchestrator's responsibility)
+    expect(calledCommands.some((cmd) => cmd.includes('osv-scanner fix'))).toBe(false);
+    // npm-audit fix is used as fallback when osv strategy is passed to updater
+    expect(calledCommands.some((cmd) => cmd === 'npm audit fix')).toBe(true);
   });
 });

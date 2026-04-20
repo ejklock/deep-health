@@ -227,6 +227,74 @@ describe('runOrchestrator — full pipeline', () => {
     );
     expect(updateOrRevertCalls).toHaveLength(0);
   });
+
+  it('orchestrates explicit OSV fix -> npm updater -> OSV residual verification order for npm', async () => {
+    const config = await loadTestConfig();
+    const scanOutput = JSON.stringify({
+      results: [
+        {
+          source: { path: 'package-lock.json', type: 'lockfile' },
+          packages: [
+            {
+              package: { name: 'lodash', version: '4.17.20', ecosystem: 'npm' },
+              vulnerabilities: [
+                {
+                  id: 'GHSA-test-1234-5678',
+                  summary: 'Test vuln',
+                  affected: [
+                    {
+                      package: { ecosystem: 'npm', name: 'lodash' },
+                      ranges: [{ type: 'SEMVER', events: [{ introduced: '0' }, { fixed: '4.17.21' }] }],
+                    },
+                  ],
+                },
+              ],
+              groups: [{ ids: ['GHSA-test-1234-5678'] }],
+            },
+          ],
+        },
+      ],
+    });
+
+    const runner = new MockCommandRunner({
+      '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
+      '--lockfile package-lock.json --lockfile composer.lock --format json': {
+        stdout: scanOutput,
+        exitCode: 0,
+      },
+      'osv-scanner fix --strategy=in-place -L package-lock.json': { stdout: 'fixed', exitCode: 0 },
+      'npm audit': { stdout: '', exitCode: 0 },
+      'npm outdated': { stdout: '', exitCode: 0 },
+      'npm audit fix': { stdout: 'npm fixed', exitCode: 0 },
+      'npm run build': { stdout: 'build ok', exitCode: 0 },
+      '--lockfile package-lock.json --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
+      // composer advisor in fixture config
+      'composer audit': { stdout: '', exitCode: 0 },
+    });
+
+    const result = await runOrchestrator(runner, config, {
+      configPath: 'project-config.yml',
+      cwd: fixturesDir,
+      dryRun: false,
+      verbose: false,
+      scannerRegistry: makeOsvOnlyRegistry(),
+    });
+
+    const fixIdx = runner.calledCommands.findIndex((c) =>
+      c.includes('osv-scanner fix --strategy=in-place -L package-lock.json'),
+    );
+    const npmFixIdx = runner.calledCommands.findIndex((c) => c === 'npm audit fix');
+    const verifyIdx = runner.calledCommands.findIndex((c) =>
+      c.includes('osv-scanner --lockfile package-lock.json --format json'),
+    );
+
+    expect(result.updates['npm']).toBeDefined();
+    expect(fixIdx).toBeGreaterThan(-1);
+    expect(npmFixIdx).toBeGreaterThan(-1);
+    expect(verifyIdx).toBeGreaterThan(-1);
+    expect(fixIdx).toBeLessThan(npmFixIdx);
+    expect(npmFixIdx).toBeLessThan(verifyIdx);
+  });
 });
 
 // ─── SonarQube integration scenarios ───────────────────────────────────────────
