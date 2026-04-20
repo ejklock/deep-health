@@ -202,52 +202,50 @@ async function runAllEngines(
  *   }
  * }
  *
- * Returns an empty array when parsing fails or the structure is unrecognized.
- * Never throws.
+ * Returns an empty array when the structure is unrecognized (valid JSON, no vulnerabilities key).
+ * Throws a SyntaxError when the raw string is not valid JSON so the caller can emit 'error' status.
+ * @internal exported for unit testing only
  */
-function parseNpmAuditJson(raw: string): AdvisorFinding[] {
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (parsed === null || typeof parsed !== 'object') return [];
+export function parseNpmAuditJson(raw: string): AdvisorFinding[] {
+  // Let JSON.parse throw naturally — caller is responsible for catching and emitting 'error'.
+  const parsed: unknown = JSON.parse(raw);
+  if (parsed === null || typeof parsed !== 'object') return [];
 
-    const obj = parsed as Record<string, unknown>;
-    const vulnerabilities = obj['vulnerabilities'];
-    if (!vulnerabilities || typeof vulnerabilities !== 'object') return [];
+  const obj = parsed as Record<string, unknown>;
+  const vulnerabilities = obj['vulnerabilities'];
+  if (!vulnerabilities || typeof vulnerabilities !== 'object') return [];
 
-    const findings: AdvisorFinding[] = [];
-    for (const [pkgName, vuln] of Object.entries(vulnerabilities as Record<string, unknown>)) {
-      if (!vuln || typeof vuln !== 'object') continue;
-      const v = vuln as Record<string, unknown>;
+  const findings: AdvisorFinding[] = [];
+  for (const [pkgName, vuln] of Object.entries(vulnerabilities as Record<string, unknown>)) {
+    if (!vuln || typeof vuln !== 'object') continue;
+    const v = vuln as Record<string, unknown>;
 
-      const severity = typeof v['severity'] === 'string' ? v['severity'] : 'unknown';
-      const range = typeof v['range'] === 'string' ? v['range'] : undefined;
+    const severity = typeof v['severity'] === 'string' ? v['severity'] : 'unknown';
+    const range = typeof v['range'] === 'string' ? v['range'] : undefined;
 
-      // Extract a title from the first non-string via entry
-      let title = 'Vulnerability';
-      const via = v['via'];
-      if (Array.isArray(via)) {
-        for (const entry of via) {
-          if (entry && typeof entry === 'object' && 'title' in entry && typeof (entry as Record<string, unknown>)['title'] === 'string') {
-            title = (entry as Record<string, unknown>)['title'] as string;
-            break;
-          }
+    // Extract a title from the first non-string via entry
+    let title = 'Vulnerability';
+    const via = v['via'];
+    if (Array.isArray(via)) {
+      for (const entry of via) {
+        if (entry && typeof entry === 'object' && 'title' in entry && typeof (entry as Record<string, unknown>)['title'] === 'string') {
+          title = (entry as Record<string, unknown>)['title'] as string;
+          break;
         }
       }
-
-      // fixAvailable: false | true | { name, version, isSemVerMajor? }
-      let fixAvailable: string | undefined;
-      const fa = v['fixAvailable'];
-      if (fa && typeof fa === 'object' && 'version' in fa && typeof (fa as Record<string, unknown>)['version'] === 'string') {
-        fixAvailable = (fa as Record<string, unknown>)['version'] as string;
-      }
-
-      findings.push({ package: pkgName, severity, title, range, fixAvailable });
     }
 
-    return findings;
-  } catch {
-    return [];
+    // fixAvailable: false | true | { name, version, isSemVerMajor? }
+    let fixAvailable: string | undefined;
+    const fa = v['fixAvailable'];
+    if (fa && typeof fa === 'object' && 'version' in fa && typeof (fa as Record<string, unknown>)['version'] === 'string') {
+      fixAvailable = (fa as Record<string, unknown>)['version'] as string;
+    }
+
+    findings.push({ package: pkgName, severity, title, range, fixAvailable });
   }
+
+  return findings;
 }
 
 /**
@@ -282,7 +280,22 @@ async function runAdvisors(
 
       if (isJsonFormat) {
         // Structured JSON advisor (e.g. npm audit --json)
-        const findings = parseNpmAuditJson(rawOutput);
+        let findings: AdvisorFinding[];
+        try {
+          findings = parseNpmAuditJson(rawOutput);
+        } catch (parseErr) {
+          // Malformed / unparseable JSON → classify as error, not clean
+          const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+          logger.warn(`[Advisor] ${ecosystemId}/${advisor.name} JSON parse failed (non-fatal): ${parseMsg}`);
+          results.push({
+            name: advisor.name,
+            command: advisor.command,
+            exitCode: cmdResult.exitCode,
+            output: rawOutput.slice(0, 200),
+            status: 'error',
+          });
+          continue;
+        }
         const hasFindings = findings.length > 0;
 
         results.push({
