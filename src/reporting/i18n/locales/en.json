@@ -53,10 +53,15 @@
     "sonarqube_warning": "_SonarQube: analysis warning — {{message}}_",
     "advisors_section": "## Advisor Analysis",
     "advisor_header": "### {{name}}",
-    "advisor_pass": "✅ pass",
-    "advisor_fail": "❌ fail",
+    "advisor_pass": "✅ clean",
+    "advisor_fail": "⚠️ findings",
     "advisor_skipped": "— skipped",
+    "advisor_clean": "✅ clean",
+    "advisor_findings": "⚠️ findings",
+    "advisor_error": "❌ error",
     "advisor_output": "```\n{{output}}\n```",
+    "advisor_findings_label": "**Findings:**",
+    "advisor_no_findings": "_No issues found._",
     "label_branch": "Branch",
     "label_scanners": "Scanners"
   }

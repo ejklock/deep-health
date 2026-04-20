@@ -97,7 +97,7 @@ export const npmPlugin: EcosystemPlugin = {
   ],
 
   defaultAdvisors: [
-    { name: 'audit', command: 'npm audit' },
+    { name: 'audit', command: 'npm audit --json', format: 'json' as const },
   ],
 
   buildScanArgs(): string[] {

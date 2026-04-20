@@ -1,5 +1,5 @@
 import type { ExecutiveReportOptions } from '@core/types/report';
-import type { AdvisorResult } from '@core/types/report';
+import type { AdvisorResult, AdvisorFinding } from '@core/types/report';
 import type { ScanResultJson, VulnerabilityEntry } from '@core/types/scan';
 import type { Locale } from './i18n/index';
 import type { ExecLocale } from './i18n/types';
@@ -209,6 +209,14 @@ function buildSonarQubeExecSection(
 
 // ── Advisor section builder (executive) ─────────────────────────────────────
 
+interface AdvisorFindingEntry {
+  package: string;
+  severity: string;
+  title: string;
+  range: string;
+  fixAvailable: string;
+}
+
 interface AdvisorExecSectionData {
   present: boolean;
   ecosystems: Array<{
@@ -220,6 +228,9 @@ interface AdvisorExecSectionData {
       statusLabel: string;
       hasOutput: boolean;
       outputBlock: string;
+      hasFindings: boolean;
+      noFindings: boolean;
+      findings: AdvisorFindingEntry[];
     }>;
   }>;
 }
@@ -241,14 +252,30 @@ function buildAdvisorExecSection(
     const ecoName = plugin?.name ?? ecoId;
 
     const advisors = results.map((r) => {
-      const statusLbl = r.status === 'pass'
-        ? locale.advisor_pass
-        : r.status === 'fail'
-          ? locale.advisor_fail
-          : locale.advisor_skipped;
+      let statusLbl: string;
+      switch (r.status) {
+        case 'clean':    statusLbl = locale.advisor_clean; break;
+        case 'findings': statusLbl = locale.advisor_findings; break;
+        case 'error':    statusLbl = locale.advisor_error; break;
+        case 'skipped':  statusLbl = locale.advisor_skipped; break;
+        // backward compat — should not occur with new code
+        default: statusLbl = (r.status as string) === 'pass' ? locale.advisor_clean : locale.advisor_error;
+      }
 
       const hasOutput = r.output.trim().length > 0;
       const outputBlock = hasOutput ? locale.advisor_output(r.output) : '';
+
+      // Structured findings (from JSON-format advisors)
+      const rawFindings: AdvisorFinding[] = r.findings ?? [];
+      const hasFindings = rawFindings.length > 0;
+      const noFindings = r.status === 'clean' && !hasFindings;
+      const findings: AdvisorFindingEntry[] = rawFindings.map((f) => ({
+        package: f.package,
+        severity: f.severity,
+        title: f.title,
+        range: f.range ?? '—',
+        fixAvailable: f.fixAvailable ?? '—',
+      }));
 
       return {
         name: r.name,
@@ -256,6 +283,9 @@ function buildAdvisorExecSection(
         statusLabel: statusLbl,
         hasOutput,
         outputBlock,
+        hasFindings,
+        noFindings,
+        findings,
       };
     });
 

@@ -61,11 +61,18 @@ export interface RawLocale {
     advisors_section: string;
     /** vars: name — advisor name, e.g. "audit" */
     advisor_header: string;            // vars: name
+    /** @deprecated retained for backward compat; use advisor_clean/findings/error/skipped */
     advisor_pass: string;
+    /** @deprecated retained for backward compat; use advisor_clean/findings/error/skipped */
     advisor_fail: string;
     advisor_skipped: string;
+    advisor_clean: string;
+    advisor_findings: string;
+    advisor_error: string;
     /** vars: output — truncated advisor output */
     advisor_output: string;            // vars: output
+    advisor_findings_label: string;
+    advisor_no_findings: string;
     /** Branch/engine metadata labels */
     label_branch: string;
     label_scanners: string;

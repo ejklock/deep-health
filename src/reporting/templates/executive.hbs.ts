@@ -127,7 +127,16 @@ export default `\
 {{header}}
 
 **Status:** {{statusLabel}}
-{{#if hasOutput}}
+{{#if hasFindings}}
+{{../../../t.advisor_findings_label}}
+
+| Package | Severity | Title | Range | Fix Available |
+|---------|----------|-------|-------|---------------|
+{{#each findings}}| {{package}} | {{severity}} | {{title}} | {{range}} | {{fixAvailable}} |
+{{/each}}
+{{else if noFindings}}
+{{../../../t.advisor_no_findings}}
+{{else if hasOutput}}
 {{outputBlock}}
 {{/if}}
 

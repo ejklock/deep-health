@@ -2,7 +2,7 @@ import type { CommandRunner, PhaseStatus } from '@core/types/common';
 import type { ProjectConfig, AdvisorConfig } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
-import type { AdvisorResult } from '@core/types/report';
+import type { AdvisorResult, AdvisorFinding } from '@core/types/report';
 import type { EngineWarning, ScannerEngineContext } from '@modules/scanner/types';
 import type { EphemeralContainerRunner } from '@infra/provisioner/types';
 import { validateGateA, validateEcosystemGate } from '@core/gates/validator';
@@ -189,10 +189,78 @@ async function runAllEngines(
 }
 
 /**
+ * Parse npm audit --json output into structured AdvisorFindings.
+ *
+ * npm audit JSON schema (v7+):
+ * {
+ *   vulnerabilities: {
+ *     [packageName]: {
+ *       name: string, severity: string, range: string,
+ *       nodes: string[], fixAvailable: boolean | { name, version, ... },
+ *       via: Array<string | { title, url, severity, range }>
+ *     }
+ *   }
+ * }
+ *
+ * Returns an empty array when parsing fails or the structure is unrecognized.
+ * Never throws.
+ */
+function parseNpmAuditJson(raw: string): AdvisorFinding[] {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed === null || typeof parsed !== 'object') return [];
+
+    const obj = parsed as Record<string, unknown>;
+    const vulnerabilities = obj['vulnerabilities'];
+    if (!vulnerabilities || typeof vulnerabilities !== 'object') return [];
+
+    const findings: AdvisorFinding[] = [];
+    for (const [pkgName, vuln] of Object.entries(vulnerabilities as Record<string, unknown>)) {
+      if (!vuln || typeof vuln !== 'object') continue;
+      const v = vuln as Record<string, unknown>;
+
+      const severity = typeof v['severity'] === 'string' ? v['severity'] : 'unknown';
+      const range = typeof v['range'] === 'string' ? v['range'] : undefined;
+
+      // Extract a title from the first non-string via entry
+      let title = 'Vulnerability';
+      const via = v['via'];
+      if (Array.isArray(via)) {
+        for (const entry of via) {
+          if (entry && typeof entry === 'object' && 'title' in entry && typeof (entry as Record<string, unknown>)['title'] === 'string') {
+            title = (entry as Record<string, unknown>)['title'] as string;
+            break;
+          }
+        }
+      }
+
+      // fixAvailable: false | true | { name, version, isSemVerMajor? }
+      let fixAvailable: string | undefined;
+      const fa = v['fixAvailable'];
+      if (fa && typeof fa === 'object' && 'version' in fa && typeof (fa as Record<string, unknown>)['version'] === 'string') {
+        fixAvailable = (fa as Record<string, unknown>)['version'] as string;
+      }
+
+      findings.push({ package: pkgName, severity, title, range, fixAvailable });
+    }
+
+    return findings;
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Run advisor commands for a single ecosystem (informational only — never throws).
  *
  * Advisors produce observability output but never affect the pipeline outcome.
  * Even if an advisor command fails (non-zero exit), the pipeline continues.
+ *
+ * Status semantics:
+ * - 'clean':    command exited 0 and (for json format) produced no findings.
+ * - 'findings': command completed (any exit code) and findings were detected.
+ * - 'error':    command threw an exception or produced unparseable output for json format.
+ * - 'skipped':  not currently used at runtime (reserved for config-level suppression).
  */
 async function runAdvisors(
   runner: CommandRunner,
@@ -206,18 +274,37 @@ async function runAdvisors(
 
   for (const advisor of advisors) {
     logger.info(`[Advisor] ${ecosystemId}/${advisor.name}: ${advisor.command}`);
+    const isJsonFormat = advisor.format === 'json';
+
     try {
       const cmdResult = await runner.run(advisor.command, { cwd });
-      const outputLines = cmdResult.stdout.trim().split('\n');
-      const output = outputLines.slice(-20).join('\n'); // last 20 lines
+      const rawOutput = cmdResult.stdout.trim();
 
-      results.push({
-        name: advisor.name,
-        command: advisor.command,
-        exitCode: cmdResult.exitCode,
-        output,
-        status: cmdResult.exitCode === 0 ? 'pass' : 'fail',
-      });
+      if (isJsonFormat) {
+        // Structured JSON advisor (e.g. npm audit --json)
+        const findings = parseNpmAuditJson(rawOutput);
+        const hasFindings = findings.length > 0;
+
+        results.push({
+          name: advisor.name,
+          command: advisor.command,
+          exitCode: cmdResult.exitCode,
+          output: '',
+          status: hasFindings ? 'findings' : 'clean',
+          findings,
+        });
+      } else {
+        // Plain text advisor
+        const outputLines = rawOutput.split('\n');
+        const output = outputLines.slice(-20).join('\n');
+        results.push({
+          name: advisor.name,
+          command: advisor.command,
+          exitCode: cmdResult.exitCode,
+          output,
+          status: cmdResult.exitCode === 0 ? 'clean' : 'findings',
+        });
+      }
     } catch (err) {
       // Advisor failure is always non-fatal
       const message = err instanceof Error ? err.message : String(err);
@@ -227,7 +314,7 @@ async function runAdvisors(
         command: advisor.command,
         exitCode: -1,
         output: message,
-        status: 'fail',
+        status: 'error',
       });
     }
   }

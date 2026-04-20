@@ -16,6 +16,12 @@ export type OutputFormat = 'markdown';
 export interface AdvisorConfig {
   name: string;
   command: string;
+  /**
+   * Output format expected from the advisor command.
+   * - 'json': parse structured JSON output (e.g. `npm audit --json`).
+   * - 'text': treat output as plain text (default).
+   */
+  format?: 'json' | 'text';
 }
 
 /** Per-ecosystem validation command configuration */

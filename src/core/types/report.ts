@@ -2,15 +2,41 @@ import type { ScanResultJson } from './scan';
 import type { UpdateResultJson } from './update';
 import type { SupportedLocale } from './locale';
 
+/** A single structured finding from a structured advisor (e.g. npm audit --json) */
+export interface AdvisorFinding {
+  /** Package name affected */
+  package: string;
+  /** Severity label (e.g. 'high', 'critical', 'moderate', 'low') */
+  severity: string;
+  /** Short title or description of the vulnerability */
+  title: string;
+  /** Semver range of affected versions */
+  range?: string;
+  /** Suggested fix version, if any */
+  fixAvailable?: string;
+}
+
 /** Result produced by an advisor command execution */
 export interface AdvisorResult {
   name: string;
   command: string;
   /** Exit code of the advisor command */
   exitCode: number;
-  /** Last N lines of stdout (truncated for reports; full output in logs) */
+  /**
+   * Advisor status:
+   * - 'clean':    command ran successfully and found no issues.
+   * - 'findings': command completed and reported issues (e.g. vulnerabilities found).
+   * - 'error':    command failed to execute or produced an unrecoverable error.
+   * - 'skipped':  advisor was intentionally not run.
+   */
+  status: 'clean' | 'findings' | 'error' | 'skipped';
+  /** Raw output summary (last N lines of stdout; may be empty for structured advisors) */
   output: string;
-  status: 'pass' | 'fail' | 'skipped';
+  /**
+   * Structured findings parsed from JSON output advisors (e.g. npm audit --json).
+   * Present only when `format: 'json'` was set in AdvisorConfig and parsing succeeded.
+   */
+  findings?: AdvisorFinding[];
 }
 
 export interface ExecutiveReportOptions {

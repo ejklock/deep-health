@@ -177,16 +177,15 @@ describe('generateExecutiveReport — advisorResults section', () => {
         npm: [
           {
             name: 'audit',
-            command: 'npm audit',
+            command: 'npm audit --json',
             exitCode: 0,
-            output: 'clean',
-            status: 'pass',
+            output: '',
+            status: 'clean',
           },
         ],
       },
     });
     expect(report).toContain('Advisor');
-    expect(report).toContain('pass');
     expect(report).toContain('clean');
   });
 });
