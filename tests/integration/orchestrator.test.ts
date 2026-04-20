@@ -871,6 +871,90 @@ describe('runOrchestrator — primary-by-engine-id (registry-order independence)
     ).rejects.toThrow(/OSV scanner engine is not registered/);
   });
 
+  // ─── npm validation failure diagnostics ──────────────────────────────────
+
+  it('surfaces validation failure details (stdout, stderr, exit code) before revert when npm build fails', async () => {
+    const baseConfig = await loadTestConfig();
+    // Inject a scan result that has auto_safe packages so the updater actually runs
+    const scanOutput = JSON.stringify({
+      results: [
+        {
+          source: { path: 'package-lock.json', type: 'lockfile' },
+          packages: [
+            {
+              package: { name: 'lodash', version: '4.17.20', ecosystem: 'npm' },
+              vulnerabilities: [
+                {
+                  id: 'GHSA-test-1234-5678',
+                  summary: 'Test vuln',
+                  affected: [
+                    {
+                      package: { ecosystem: 'npm', name: 'lodash' },
+                      ranges: [{ type: 'SEMVER', events: [{ introduced: '0' }, { fixed: '4.17.21' }] }],
+                    },
+                  ],
+                },
+              ],
+              groups: [{ ids: ['GHSA-test-1234-5678'] }],
+            },
+          ],
+        },
+      ],
+    });
+
+    const runner = new MockCommandRunner({
+      '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
+      '--lockfile package-lock.json --lockfile composer.lock --format json': {
+        stdout: scanOutput,
+        exitCode: 0,
+      },
+      // npm-audit fixer
+      'npm audit fix': { stdout: 'fixed', exitCode: 0 },
+      // git/backup helpers
+      'git status': { stdout: '', exitCode: 0 },
+      // validation: npm run build fails
+      'npm run build': { stdout: 'BUILD FAILED: compilation error\nmodule not found', stderr: 'Error: ts compile error', exitCode: 1 },
+      // revert: npm install after restore
+      'npm install': { stdout: '', exitCode: 0 },
+      // post-update osv scan — won't be reached if validation fails
+      '--lockfile package-lock.json --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
+      // composer validation
+      'php artisan test': { stdout: 'ok', exitCode: 0 },
+      'composer audit': { stdout: '', exitCode: 0 },
+      'npm audit': { stdout: '', exitCode: 0 },
+      'npm outdated': { stdout: '', exitCode: 0 },
+    });
+
+    // Spy on logger.error to capture emitted diagnostics
+    const errorSpy = vi.spyOn(await import('@infra/utils/logger').then((m) => m.logger), 'error');
+
+    await expect(
+      runOrchestrator(runner, baseConfig, {
+        configPath: 'project-config.yml',
+        cwd: fixturesDir,
+        dryRun: false,
+        verbose: false,
+        scannerRegistry: makeOsvOnlyRegistry(),
+      }),
+    ).rejects.toThrow(GateValidationError);
+
+    // A revert (npm install) should have been called after the failure
+    const revertCalls = runner.calledCommands.filter((c) => c.includes('npm install'));
+    expect(revertCalls.length).toBeGreaterThan(0);
+
+    // The diagnostics (stdout content, stderr, exit code) must have been logged
+    const allErrorMessages = errorSpy.mock.calls.map((c) => String(c[0]));
+    expect(allErrorMessages.some((m) => m.includes('npm run build'))).toBe(true);
+    expect(allErrorMessages.some((m) => m.includes('BUILD FAILED'))).toBe(true);
+    expect(allErrorMessages.some((m) => m.includes('ts compile error'))).toBe(true);
+    expect(allErrorMessages.some((m) => m.includes('1'))).toBe(true);
+
+    // The revert message should also appear
+    expect(allErrorMessages.some((m) => m.toLowerCase().includes('revert'))).toBe(true);
+
+    errorSpy.mockRestore();
+  });
+
   it('throws from aggregator when OSV ran but no result was recorded (fail-loud guard)', async () => {
     // Simulate OSV being registered but returning status='error' while a secondary
     // engine in front is also stubbed — the aggregator's OSV-missing guard must fire

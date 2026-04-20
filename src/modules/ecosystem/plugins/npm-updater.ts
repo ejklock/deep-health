@@ -102,6 +102,12 @@ export async function runNpmUpdater(
     });
 
     if (!validationResult.allPassed) {
+      const failedEntry = validationResult.entries.find((e) => e.status === 'fail');
+      if (failedEntry) {
+        logger.error(
+          `Validation "${failedEntry.name}" did not pass. Detail: ${failedEntry.detail ?? '(no detail)'}`,
+        );
+      }
       logger.error('Validation failed — reverting npm changes...');
       await revertNpmChanges(runner, backups, cwd);
       return {

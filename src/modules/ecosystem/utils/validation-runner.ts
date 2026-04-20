@@ -56,8 +56,18 @@ export async function runValidations(opts: RunValidationsOptions): Promise<RunVa
     } else {
       const detail = result.stdout || result.stderr || `Exited with code ${result.exitCode}`;
       entries.push({ name: cmd.name, status: 'fail', detail });
-      // Stop on first failure
+      // Stop on first failure — emit detailed diagnostics before caller reverts
       logger.error(`Validation "${cmd.name}" failed (exit ${result.exitCode})`);
+      logger.error(`  Command : ${cmd.command}`);
+      if (result.stdout.trim()) {
+        const truncated = result.stdout.trim().split('\n').slice(-50).join('\n');
+        logger.error(`  stdout  :\n${truncated}`);
+      }
+      if (result.stderr.trim()) {
+        const truncated = result.stderr.trim().split('\n').slice(-50).join('\n');
+        logger.error(`  stderr  :\n${truncated}`);
+      }
+      logger.error(`  exit    : ${result.exitCode}`);
       return { entries, allPassed: false };
     }
   }
