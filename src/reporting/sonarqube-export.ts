@@ -1,19 +1,14 @@
 import type { ScanResultJson } from '@core/types/scan';
+import type { SonarQubeQualityGateCondition, SonarQubeIssue } from '@core/types/scan';
 
 // ─── Export types ──────────────────────────────────────────────────────────────
 
-export interface SonarQubeIssueExport {
-  key: string;
-  rule: string;
-  severity: string;
-  component: string;
+export type SonarQubeQualityGateConditionExport = SonarQubeQualityGateCondition;
+
+export type SonarQubeIssueExport = SonarQubeIssue & {
   /** Relative file path extracted from component string */
   file: string;
-  line?: number;
-  message: string;
-  type: string;
-  status: string;
-}
+};
 
 export interface SonarQubeMetricsExport {
   bugs?: string;
@@ -23,14 +18,6 @@ export interface SonarQubeMetricsExport {
   duplicated_lines_density?: string;
   security_hotspots?: string;
   [key: string]: string | undefined;
-}
-
-export interface SonarQubeQualityGateConditionExport {
-  status: string;
-  metricKey: string;
-  comparator: string;
-  errorThreshold?: string;
-  actualValue?: string;
 }
 
 /**
@@ -75,7 +62,6 @@ export function buildSonarQubeExport(
   if (result.status === 'skipped') return null;
 
   const now = new Date().toISOString();
-  const meta = result.metadata ?? {};
 
   if (result.status === 'error') {
     return {
@@ -91,9 +77,9 @@ export function buildSonarQubeExport(
   }
 
   // Extract quality gate
-  const qualityGateStatus = meta['qualityGateStatus'] as string | undefined;
-  const qualityGatePassed = meta['qualityGatePassed'] as boolean | undefined;
-  const rawConditions = meta['qualityGateConditions'] as SonarQubeQualityGateConditionExport[] | undefined;
+  const qualityGateStatus = result.metadata?.qualityGateStatus;
+  const qualityGatePassed = result.metadata?.qualityGatePassed;
+  const rawConditions = result.metadata?.qualityGateConditions;
 
   const qualityGate = qualityGateStatus
     ? {
@@ -104,20 +90,11 @@ export function buildSonarQubeExport(
     : null;
 
   // Extract metrics
-  const rawMetrics = meta['metrics'] as Record<string, string> | undefined;
+  const rawMetrics = result.metadata?.metrics;
   const metrics: SonarQubeMetricsExport | null = rawMetrics ? { ...rawMetrics } : null;
 
   // Extract issues — normalize component to file path
-  const rawIssues = meta['issues'] as Array<{
-    key: string;
-    rule: string;
-    severity: string;
-    component: string;
-    line?: number;
-    message: string;
-    type: string;
-    status: string;
-  }> | undefined;
+  const rawIssues = result.metadata?.issues;
 
   const issues: SonarQubeIssueExport[] | null = rawIssues
     ? rawIssues.map((issue) => {

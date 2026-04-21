@@ -24,6 +24,30 @@ const EcosystemScanResultSchema = z.object({
   vulnerabilities: z.array(VulnerabilityEntrySchema),
 });
 
+const SonarQubeScanMetadataSchema = z.object({
+  qualityGateStatus: z.string(),
+  qualityGatePassed: z.boolean(),
+  qualityGateConditions: z.array(z.object({
+    status: z.string(),
+    metricKey: z.string(),
+    comparator: z.string(),
+    errorThreshold: z.string().optional(),
+    actualValue: z.string().optional(),
+  })).optional(),
+  metrics: z.record(z.string(), z.string()).optional(),
+  issues: z.array(z.object({
+    key: z.string(),
+    rule: z.string(),
+    severity: z.string(),
+    component: z.string(),
+    line: z.number().optional(),
+    message: z.string(),
+    type: z.string(),
+    status: z.string(),
+  })).optional(),
+});
+// No .strict() — allow forward-compat extension
+
 const ScanResultSchema = z.object({
   $schema: z.string(),
   agent: z.string(),
@@ -32,7 +56,7 @@ const ScanResultSchema = z.object({
   ecosystems: z.record(z.string(), EcosystemScanResultSchema),
   error: z.string().nullable(),
   branch: z.string().nullable().optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
+  metadata: SonarQubeScanMetadataSchema.optional(),
 });
 
 /**

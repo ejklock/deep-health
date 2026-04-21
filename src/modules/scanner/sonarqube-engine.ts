@@ -1,5 +1,6 @@
 import type { ScannerEngine, ScannerEngineContext } from './types';
 import type { ScanResultJson } from '@core/types/scan';
+import type { SonarQubeScanMetadata, SonarQubeIssue, SonarQubeQualityGateCondition } from '@core/types/sonarqube';
 import { DockerSonarQubeProvisioner } from '@infra/provisioner/docker-sonarqube';
 import { DockerSonarScannerRunner } from '@infra/provisioner/docker-sonar-scanner';
 import { EnvironmentError } from '@core/errors';
@@ -13,13 +14,7 @@ import fs from 'node:fs';
 interface SonarQubeQualityGateStatus {
   projectStatus: {
     status: 'OK' | 'WARN' | 'ERROR' | 'NONE';
-    conditions?: Array<{
-      status: string;
-      metricKey: string;
-      comparator: string;
-      errorThreshold?: string;
-      actualValue?: string;
-    }>;
+    conditions?: SonarQubeQualityGateCondition[];
   };
 }
 
@@ -34,16 +29,7 @@ interface SonarQubeMeasuresResponse {
 
 interface SonarQubeIssuesResponse {
   total?: number;
-  issues?: Array<{
-    key: string;
-    rule: string;
-    severity: string;
-    component: string;
-    line?: number;
-    message: string;
-    type: string;
-    status: string;
-  }>;
+  issues?: SonarQubeIssue[];
 }
 
 interface SonarQubeUserTokensResponse {
@@ -558,7 +544,7 @@ async function collectSonarMetadataAndBuildResult(
     logger.info(`SonarQube: quality gate passed (${qualityGateStatus})`);
   }
 
-  const metadata: Record<string, unknown> = {
+  const metadata: SonarQubeScanMetadata = {
     qualityGateStatus,
     qualityGatePassed,
     ...(qualityGate?.projectStatus?.conditions

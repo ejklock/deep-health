@@ -81,21 +81,18 @@ export function generateSonarQubeHtmlReport(
   }
 
   // ── Success case ────────────────────────────────────────────────────────────
-  const meta = sonarResult.metadata ?? {};
+  const meta = sonarResult.metadata;
 
   // Quality gate
-  const rawQgStatus = meta['qualityGateStatus'] as string | undefined;
-  const rawQgPassed = meta['qualityGatePassed'] as boolean | undefined;
+  const rawQgStatus = meta?.qualityGateStatus;
+  const rawQgPassed = meta?.qualityGatePassed;
   const qgDisplayStatus = rawQgStatus
     ? (rawQgStatus === 'OK' ? 'PASSED' : rawQgStatus === 'ERROR' ? 'FAILED' : rawQgStatus)
     : null;
   const qgBadgeClass = rawQgStatus ? qualityGateBadgeClass(rawQgStatus) : 'qg-warn';
 
   // Conditions
-  const rawConditions = meta['qualityGateConditions'] as Array<{
-    status: string; metricKey: string; comparator: string;
-    errorThreshold?: string; actualValue?: string;
-  }> | undefined;
+  const rawConditions = meta?.qualityGateConditions;
   const conditions = (rawConditions ?? []).map((c) => ({
     statusIcon: conditionStatusIcon(c.status),
     isOk: c.status === 'OK',
@@ -106,14 +103,11 @@ export function generateSonarQubeHtmlReport(
   }));
 
   // Metrics
-  const rawMetrics = meta['metrics'] as Record<string, string> | undefined;
+  const rawMetrics = meta?.metrics;
   const metrics = rawMetrics ? Object.entries(rawMetrics).map(([key, value]) => ({ key, value })) : null;
 
   // Issues grouped by file
-  const rawIssues = meta['issues'] as Array<{
-    key: string; rule: string; severity: string; component: string;
-    line?: number; message: string; type: string; status: string;
-  }> | undefined;
+  const rawIssues = meta?.issues;
 
   const fileMap = new Map<string, Array<{ severity: string; severityClass: string; rule: string; line: string; message: string }>>();
   for (const issue of rawIssues ?? []) {

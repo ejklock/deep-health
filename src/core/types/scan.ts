@@ -1,4 +1,7 @@
 import type { ExecutionEnv, PhaseStatus, VulnerabilityClass } from './common';
+import type { SonarQubeScanMetadata } from './sonarqube';
+
+export type { SonarQubeScanMetadata, SonarQubeQualityGateCondition, SonarQubeIssue } from './sonarqube';
 
 export interface VulnerabilityEntry {
   ecosystem: string;
@@ -59,7 +62,8 @@ export interface ScanResultJson {
   /**
    * Engine-specific metadata. Optional — OSV does not populate this field.
    * SonarQube populates quality gate status and basic metrics here.
+   * Typed as {@link SonarQubeScanMetadata} — consumers should use direct property access.
    * Consumers should not rely on this for Gate A or update orchestration.
    */
-  metadata?: Record<string, unknown>;
+  metadata?: SonarQubeScanMetadata;
 }

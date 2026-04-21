@@ -1,6 +1,6 @@
 import type { ExecutiveReportOptions } from '@core/types/report';
 import type { AdvisorResult, AdvisorFinding } from '@core/types/report';
-import type { ScanResultJson, VulnerabilityEntry } from '@core/types/scan';
+import type { ScanResultJson, VulnerabilityEntry, SonarQubeQualityGateCondition, SonarQubeIssue } from '@core/types/scan';
 import type { Locale } from './i18n/index';
 import type { ExecLocale } from './i18n/types';
 import { defaultRegistry } from '@modules/ecosystem/index';
@@ -133,10 +133,8 @@ function buildSonarQubeExecSection(
     return { ...empty, present: true, warning: locale.sonarqube_warning(msg) };
   }
 
-  const meta = sonarResult.metadata ?? {};
-
   // Quality gate label
-  const qualityGateStatus = meta['qualityGateStatus'] as string | undefined;
+  const qualityGateStatus = sonarResult.metadata?.qualityGateStatus;
   const qualityGateLabel = qualityGateStatus
     ? locale.sonarqube_quality_gate(
         qualityGateStatus === 'OK' ? '✅ OK' : qualityGateStatus === 'ERROR' ? '❌ ERROR' : qualityGateStatus,
@@ -144,9 +142,7 @@ function buildSonarQubeExecSection(
     : null;
 
   // Quality gate conditions
-  const rawConditions = meta['qualityGateConditions'] as Array<{
-    status: string; metricKey: string; comparator: string; errorThreshold?: string; actualValue?: string;
-  }> | undefined;
+  const rawConditions: SonarQubeQualityGateCondition[] | undefined = sonarResult.metadata?.qualityGateConditions;
   const conditions: SonarQubeConditionEntry[] = (rawConditions ?? []).map((c) => ({
     metricKey: c.metricKey,
     status: c.status,
@@ -157,17 +153,14 @@ function buildSonarQubeExecSection(
   }));
 
   // Metrics (with i18n label lookup, fallback to raw key)
-  const rawMetrics = meta['metrics'] as Record<string, string> | undefined;
+  const rawMetrics = sonarResult.metadata?.metrics;
   const metricLabels = locale.sonarqube_metric_labels ?? {};
   const metricsForDisplay = rawMetrics
     ? Object.entries(rawMetrics).map(([key, value]) => ({ key: metricLabels[key] ?? key, value }))
     : null;
 
   // Issues grouped by file
-  const rawIssues = meta['issues'] as Array<{
-    key: string; rule: string; severity: string; component: string;
-    line?: number; message: string; type: string; status: string;
-  }> | undefined;
+  const rawIssues: SonarQubeIssue[] | undefined = sonarResult.metadata?.issues;
 
   const fileMap = new Map<string, SonarQubeIssueEntry[]>();
   for (const issue of rawIssues ?? []) {
