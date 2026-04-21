@@ -10,9 +10,6 @@ import { runValidations } from '../utils/validation-runner';
 
 const COMPOSER_FILES = ['composer.json', 'composer.lock'];
 
-/** osv-scanner post-update verification scan for composer lockfile */
-const OSV_SCAN_COMPOSER = 'osv-scanner --lockfile composer.lock --format json';
-
 function extractPackageNames(packageRefs: string[]): string[] {
   return packageRefs.map((ref) => {
     const atIndex = ref.lastIndexOf('@');
@@ -42,11 +39,6 @@ async function revertComposerChanges(
 ): Promise<void> {
   await restoreFiles(backups, cwd);
   await runner.run('composer install --no-interaction', { cwd });
-}
-
-async function verifyResidualVulnerabilities(runner: CommandRunner, cwd: string): Promise<void> {
-  logger.info(`Running post-update OSV verification: ${OSV_SCAN_COMPOSER}`);
-  await runner.run(OSV_SCAN_COMPOSER, { cwd });
 }
 
 export async function runComposerUpdater(
@@ -99,7 +91,6 @@ export async function runComposerUpdater(
         logger.info(`[DRY-RUN] Would execute: ${vc.command}`);
       }
     }
-    logger.info(`[DRY-RUN] Would execute: ${OSV_SCAN_COMPOSER}`);
     const dryRunEntries: ValidationEntry[] =
       validationCommands.length > 0
         ? validationCommands.map((vc) => ({
@@ -147,8 +138,6 @@ export async function runComposerUpdater(
         error: 'Validations failed after composer update — changes reverted',
       };
     }
-
-    await verifyResidualVulnerabilities(runner, cwd);
 
     return {
       ...base,

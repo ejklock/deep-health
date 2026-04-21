@@ -284,8 +284,7 @@ describe('runComposerUpdater — validation commands', () => {
     const runMock = vi.fn()
       .mockResolvedValueOnce(ok()) // composer outdated
       .mockResolvedValueOnce(ok()) // composer update
-      .mockResolvedValueOnce(ok('Tests passed')) // php artisan test
-      .mockResolvedValueOnce(ok()); // osv scan
+      .mockResolvedValueOnce(ok('Tests passed')); // php artisan test
 
     const runner = makeRunner({ run: runMock });
 

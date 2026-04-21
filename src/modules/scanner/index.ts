@@ -1,16 +1,16 @@
 /**
- * Scanner engine registry bootstrap.
+ * Scanner module public API + lazy engine bootstrap.
  *
- * Import this module via side-effect to register all scanner engines
- * into defaultScannerRegistry. The orchestrator imports this before running.
+ * Engine registration is lazy (on-demand), not at module import time.
+ * Use bootstrapDefaultEngines(registry) to register OsvScannerEngine and
+ * SonarQubeEngine into a registry before using getAll() / get() on it.
  *
- * Registered engines (in execution order):
- *   1. OsvScannerEngine — primary vulnerability scanner (always active)
- *   2. SonarQubeEngine  — code quality scanner (self-skips when not enabled in config)
+ * runScanner() and the orchestrator call bootstrapDefaultEngines automatically.
  */
 import { defaultScannerRegistry } from './registry';
 import { OsvScannerEngine } from './osv-engine';
 import { SonarQubeEngine } from './sonarqube-engine';
+import { OSV_ENGINE_ID } from './aggregator';
 import type { CommandRunner } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
@@ -18,11 +18,31 @@ import type { EcosystemRegistry } from '@modules/ecosystem/registry';
 import { defaultRegistry } from '@modules/ecosystem/index';
 import { detectGitBranch } from '@infra/utils/git-branch';
 
-// Register OSV scanner engine as the primary engine
-defaultScannerRegistry.register(new OsvScannerEngine());
-
-// Register SonarQube engine — it self-skips when not configured/enabled
-defaultScannerRegistry.register(new SonarQubeEngine());
+/**
+ * Bootstrap the default scanner engines into a registry (idempotent / lazy).
+ *
+ * Registers:
+ *   1. OsvScannerEngine  — primary vulnerability scanner (always active)
+ *   2. SonarQubeEngine   — code quality scanner (self-skips when not enabled)
+ *
+ * Safe to call multiple times — existing registrations are preserved
+ * (ScannerEngineRegistry.register is a no-op when the id is already present).
+ *
+ * Call this before any code that calls `registry.get(OSV_ENGINE_ID)` or
+ * `registry.getAll()` on the defaultScannerRegistry.  The orchestrator and
+ * runScanner both call this automatically so callers generally don't need to
+ * invoke it directly.
+ */
+export function bootstrapDefaultEngines(
+  registry: typeof defaultScannerRegistry = defaultScannerRegistry,
+): void {
+  if (!registry.has(OSV_ENGINE_ID)) {
+    registry.register(new OsvScannerEngine());
+  }
+  if (!registry.has('sonarqube')) {
+    registry.register(new SonarQubeEngine());
+  }
+}
 
 // Re-export for convenient single-import access
 export { defaultScannerRegistry, ScannerEngineRegistry } from './registry';
@@ -32,9 +52,6 @@ export { aggregateScanResults, OSV_ENGINE_ID } from './aggregator';
 export { OsvScannerEngine } from './osv-engine';
 export { emptyEcosystem } from '@core/types/scan';
 export { SonarQubeEngine } from './sonarqube-engine';
-
-// Convenience wrapper: run only the OSV engine (used by bin commands needing a quick scan)
-const _osvEngine = new OsvScannerEngine();
 
 /**
  * OSV-only vulnerability scan.
@@ -58,8 +75,22 @@ export async function runScanner(
   config: ProjectConfig,
   cwd: string,
   registry: EcosystemRegistry = defaultRegistry,
+  scannerRegistry: typeof defaultScannerRegistry = defaultScannerRegistry,
 ): Promise<ScanResultJson> {
+  // Ensure default engines are registered when using the default registry.
+  // When a caller injects a custom scannerRegistry (e.g. tests), they are
+  // responsible for populating it — we must NOT auto-populate it here.
+  if (scannerRegistry === defaultScannerRegistry) {
+    bootstrapDefaultEngines(scannerRegistry);
+  }
+  const osvEngine = scannerRegistry.get(OSV_ENGINE_ID);
+  if (!osvEngine) {
+    throw new Error(
+      `OSV scanner engine ("${OSV_ENGINE_ID}") is not registered in the scanner registry. ` +
+      'Register an OsvScannerEngine before calling runScanner.',
+    );
+  }
   // Detect git branch — never throws; null means "unknown / not applicable"
   const branch = await detectGitBranch(cwd, runner);
-  return _osvEngine.scan({ runner, config, cwd, ecosystemRegistry: registry, branch });
+  return osvEngine.scan({ runner, config, cwd, ecosystemRegistry: registry, branch });
 }

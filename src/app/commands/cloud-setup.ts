@@ -80,7 +80,7 @@ async function updateConfigFile(
   await writeFile(configPath, yamlStringify(doc), 'utf-8');
 }
 
-export async function runCloudSetup(opts: CloudSetupOptions): Promise<void> {
+export async function runCloudSetup(opts: CloudSetupOptions): Promise<number> {
   const { default: prompts } = await import('prompts');
 
   const configPath = resolve(opts.cwd, opts.configPath);
@@ -90,7 +90,7 @@ export async function runCloudSetup(opts: CloudSetupOptions): Promise<void> {
     rawConfig = await readFile(configPath, 'utf-8');
   } catch {
     process.stderr.write(`Config file not found: ${configPath}\nRun "deep-health init" first.\n`);
-    process.exit(1);
+    return 1;
   }
 
   const config = yamlParse(rawConfig) as ProjectConfig;
@@ -109,7 +109,7 @@ export async function runCloudSetup(opts: CloudSetupOptions): Promise<void> {
     }
   } catch (err) {
     process.stderr.write(`Credentials error: ${err instanceof Error ? err.message : String(err)}\n`);
-    process.exit(1);
+    return 1;
   }
 
   const saEmail = (credentials as Record<string, unknown>)['client_email'] as string | undefined;
@@ -124,7 +124,7 @@ export async function runCloudSetup(opts: CloudSetupOptions): Promise<void> {
     folders = await listDriveFolders(credentials);
   } catch (err) {
     process.stderr.write(`Failed to list folders: ${err instanceof Error ? err.message : String(err)}\n`);
-    process.exit(1);
+    return 1;
   }
 
   if (folders.length === 0) {
@@ -147,7 +147,7 @@ export async function runCloudSetup(opts: CloudSetupOptions): Promise<void> {
 
   if (!selectedId) {
     process.stdout.write('Setup cancelled.\n');
-    return;
+    return 0;
   }
 
   let folderId: string = selectedId as string;
@@ -160,11 +160,12 @@ export async function runCloudSetup(opts: CloudSetupOptions): Promise<void> {
     });
     if (!manualId) {
       process.stdout.write('Setup cancelled.\n');
-      return;
+      return 0;
     }
     folderId = manualId as string;
   }
 
   await updateConfigFile(configPath, folderId, credentialsPath);
   process.stdout.write(`\nCloud storage configured. Folder ID saved to: ${configPath}\n`);
+  return 0;
 }

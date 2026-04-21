@@ -18,6 +18,7 @@ const FixerStrategyIdSchema = z.enum(['osv', 'npm-audit']);
 const AdvisorConfigSchema = z.object({
   name: z.string(),
   command: z.string(),
+  format: z.enum(['json', 'text']).optional(),
 }).strict();
 
 /** Validation command config */
@@ -173,7 +174,6 @@ export const ProjectConfigSchema = z.object({
   protected_packages: z.record(z.array(ProtectedPackageSchema)),
   safe_update_policy: SafeUpdatePolicySchema,
   conflict_resolution: z.string(),
-  reports_dir: z.string().optional(),
   report_language: z.enum(['pt-br', 'en']).optional(),
   cloud_storage: CloudStorageConfigSchema.optional(),
   scanners: ScannersConfigSchema.optional(),

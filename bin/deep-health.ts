@@ -132,7 +132,7 @@ program
   )
   .option("--cwd <path>", "Working directory", process.cwd())
   .action(async (opts: { config: string; cwd: string }) => {
-    await runCloudSetup({ configPath: opts.config, cwd: opts.cwd });
+    await runCliAction(() => runCloudSetup({ configPath: opts.config, cwd: opts.cwd }));
   });
 
 /**

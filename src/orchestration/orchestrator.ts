@@ -1,9 +1,9 @@
 import type { CommandRunner, PhaseStatus } from '@core/types/common';
-import type { ProjectConfig, AdvisorConfig, FixerStrategyId } from '@core/types/config';
+import type { ProjectConfig, FixerStrategyId } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
-import type { AdvisorResult, AdvisorFinding } from '@core/types/report';
+import type { AdvisorResult } from '@core/types/report';
 import type { EngineWarning, ScannerEngineContext } from '@modules/scanner/types';
 import type { EphemeralContainerRunner } from '@infra/provisioner/types';
 import { validateGateA, validateEcosystemGate } from '@core/gates/validator';
@@ -17,14 +17,16 @@ import { NpmContainerCommandRunner } from '@infra/executor/npm-container-runner'
 import { OsvContainerCommandRunner } from '@infra/executor/osv-container-runner';
 // Ecosystem registry — plugins are registered via modules/ecosystem/index.ts side-effects
 import { EcosystemRegistry, defaultRegistry } from '@modules/ecosystem/index';
-// Scanner registry — engines are registered via modules/scanner/index.ts side-effects
+// Scanner registry — engines are bootstrapped lazily via bootstrapDefaultEngines()
 import {
   defaultScannerRegistry,
   ScannerEngineRegistry,
   aggregateScanResults,
   OSV_ENGINE_ID,
+  bootstrapDefaultEngines,
 } from '@modules/scanner/index';
 import type { AggregatedScanResult } from '@modules/scanner/index';
+import { runAdvisors } from '@modules/advisor/index';
 
 export interface OrchestratorOptions {
   configPath: string;
@@ -58,6 +60,11 @@ export interface OrchestratorResult {
   /** Update results keyed by plugin id (e.g. 'npm', 'composer') */
   updates: Record<string, UpdateResultJson>;
   overallStatus: PhaseStatus;
+  /**
+   * True when there are pending vulnerabilities (breaking or manual) after the pipeline run.
+   * Does NOT imply a crash or gate failure — consumers should check this separately from overallStatus.
+   */
+  hasPendingVulns: boolean;
   /**
    * Non-fatal engine warnings accumulated during the pipeline run.
    * Populated when a secondary scanner (e.g. SonarQube with on_failure=warn)
@@ -193,153 +200,6 @@ async function runAllEngines(
 }
 
 /**
- * Parse npm audit --json output into structured AdvisorFindings.
- *
- * npm audit JSON schema (v7+):
- * {
- *   vulnerabilities: {
- *     [packageName]: {
- *       name: string, severity: string, range: string,
- *       nodes: string[], fixAvailable: boolean | { name, version, ... },
- *       via: Array<string | { title, url, severity, range }>
- *     }
- *   }
- * }
- *
- * Returns an empty array when the structure is unrecognized (valid JSON, no vulnerabilities key).
- * Throws a SyntaxError when the raw string is not valid JSON so the caller can emit 'error' status.
- * @internal exported for unit testing only
- */
-export function parseNpmAuditJson(raw: string): AdvisorFinding[] {
-  // Let JSON.parse throw naturally — caller is responsible for catching and emitting 'error'.
-  const parsed: unknown = JSON.parse(raw);
-  if (parsed === null || typeof parsed !== 'object') return [];
-
-  const obj = parsed as Record<string, unknown>;
-  const vulnerabilities = obj['vulnerabilities'];
-  if (!vulnerabilities || typeof vulnerabilities !== 'object') return [];
-
-  const findings: AdvisorFinding[] = [];
-  for (const [pkgName, vuln] of Object.entries(vulnerabilities as Record<string, unknown>)) {
-    if (!vuln || typeof vuln !== 'object') continue;
-    const v = vuln as Record<string, unknown>;
-
-    const severity = typeof v['severity'] === 'string' ? v['severity'] : 'unknown';
-    const range = typeof v['range'] === 'string' ? v['range'] : undefined;
-
-    // Extract a title from the first non-string via entry
-    let title = 'Vulnerability';
-    const via = v['via'];
-    if (Array.isArray(via)) {
-      for (const entry of via) {
-        if (entry && typeof entry === 'object' && 'title' in entry && typeof (entry as Record<string, unknown>)['title'] === 'string') {
-          title = (entry as Record<string, unknown>)['title'] as string;
-          break;
-        }
-      }
-    }
-
-    // fixAvailable: false | true | { name, version, isSemVerMajor? }
-    let fixAvailable: string | undefined;
-    const fa = v['fixAvailable'];
-    if (fa && typeof fa === 'object' && 'version' in fa && typeof (fa as Record<string, unknown>)['version'] === 'string') {
-      fixAvailable = (fa as Record<string, unknown>)['version'] as string;
-    }
-
-    findings.push({ package: pkgName, severity, title, range, fixAvailable });
-  }
-
-  return findings;
-}
-
-/**
- * Run advisor commands for a single ecosystem (informational only — never throws).
- *
- * Advisors produce observability output but never affect the pipeline outcome.
- * Even if an advisor command fails (non-zero exit), the pipeline continues.
- *
- * Status semantics:
- * - 'clean':    command exited 0 and (for json format) produced no findings.
- * - 'findings': command completed (any exit code) and findings were detected.
- * - 'error':    command threw an exception or produced unparseable output for json format.
- * - 'skipped':  not currently used at runtime (reserved for config-level suppression).
- */
-async function runAdvisors(
-  runner: CommandRunner,
-  cwd: string,
-  ecosystemId: string,
-  advisors: AdvisorConfig[],
-): Promise<AdvisorResult[]> {
-  if (advisors.length === 0) return [];
-
-  const results: AdvisorResult[] = [];
-
-  for (const advisor of advisors) {
-    logger.info(`[Advisor] ${ecosystemId}/${advisor.name}: ${advisor.command}`);
-    const isJsonFormat = advisor.format === 'json';
-
-    try {
-      const cmdResult = await runner.run(advisor.command, { cwd });
-      const rawOutput = cmdResult.stdout.trim();
-
-      if (isJsonFormat) {
-        // Structured JSON advisor (e.g. npm audit --json)
-        let findings: AdvisorFinding[];
-        try {
-          findings = parseNpmAuditJson(rawOutput);
-        } catch (parseErr) {
-          // Malformed / unparseable JSON → classify as error, not clean
-          const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
-          logger.warn(`[Advisor] ${ecosystemId}/${advisor.name} JSON parse failed (non-fatal): ${parseMsg}`);
-          results.push({
-            name: advisor.name,
-            command: advisor.command,
-            exitCode: cmdResult.exitCode,
-            output: rawOutput.slice(0, 200),
-            status: 'error',
-          });
-          continue;
-        }
-        const hasFindings = findings.length > 0;
-
-        results.push({
-          name: advisor.name,
-          command: advisor.command,
-          exitCode: cmdResult.exitCode,
-          output: '',
-          status: hasFindings ? 'findings' : 'clean',
-          findings,
-        });
-      } else {
-        // Plain text advisor
-        const outputLines = rawOutput.split('\n');
-        const output = outputLines.slice(-20).join('\n');
-        results.push({
-          name: advisor.name,
-          command: advisor.command,
-          exitCode: cmdResult.exitCode,
-          output,
-          status: cmdResult.exitCode === 0 ? 'clean' : 'findings',
-        });
-      }
-    } catch (err) {
-      // Advisor failure is always non-fatal
-      const message = err instanceof Error ? err.message : String(err);
-      logger.warn(`[Advisor] ${ecosystemId}/${advisor.name} failed (non-fatal): ${message}`);
-      results.push({
-        name: advisor.name,
-        command: advisor.command,
-        exitCode: -1,
-        output: message,
-        status: 'error',
-      });
-    }
-  }
-
-  return results;
-}
-
-/**
  * Resolve the npm container runner based on config.
  *
  * - 'docker' (default): create NpmDockerRunner using inferred/configured node version.
@@ -453,6 +313,9 @@ const OSV_FIX_NPM = 'osv-scanner fix --strategy=in-place -L package-lock.json';
 /** osv-scanner post-update residual verification scan for npm lockfile */
 const OSV_SCAN_NPM = 'osv-scanner --lockfile package-lock.json --format json';
 
+/** osv-scanner post-update residual verification scan for composer lockfile */
+const OSV_SCAN_COMPOSER = 'osv-scanner --lockfile composer.lock --format json';
+
 /**
  * Run `osv-scanner fix` for npm lockfile using the dedicated OSV runner.
  * Best-effort: logs a warning on non-zero exit but does not abort the pipeline.
@@ -470,17 +333,17 @@ async function runOsvFix(osvRunner: CommandRunner, cwd: string, dryRun: boolean)
 }
 
 /**
- * Run residual OSV scan verification after npm updates are applied.
+ * Run residual OSV scan verification after updates are applied.
  * Best-effort: logs a warning on failure but does not abort the pipeline.
  */
-async function runOsvResidualVerification(osvRunner: CommandRunner, cwd: string, dryRun: boolean): Promise<void> {
+async function runOsvResidualVerification(osvRunner: CommandRunner, cwd: string, dryRun: boolean, command: string): Promise<void> {
   if (dryRun) {
-    logger.info(`[DRY-RUN] Would execute: ${OSV_SCAN_NPM}`);
+    logger.info(`[DRY-RUN] Would execute: ${command}`);
     return;
   }
-  logger.info(`[OSV verify] Running post-update OSV verification: ${OSV_SCAN_NPM}`);
+  logger.info(`[OSV verify] Running post-update OSV verification: ${command}`);
   try {
-    await osvRunner.run(OSV_SCAN_NPM, { cwd });
+    await osvRunner.run(command, { cwd });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.warn(`[OSV verify] Post-update OSV verification failed (non-fatal): ${message}`);
@@ -496,6 +359,7 @@ export async function runOrchestrator(
     scan: null,
     updates: {},
     overallStatus: 'success',
+    hasPendingVulns: false,
     warnings: [],
     advisorResults: {},
   };
@@ -511,6 +375,13 @@ export async function runOrchestrator(
 
   const ecosystemRegistry = options.registry ?? defaultRegistry;
   const engineRegistry = options.scannerRegistry ?? defaultScannerRegistry;
+
+  // Ensure default engines are registered when using the default registry.
+  // When a caller injects a custom scannerRegistry (e.g. tests), they are
+  // responsible for populating it — we must NOT auto-populate it here.
+  if (!options.scannerRegistry) {
+    bootstrapDefaultEngines(engineRegistry);
+  }
 
   // OSV disable guard: if OSV engine is not in registry, block update/fix flow
   if (!engineRegistry.has('osv')) {
@@ -644,8 +515,8 @@ export async function runOrchestrator(
         // The updater's 'osv' fixer is a no-op — it only reports packages_updated from scan result.
         // read-write mount required: osv-scanner fix writes package-lock.json in-place.
         const osvRunner = resolveOsvCommandRunner(config, options.cwd, runner, runner.dryRun, false);
-        const _osvFixMode = config.scanners?.osv?.runner ?? 'docker';
-        if (_osvFixMode === 'local') {
+        const osvFixMode = config.scanners?.osv?.runner ?? 'docker';
+        if (osvFixMode === 'local') {
           logger.info('[OSV fix] Using local osv-scanner binary for in-place fix');
         } else {
           logger.info('[OSV fix] Using OSV container runner with read-write mount for in-place fix');
@@ -714,15 +585,21 @@ export async function runOrchestrator(
         // Step 4 (osv strategy): OSV residual verification after all npm updates.
         // read-only mount is safe for verification (scan only).
         const osvRunner = resolveOsvCommandRunner(config, options.cwd, runner, runner.dryRun, true);
-        const _osvVerifyMode = config.scanners?.osv?.runner ?? 'docker';
-        if (_osvVerifyMode === 'local') {
+        const osvVerifyMode = config.scanners?.osv?.runner ?? 'docker';
+        if (osvVerifyMode === 'local') {
           logger.info('[OSV verify] Using local osv-scanner binary for residual verification');
         } else {
           logger.info('[OSV verify] Using OSV container runner with read-only mount for residual verification');
         }
-        await runOsvResidualVerification(osvRunner, options.cwd, options.dryRun);
+        await runOsvResidualVerification(osvRunner, options.cwd, options.dryRun, OSV_SCAN_NPM);
       }
       // npm-audit strategy: no OSV residual verification (exclusive paths).
+    }
+
+    // === Post-updater steps for composer ===
+    if (plugin.id === 'composer' && updateResult.status !== 'error' && !options.dryRun) {
+      const osvRunner = resolveOsvCommandRunner(config, options.cwd, runner, false, true);
+      await runOsvResidualVerification(osvRunner, options.cwd, false, OSV_SCAN_COMPOSER);
     }
 
     result.updates[plugin.id] = updateResult;
@@ -753,9 +630,7 @@ export async function runOrchestrator(
     (e) => e.breaking > 0 || e.manual > 0,
   );
 
-  if (hasPendingItems && result.overallStatus !== 'error') {
-    result.overallStatus = 'error'; // exit code 1: vulns remain
-  }
+  result.hasPendingVulns = hasPendingItems;
 
   return result;
 }

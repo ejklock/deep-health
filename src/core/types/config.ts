@@ -227,7 +227,6 @@ export interface ProjectConfig {
   protected_packages: Record<string, ProtectedPackage[]>;
   safe_update_policy: SafeUpdatePolicy;
   conflict_resolution: string;
-  reports_dir?: string;
   report_language?: SupportedLocale;
   cloud_storage?: CloudStorageConfig;
   scanners?: ScannersConfig;

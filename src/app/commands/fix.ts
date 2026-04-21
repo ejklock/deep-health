@@ -100,15 +100,12 @@ export async function runFixCommand(
 
   // Resolve outputs config (canonical location for reports settings)
   const outputsConfig = config.outputs;
-  const reportsDir = resolveReportsDir(opts.cwd, outputsConfig?.dir ?? config.reports_dir);
+  const reportsDir = resolveReportsDir(opts.cwd, outputsConfig?.dir);
   const subFoldersEnabled = outputsConfig?.sub_folders ?? false;
   const sonarReportsDir = resolveEngineReportsDir(reportsDir, subFoldersEnabled ? 'sonarqube' : undefined);
   const reportLanguage = config.report_language;
   // Markdown output is opt-in: only save to reportsDir when outputs.formats includes 'markdown'
-  const markdownEnabled =
-    (outputsConfig?.formats ?? []).includes('markdown') ||
-    // Legacy: if reports_dir is set but no outputs config, default to saving
-    (!outputsConfig && !!config.reports_dir);
+  const markdownEnabled = (outputsConfig?.formats ?? []).includes('markdown');
 
   if (opts.json) {
     await writeOutput(JSON.stringify(result, null, 2), opts.output);
@@ -159,6 +156,7 @@ export async function runFixCommand(
     }
   }
 
-  if (result.overallStatus === "error") return 1;
+  if (result.overallStatus === "error") return 1; // real crash/failure
+  if (result.hasPendingVulns) return 1;           // scan clean-exit, vulns remain
   return 0;
 }

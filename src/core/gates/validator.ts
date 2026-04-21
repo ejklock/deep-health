@@ -31,6 +31,8 @@ const ScanResultSchema = z.object({
   environment: z.enum(['docker', 'local']),
   ecosystems: z.record(z.string(), EcosystemScanResultSchema),
   error: z.string().nullable(),
+  branch: z.string().nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 /**

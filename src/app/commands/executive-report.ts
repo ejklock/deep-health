@@ -42,10 +42,7 @@ export async function runExecutiveReportCommand(
 
   // Markdown output is opt-in: only save to reportsDir when outputs.formats includes 'markdown'
   const outputsConfig = config.outputs;
-  const markdownEnabled =
-    (outputsConfig?.formats ?? []).includes('markdown') ||
-    // Legacy: if reports_dir is set but no outputs config, default to saving
-    (!outputsConfig && !!config.reports_dir);
+  const markdownEnabled = (outputsConfig?.formats ?? []).includes('markdown');
 
   const scanBefore = await runScanner(runner, config, opts.cwd);
 
@@ -72,8 +69,8 @@ export async function runExecutiveReportCommand(
       : undefined,
   });
 
-  // Use outputs.dir if present, fall back to legacy reports_dir
-  const reportsDir = resolveReportsDir(opts.cwd, outputsConfig?.dir ?? config.reports_dir);
+  // Use outputs.dir if present
+  const reportsDir = resolveReportsDir(opts.cwd, outputsConfig?.dir);
   const subFoldersEnabled = outputsConfig?.sub_folders ?? false;
   const sonarReportsDir = resolveEngineReportsDir(reportsDir, subFoldersEnabled ? 'sonarqube' : undefined);
 
