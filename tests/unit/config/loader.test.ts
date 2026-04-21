@@ -424,4 +424,28 @@ describe('strict schema enforcement — unknown keys', () => {
       await expect(loadConfig(filename, dir)).rejects.toThrow(ConfigLoadError);
     });
   });
+
+  it('rejects legacy cloud_storage credentials keys (OAuth flow stores tokens outside config)', async () => {
+    const yaml = [
+      'project:',
+      '  name: test',
+      '  client: test',
+      'ecosystems:',
+      '  - id: npm',
+      'protected_packages: {}',
+      'safe_update_policy:',
+      '  allow_patch_and_minor_within_constraints: true',
+      '  require_authorization_for_constraint_change: false',
+      'conflict_resolution: fail',
+      'cloud_storage:',
+      '  provider: google_drive',
+      '  folder_id: abc123',
+      '  credentials: .deep-health/gdrive-service-account.json',
+    ].join('\n') + '\n';
+
+    await withTempConfig(yaml, async (absPath, filename) => {
+      const dir = require('node:path').dirname(absPath);
+      await expect(loadConfig(filename, dir)).rejects.toThrow(ConfigLoadError);
+    });
+  });
 });

@@ -173,8 +173,6 @@ const ScannersConfigSchema = z.object({
 const CloudStorageConfigSchema = z.object({
   provider: z.enum(['google_drive']),
   folder_id: z.string(),
-  credentials: z.string().optional(),
-  credentials_env: z.string().optional(),
 }).strict();
 
 const SafeUpdatePolicySchema = z.object({

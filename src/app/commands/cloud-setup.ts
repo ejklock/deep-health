@@ -2,54 +2,62 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { parse as yamlParse, stringify as yamlStringify } from 'yaml';
 import type { ProjectConfig } from '@core/types/config';
+import {
+  createOAuth2Client,
+  loadStoredTokens,
+  runOAuthFlow,
+  saveTokens,
+} from '@infra/storage/google-drive-auth';
 
 interface CloudSetupOptions {
   configPath: string;
   cwd: string;
 }
 
-async function resolveCredentials(
-  config: ProjectConfig,
-  cwd: string,
-): Promise<{ credentials: object; credentialsPath: string }> {
-  const cs = config.cloud_storage;
+async function getAuthenticatedEmail(tokens: {
+  access_token: string;
+  refresh_token: string;
+  expiry_date: number;
+  token_type: string;
+}): Promise<string | null> {
+  try {
+    const { clientId, clientSecret } = createOAuth2Client();
+    const { google } = await import('googleapis');
 
-  if (cs?.credentials_env) {
-    const raw = process.env[cs.credentials_env];
-    if (!raw) throw new Error(`Env var "${cs.credentials_env}" is not set`);
-    return { credentials: JSON.parse(raw) as object, credentialsPath: cs.credentials_env };
+    const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+    oauth2Client.setCredentials({
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      expiry_date: tokens.expiry_date,
+      token_type: tokens.token_type,
+    });
+
+    const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
+    const info = await oauth2.userinfo.get();
+    return info.data.email ?? null;
+  } catch {
+    return null;
   }
-
-  if (cs?.credentials) {
-    const credPath = resolve(cwd, cs.credentials);
-    const raw = await readFile(credPath, 'utf-8');
-    return { credentials: JSON.parse(raw) as object, credentialsPath: cs.credentials };
-  }
-
-  // Prompt for credentials path
-  const { default: prompts } = await import('prompts');
-  const { credPath } = await prompts({
-    type: 'text',
-    name: 'credPath',
-    message: 'Path to Google service account JSON file (relative to project):',
-    initial: '.deep-health/gdrive-service-account.json',
-  });
-  if (!credPath) throw new Error('No credentials path provided');
-
-  const absPath = resolve(cwd, credPath as string);
-  const raw = await readFile(absPath, 'utf-8');
-  return { credentials: JSON.parse(raw) as object, credentialsPath: credPath as string };
 }
 
-async function listDriveFolders(credentials: object): Promise<Array<{ id: string; name: string }>> {
+async function listDriveFolders(tokens: {
+  access_token: string;
+  refresh_token: string;
+  expiry_date: number;
+  token_type: string;
+}): Promise<Array<{ id: string; name: string }>> {
+  const { clientId, clientSecret } = createOAuth2Client();
   const { google } = await import('googleapis');
 
-  const auth = new google.auth.GoogleAuth({
-    credentials: credentials as never,
-    scopes: ['https://www.googleapis.com/auth/drive.readonly'],
+  const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+  oauth2Client.setCredentials({
+    access_token: tokens.access_token,
+    refresh_token: tokens.refresh_token,
+    expiry_date: tokens.expiry_date,
+    token_type: tokens.token_type,
   });
 
-  const drive = google.drive({ version: 'v3', auth });
+  const drive = google.drive({ version: 'v3', auth: oauth2Client });
 
   const response = await drive.files.list({
     q: "mimeType='application/vnd.google-apps.folder' and trashed=false",
@@ -61,20 +69,13 @@ async function listDriveFolders(credentials: object): Promise<Array<{ id: string
   return (response.data.files ?? []).map((f) => ({ id: f.id ?? '', name: f.name ?? '' }));
 }
 
-async function updateConfigFile(
-  configPath: string,
-  folderId: string,
-  credentialsPath?: string,
-): Promise<void> {
+async function updateConfigFile(configPath: string, folderId: string): Promise<void> {
   const raw = await readFile(configPath, 'utf-8');
   const doc = yamlParse(raw) as Record<string, unknown>;
 
-  const existing = (doc['cloud_storage'] ?? {}) as Record<string, unknown>;
   doc['cloud_storage'] = {
-    ...existing,
     provider: 'google_drive',
     folder_id: folderId,
-    ...(credentialsPath ? { credentials: credentialsPath } : {}),
   };
 
   await writeFile(configPath, yamlStringify(doc), 'utf-8');
@@ -93,43 +94,78 @@ export async function runCloudSetup(opts: CloudSetupOptions): Promise<number> {
     return 1;
   }
 
-  const config = yamlParse(rawConfig) as ProjectConfig;
-
-  process.stdout.write('Connecting to Google Drive...\n');
-
-  let credentials: object;
-  let credentialsPath: string | undefined;
-
+  // Validate that OAuth env vars are present before proceeding
   try {
-    const resolved = await resolveCredentials(config, opts.cwd);
-    credentials = resolved.credentials;
-    // Only save path back if it was newly entered (not from env var)
-    if (!config.cloud_storage?.credentials_env) {
-      credentialsPath = resolved.credentialsPath;
-    }
+    createOAuth2Client();
   } catch (err) {
-    process.stderr.write(`Credentials error: ${err instanceof Error ? err.message : String(err)}\n`);
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
     return 1;
   }
 
-  const saEmail = (credentials as Record<string, unknown>)['client_email'] as string | undefined;
-  if (saEmail) {
-    process.stdout.write(`Authenticated as: ${saEmail}\n`);
+  const config = yamlParse(rawConfig) as ProjectConfig;
+
+  // Check for existing tokens
+  const existingTokens = await loadStoredTokens();
+  let tokens = existingTokens;
+
+  if (existingTokens) {
+    const email = await getAuthenticatedEmail(existingTokens);
+    const display = email ? `Already connected as ${email}` : 'Already connected to Google Drive';
+
+    const { reconnect } = await prompts({
+      type: 'confirm',
+      name: 'reconnect',
+      message: `${display}. Reconnect?`,
+      initial: false,
+    });
+
+    if (reconnect) {
+      tokens = null;
+    }
   }
 
-  process.stdout.write('Fetching folders...\n');
+  if (!tokens) {
+    process.stdout.write('Starting Google OAuth 2.0 authorization flow...\n');
+
+    try {
+      tokens = await runOAuthFlow();
+      await saveTokens(tokens);
+      process.stdout.write('\n');
+    } catch (err) {
+      process.stderr.write(
+        `OAuth flow failed: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+      return 1;
+    }
+  }
+
+  const email = await getAuthenticatedEmail(tokens);
+  if (email) {
+    process.stdout.write(`✔ Authenticated as: ${email}\n`);
+  } else {
+    process.stdout.write('✔ Google Drive connected.\n');
+  }
+
+  // Ensure config has cloud_storage section (folder_id may be pre-set)
+  const existingFolderId = (config.cloud_storage as { folder_id?: string } | undefined)
+    ?.folder_id;
+
+  process.stdout.write('Fetching Google Drive folders...\n');
 
   let folders: Array<{ id: string; name: string }>;
   try {
-    folders = await listDriveFolders(credentials);
+    folders = await listDriveFolders(tokens);
   } catch (err) {
-    process.stderr.write(`Failed to list folders: ${err instanceof Error ? err.message : String(err)}\n`);
+    process.stderr.write(
+      `Failed to list folders: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
     return 1;
   }
 
   if (folders.length === 0) {
     process.stdout.write(
-      'No folders found. Share a Google Drive folder with the service account email and try again.\n',
+      'No folders found in your Google Drive.\n' +
+        'Create a folder in Google Drive first or enter the folder ID manually.\n',
     );
   }
 
@@ -143,6 +179,12 @@ export async function runCloudSetup(opts: CloudSetupOptions): Promise<number> {
     name: 'folderId',
     message: 'Select the destination folder:',
     choices,
+    initial: existingFolderId
+      ? Math.max(
+          0,
+          folders.findIndex((f) => f.id === existingFolderId),
+        )
+      : 0,
   });
 
   if (!selectedId) {
@@ -157,6 +199,7 @@ export async function runCloudSetup(opts: CloudSetupOptions): Promise<number> {
       type: 'text',
       name: 'manualId',
       message: 'Enter Google Drive folder ID:',
+      initial: existingFolderId ?? '',
     });
     if (!manualId) {
       process.stdout.write('Setup cancelled.\n');
@@ -165,7 +208,7 @@ export async function runCloudSetup(opts: CloudSetupOptions): Promise<number> {
     folderId = manualId as string;
   }
 
-  await updateConfigFile(configPath, folderId, credentialsPath);
-  process.stdout.write(`\nCloud storage configured. Folder ID saved to: ${configPath}\n`);
+  await updateConfigFile(configPath, folderId);
+  process.stdout.write(`\n✔ Cloud storage configured. Folder ID saved to: ${configPath}\n`);
   return 0;
 }

@@ -118,8 +118,6 @@ export interface EcosystemConfig {
 export interface CloudStorageConfig {
   provider: 'google_drive';
   folder_id: string;
-  credentials?: string;
-  credentials_env?: string;
 }
 
 /**

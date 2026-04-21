@@ -156,7 +156,11 @@ scanners:
 
 # cloud_storage:                         # optional — upload reports to cloud storage after generation
 #   provider: google_drive
-#   folder_id: 'YOUR_GOOGLE_DRIVE_FOLDER_ID'
-#   credentials: '.deep-health/gdrive-service-account.json'
-#   # credentials_env: GDRIVE_SERVICE_ACCOUNT_JSON  # alternative: env var with JSON (for CI/CD)
+#   folder_id: 'YOUR_GOOGLE_DRIVE_FOLDER_ID'   # set automatically by 'deep-health cloud-setup'
+#
+# To connect Google Drive, run: deep-health cloud-setup
+# Required environment variables (OAuth 2.0 Desktop app credentials from GCP Console):
+#   DEEP_HEALTH_GOOGLE_CLIENT_ID=<your-oauth2-client-id>
+#   DEEP_HEALTH_GOOGLE_CLIENT_SECRET=<your-oauth2-client-secret>
+# Tokens are stored in: ~/.config/deep-health/tokens.json (chmod 600)
 `;
