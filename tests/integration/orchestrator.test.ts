@@ -10,6 +10,7 @@ import type { CommandRunner, CommandResult, CommandRunnerOptions, ExecutionEnv }
 import type { ProjectConfig } from '@core/types/config';
 import type { ScannerEngineContext, ScannerEngine } from '@modules/scanner/types';
 import type { ScanResultJson } from '@core/types/scan';
+import * as gitUtils from '@infra/utils/git';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
@@ -228,8 +229,85 @@ describe('runOrchestrator — full pipeline', () => {
     expect(updateOrRevertCalls).toHaveLength(0);
   });
 
-  it('orchestrates explicit OSV fix -> npm updater -> OSV residual verification order for npm', async () => {
+  it('runs npm audit fix and NO osv-scanner fix when fixer=npm-audit (exclusive strategies)', async () => {
+    // The fixture config has fixer: npm-audit for npm — so only npm audit fix runs.
+    // osv-scanner fix and residual verification do NOT run in this path.
     const config = await loadTestConfig();
+    const scanOutput = JSON.stringify({
+      results: [
+        {
+          source: { path: 'package-lock.json', type: 'lockfile' },
+          packages: [
+            {
+              package: { name: 'lodash', version: '4.17.20', ecosystem: 'npm' },
+              vulnerabilities: [
+                {
+                  id: 'GHSA-test-1234-5678',
+                  summary: 'Test vuln',
+                  affected: [
+                    {
+                      package: { ecosystem: 'npm', name: 'lodash' },
+                      ranges: [{ type: 'SEMVER', events: [{ introduced: '0' }, { fixed: '4.17.21' }] }],
+                    },
+                  ],
+                },
+              ],
+              groups: [{ ids: ['GHSA-test-1234-5678'] }],
+            },
+          ],
+        },
+      ],
+    });
+
+    const runner = new MockCommandRunner({
+      '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
+      '--lockfile package-lock.json --lockfile composer.lock --format json': {
+        stdout: scanOutput,
+        exitCode: 0,
+      },
+      'npm audit': { stdout: '', exitCode: 0 },
+      'npm outdated': { stdout: '', exitCode: 0 },
+      'npm audit fix': { stdout: 'npm fixed', exitCode: 0 },
+      'npm run build': { stdout: 'build ok', exitCode: 0 },
+      // composer advisor in fixture config
+      'composer audit': { stdout: '', exitCode: 0 },
+    });
+
+    const result = await runOrchestrator(runner, config, {
+      configPath: 'project-config.yml',
+      cwd: fixturesDir,
+      dryRun: false,
+      verbose: false,
+      scannerRegistry: makeOsvOnlyRegistry(),
+    });
+
+    const npmFixIdx = runner.calledCommands.findIndex((c) => c === 'npm audit fix');
+    const osvFixIdx = runner.calledCommands.findIndex((c) =>
+      c.includes('osv-scanner fix --strategy=in-place -L package-lock.json'),
+    );
+    const verifyIdx = runner.calledCommands.findIndex((c) =>
+      c.includes('osv-scanner --lockfile package-lock.json --format json'),
+    );
+
+    expect(result.updates['npm']).toBeDefined();
+    // npm-audit strategy: npm audit fix runs
+    expect(npmFixIdx).toBeGreaterThan(-1);
+    // npm-audit strategy: osv-scanner fix does NOT run
+    expect(osvFixIdx).toBe(-1);
+    // npm-audit strategy: residual OSV verification does NOT run
+    expect(verifyIdx).toBe(-1);
+  });
+
+  it('runs osv-scanner fix and NO npm audit fix when fixer=osv (exclusive strategies)', async () => {
+    const config = await loadTestConfig();
+    // Override fixer to 'osv' for npm
+    const osvFixerConfig = {
+      ...config,
+      ecosystems: config.ecosystems.map((e) =>
+        e.id === 'npm' ? { ...e, fixer: 'osv' as const } : e,
+      ),
+    };
+
     const scanOutput = JSON.stringify({
       results: [
         {
@@ -265,14 +343,13 @@ describe('runOrchestrator — full pipeline', () => {
       'osv-scanner fix --strategy=in-place -L package-lock.json': { stdout: 'fixed', exitCode: 0 },
       'npm audit': { stdout: '', exitCode: 0 },
       'npm outdated': { stdout: '', exitCode: 0 },
-      'npm audit fix': { stdout: 'npm fixed', exitCode: 0 },
       'npm run build': { stdout: 'build ok', exitCode: 0 },
       '--lockfile package-lock.json --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
       // composer advisor in fixture config
       'composer audit': { stdout: '', exitCode: 0 },
     });
 
-    const result = await runOrchestrator(runner, config, {
+    const result = await runOrchestrator(runner, osvFixerConfig, {
       configPath: 'project-config.yml',
       cwd: fixturesDir,
       dryRun: false,
@@ -280,7 +357,7 @@ describe('runOrchestrator — full pipeline', () => {
       scannerRegistry: makeOsvOnlyRegistry(),
     });
 
-    const fixIdx = runner.calledCommands.findIndex((c) =>
+    const osvFixIdx = runner.calledCommands.findIndex((c) =>
       c.includes('osv-scanner fix --strategy=in-place -L package-lock.json'),
     );
     const npmFixIdx = runner.calledCommands.findIndex((c) => c === 'npm audit fix');
@@ -289,11 +366,311 @@ describe('runOrchestrator — full pipeline', () => {
     );
 
     expect(result.updates['npm']).toBeDefined();
-    expect(fixIdx).toBeGreaterThan(-1);
-    expect(npmFixIdx).toBeGreaterThan(-1);
+    // osv strategy: osv-scanner fix runs before updater
+    expect(osvFixIdx).toBeGreaterThan(-1);
+    // osv strategy: npm audit fix does NOT run
+    expect(npmFixIdx).toBe(-1);
+    // osv strategy: residual verification runs after updater
     expect(verifyIdx).toBeGreaterThan(-1);
-    expect(fixIdx).toBeLessThan(npmFixIdx);
-    expect(npmFixIdx).toBeLessThan(verifyIdx);
+    expect(osvFixIdx).toBeLessThan(verifyIdx);
+  });
+
+  it('backs up npm files before osv-scanner fix when fixer=osv', async () => {
+    const config = await loadTestConfig();
+    const osvFixerConfig = {
+      ...config,
+      ecosystems: config.ecosystems.map((e) =>
+        e.id === 'npm' ? { ...e, fixer: 'osv' as const } : e,
+      ),
+    };
+
+    const scanOutput = JSON.stringify({
+      results: [
+        {
+          source: { path: 'package-lock.json', type: 'lockfile' },
+          packages: [
+            {
+              package: { name: 'lodash', version: '4.17.20', ecosystem: 'npm' },
+              vulnerabilities: [
+                {
+                  id: 'GHSA-test-1234-5678',
+                  summary: 'Test vuln',
+                  affected: [
+                    {
+                      package: { ecosystem: 'npm', name: 'lodash' },
+                      ranges: [{ type: 'SEMVER', events: [{ introduced: '0' }, { fixed: '4.17.21' }] }],
+                    },
+                  ],
+                },
+              ],
+              groups: [{ ids: ['GHSA-test-1234-5678'] }],
+            },
+          ],
+        },
+      ],
+    });
+
+    const runner = new MockCommandRunner({
+      '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
+      '--lockfile package-lock.json --lockfile composer.lock --format json': {
+        stdout: scanOutput,
+        exitCode: 0,
+      },
+      'osv-scanner fix --strategy=in-place -L package-lock.json': { stdout: 'fixed', exitCode: 0 },
+      'npm audit': { stdout: '', exitCode: 0 },
+      'npm outdated': { stdout: '', exitCode: 0 },
+      'npm run build': { stdout: 'build ok', exitCode: 0 },
+      '--lockfile package-lock.json --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
+      // composer advisor in fixture config
+      'composer audit': { stdout: '', exitCode: 0 },
+    });
+
+    const backupSpy = vi.spyOn(gitUtils, 'backupFiles');
+    const runSpy = vi.spyOn(runner, 'run');
+
+    await runOrchestrator(runner, osvFixerConfig, {
+      configPath: 'project-config.yml',
+      cwd: fixturesDir,
+      dryRun: false,
+      verbose: false,
+      scannerRegistry: makeOsvOnlyRegistry(),
+    });
+
+    expect(backupSpy).toHaveBeenCalledWith(['package.json', 'package-lock.json'], fixturesDir);
+    expect(backupSpy).toHaveBeenCalledTimes(1);
+
+    const fixCallIndex = runSpy.mock.calls.findIndex(([cmd]) =>
+      String(cmd).includes('osv-scanner fix --strategy=in-place -L package-lock.json'),
+    );
+    expect(fixCallIndex).toBeGreaterThan(-1);
+
+    const backupOrder = backupSpy.mock.invocationCallOrder[0]!;
+    const fixOrder = runSpy.mock.invocationCallOrder[fixCallIndex]!;
+    expect(backupOrder).toBeLessThan(fixOrder);
+
+    runSpy.mockRestore();
+    backupSpy.mockRestore();
+  });
+
+  it('applies authorized breaking installs via npm at orchestrator level when fixer=osv', async () => {
+    const config = await loadTestConfig();
+    const osvFixerConfig = {
+      ...config,
+      ecosystems: config.ecosystems.map((e) =>
+        e.id === 'npm' ? { ...e, fixer: 'osv' as const } : e,
+      ),
+    };
+
+    // Use a stub OSV primary result so we can force a breaking-only npm scenario.
+    const breakingScan: ScanResultJson = {
+      $schema: 'osv-scan-result/v1',
+      agent: 'osv',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {
+        npm: {
+          vulnerabilities_total: 1,
+          auto_safe: 0,
+          breaking: 1,
+          manual: 0,
+          auto_safe_packages: [],
+          breaking_packages: ['react@18.0.0'],
+          manual_packages: [],
+          vulnerabilities: [
+            {
+              ecosystem: 'npm',
+              package: 'react',
+              currentVersion: '17.0.2',
+              safeVersion: '18.0.0',
+              cvss: '8.0',
+              ghsaId: 'GHSA-test-breaking',
+              risk: 'critical',
+              classification: 'breaking',
+              reason: 'major version bump required',
+            },
+          ],
+        },
+      },
+      error: null,
+    };
+
+    const reg = new ScannerEngineRegistry();
+    reg.register(new StubScannerEngine('osv', breakingScan));
+
+    const runner = new MockCommandRunner({
+      'osv-scanner fix --strategy=in-place -L package-lock.json': { stdout: 'fixed', exitCode: 0 },
+      'npm audit': { stdout: '', exitCode: 0 },
+      'npm outdated': { stdout: '', exitCode: 0 },
+      'npm ci': { stdout: 'ci ok', exitCode: 0 },
+      'npm run build': { stdout: 'build ok', exitCode: 0 },
+      'npm install react@18.0.0': { stdout: 'installed', exitCode: 0 },
+      '--lockfile package-lock.json --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
+      // composer advisor in fixture config
+      'composer audit': { stdout: '', exitCode: 0 },
+    });
+
+    await runOrchestrator(runner, osvFixerConfig, {
+      configPath: 'project-config.yml',
+      cwd: fixturesDir,
+      dryRun: false,
+      verbose: false,
+      scannerRegistry: reg,
+      authorizeBreaking: { npm: true },
+    });
+
+    const calledCommands = runner.calledCommands;
+    const buildIdx = calledCommands.findIndex((c) => c === 'npm run build');
+    const installIdx = calledCommands.findIndex((c) => c === 'npm install react@18.0.0');
+    const npmAuditFixIdx = calledCommands.findIndex((c) => c === 'npm audit fix');
+
+    // osv strategy must not run npm audit fix
+    expect(npmAuditFixIdx).toBe(-1);
+    // authorized breaking install is executed by orchestrator using npm runner
+    expect(installIdx).toBeGreaterThan(-1);
+    // install happens after updater validations, proving it's outside fixer/updater path
+    expect(buildIdx).toBeGreaterThan(-1);
+    expect(installIdx).toBeGreaterThan(buildIdx);
+  });
+
+  it('logs local OSV runner usage for fix/verify without container mount claims', async () => {
+    const config = await loadTestConfig();
+    const osvFixerConfig = {
+      ...config,
+      ecosystems: config.ecosystems.map((e) =>
+        e.id === 'npm' ? { ...e, fixer: 'osv' as const } : e,
+      ),
+    };
+
+    const scanOutput = JSON.stringify({
+      results: [
+        {
+          source: { path: 'package-lock.json', type: 'lockfile' },
+          packages: [
+            {
+              package: { name: 'lodash', version: '4.17.20', ecosystem: 'npm' },
+              vulnerabilities: [
+                {
+                  id: 'GHSA-test-1234-5678',
+                  summary: 'Test vuln',
+                  affected: [
+                    {
+                      package: { ecosystem: 'npm', name: 'lodash' },
+                      ranges: [{ type: 'SEMVER', events: [{ introduced: '0' }, { fixed: '4.17.21' }] }],
+                    },
+                  ],
+                },
+              ],
+              groups: [{ ids: ['GHSA-test-1234-5678'] }],
+            },
+          ],
+        },
+      ],
+    });
+
+    const runner = new MockCommandRunner({
+      '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
+      '--lockfile package-lock.json --lockfile composer.lock --format json': {
+        stdout: scanOutput,
+        exitCode: 0,
+      },
+      'osv-scanner fix --strategy=in-place -L package-lock.json': { stdout: 'fixed', exitCode: 0 },
+      'npm audit': { stdout: '', exitCode: 0 },
+      'npm outdated': { stdout: '', exitCode: 0 },
+      'npm run build': { stdout: 'build ok', exitCode: 0 },
+      '--lockfile package-lock.json --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
+      'composer audit': { stdout: '', exitCode: 0 },
+    });
+
+    const infoSpy = vi.spyOn(await import('@infra/utils/logger').then((m) => m.logger), 'info');
+
+    await runOrchestrator(runner, osvFixerConfig, {
+      configPath: 'project-config.yml',
+      cwd: fixturesDir,
+      dryRun: false,
+      verbose: false,
+      scannerRegistry: makeOsvOnlyRegistry(),
+    });
+
+    const infoMessages = infoSpy.mock.calls.map((c) => String(c[0]));
+    expect(infoMessages.some((m) => m.includes('[OSV fix] Using local osv-scanner binary for in-place fix'))).toBe(true);
+    expect(infoMessages.some((m) => m.includes('[OSV verify] Using local osv-scanner binary for residual verification'))).toBe(true);
+    expect(infoMessages.some((m) => m.includes('read-write mount'))).toBe(false);
+    expect(infoMessages.some((m) => m.includes('read-only mount'))).toBe(false);
+    expect(infoMessages.some((m) => m.includes('Dedicated OSV container runner'))).toBe(false);
+
+    infoSpy.mockRestore();
+  });
+
+  it('logs docker OSV runner usage with rw for fix and ro for verify', async () => {
+    const config = await loadTestConfig();
+    const osvFixerDockerConfig = {
+      ...config,
+      scanners: {
+        ...config.scanners,
+        osv: { runner: 'docker' as const },
+      },
+      ecosystems: config.ecosystems.map((e) =>
+        e.id === 'npm' ? { ...e, fixer: 'osv' as const } : e,
+      ),
+    };
+
+    const runner = new MockCommandRunner({}, { dryRun: true });
+
+    const dryRunScan: ScanResultJson = {
+      $schema: 'osv-scan-result/v1',
+      agent: 'osv',
+      status: 'success',
+      environment: 'docker',
+      ecosystems: {
+        npm: {
+          vulnerabilities_total: 1,
+          auto_safe: 1,
+          breaking: 0,
+          manual: 0,
+          auto_safe_packages: ['lodash@4.17.21'],
+          breaking_packages: [],
+          manual_packages: [],
+          vulnerabilities: [
+            {
+              ecosystem: 'npm',
+              package: 'lodash',
+              currentVersion: '4.17.20',
+              safeVersion: '4.17.21',
+              cvss: '7.5',
+              ghsaId: 'GHSA-test-1234-5678',
+              risk: 'high',
+              classification: 'auto_safe',
+              reason: 'patch version available',
+            },
+          ],
+        },
+      },
+      error: null,
+    };
+
+    const reg = new ScannerEngineRegistry();
+    reg.register(new StubScannerEngine('osv', dryRunScan));
+
+    const infoSpy = vi.spyOn(await import('@infra/utils/logger').then((m) => m.logger), 'info');
+
+    await runOrchestrator(runner, osvFixerDockerConfig, {
+      configPath: 'project-config.yml',
+      cwd: fixturesDir,
+      dryRun: true,
+      verbose: false,
+      scannerRegistry: reg,
+    });
+
+    const infoMessages = infoSpy.mock.calls.map((c) => String(c[0]));
+    expect(infoMessages.some((m) => m.includes('[OSV fix] Using OSV container runner with read-write mount for in-place fix'))).toBe(true);
+    expect(infoMessages.some((m) => m.includes('[OSV verify] Using OSV container runner with read-only mount for residual verification'))).toBe(true);
+
+    const dedicatedRunnerLogs = infoMessages.filter((m) => m.includes('[OSV runner] Dedicated OSV container runner'));
+    expect(dedicatedRunnerLogs.some((m) => m.includes('mount: read-write'))).toBe(true);
+    expect(dedicatedRunnerLogs.some((m) => m.includes('mount: read-only'))).toBe(true);
+    expect(infoMessages.some((m) => m.includes('local osv-scanner binary'))).toBe(false);
+
+    infoSpy.mockRestore();
   });
 });
 

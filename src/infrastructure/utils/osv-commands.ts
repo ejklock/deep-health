@@ -50,7 +50,8 @@ export function buildOsvToolArgs(lockfileArgs: string[]): string[] {
  * Includes:
  * - `run --rm`
  * - optional `--platform <platform>` (when not undefined)
- * - `--volume <projectDir>:/project:ro` (read-only project mount)
+ * - `--volume <projectDir>:/project:ro` (read-only) or `--volume <projectDir>:/project:rw`
+ *   (read-write, required for `osv-scanner fix --strategy=in-place`)
  * - `--workdir /project` (sets the container working directory so relative
  *   lockfile paths from plugins resolve correctly without path translation)
  * - `<image>`
@@ -63,6 +64,8 @@ export function buildOsvToolArgs(lockfileArgs: string[]): string[] {
  * @param image        - Docker image to use (e.g. `OSV_DEFAULT_IMAGE`).
  * @param lockfileArgs - Raw `--lockfile <path>` pairs from plugin.buildScanArgs().
  * @param platform     - Resolved `--platform` value, or `undefined` to omit.
+ * @param readonly     - Whether to mount the project directory read-only (default: `true`).
+ *                       Pass `false` when the container needs to write files (e.g. `osv-scanner fix`).
  * @returns Full `docker` args array (i.e. everything after the `docker` binary).
  */
 export function buildOsvDockerRunArgs(
@@ -70,6 +73,7 @@ export function buildOsvDockerRunArgs(
   image: string,
   lockfileArgs: string[],
   platform?: string,
+  readonly = true,
 ): string[] {
   const args: string[] = ['run', '--rm'];
 
@@ -77,7 +81,8 @@ export function buildOsvDockerRunArgs(
     args.push('--platform', platform);
   }
 
-  args.push('--volume', `${projectDir}:/project:ro`);
+  const mountMode = readonly ? 'ro' : 'rw';
+  args.push('--volume', `${projectDir}:/project:${mountMode}`);
   args.push('--workdir', '/project');
   args.push(image);
   args.push(...buildOsvToolArgs(lockfileArgs));

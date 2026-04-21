@@ -6,7 +6,12 @@ export interface ProtectedPackage {
   reason: string;
 }
 
-/** Strategy id for automated fixer engines */
+/**
+ * Strategy id for automated fixer engines.
+ * - 'osv' (default for npm): use OSV in-place fix; OSV fix is coordinated by the orchestrator.
+ *   Breaking changes authorized by the user are applied separately via npm at orchestration level.
+ * - 'npm-audit': use `npm audit fix`; OSV fix is NOT run in this path.
+ */
 export type FixerStrategyId = 'osv' | 'npm-audit';
 
 /** Output format for generated reports */

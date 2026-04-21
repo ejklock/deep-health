@@ -277,40 +277,54 @@ describe('runNpmUpdater — breaking package installs (authorized)', () => {
     vi.clearAllMocks();
   });
 
-  it('installs breaking packages when authorizeBreaking=true', async () => {
+  it('does NOT install breaking packages when fixer=osv (orchestrator responsibility)', async () => {
+    // With fixer=osv (default), breaking installs are coordinated by the orchestrator, not the updater
     const runner = makeRunner();
     const runMock = runner.run as ReturnType<typeof vi.fn>;
 
     const scan = baseScan([], [{ pkg: 'react', safeVersion: '18.0.0' }]);
-    await runNpmUpdater(runner, baseConfig(), scan, '/tmp/project', true);
+    await runNpmUpdater(runner, baseConfig(), scan, '/tmp/project', true, [], 'osv');
+
+    const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
+    // With osv strategy, updater is a no-op — no npm install for breaking packages
+    expect(calledCommands.some((cmd) => cmd.includes('react@18.0.0'))).toBe(false);
+    // result should not carry an error since breaking install is delegated to orchestrator
+  });
+
+  it('installs breaking packages when authorizeBreaking=true and fixer=npm-audit', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    const scan = baseScan([], [{ pkg: 'react', safeVersion: '18.0.0' }]);
+    await runNpmUpdater(runner, baseConfig(), scan, '/tmp/project', true, [], 'npm-audit');
 
     const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(calledCommands).toContain('npm install react@18.0.0');
   });
 
-  it('does NOT install breaking packages when authorizeBreaking=false (default)', async () => {
+  it('does NOT install breaking packages when authorizeBreaking=false and fixer=npm-audit', async () => {
     const runner = makeRunner();
     const runMock = runner.run as ReturnType<typeof vi.fn>;
 
     const scan = baseScan([], [{ pkg: 'react', safeVersion: '18.0.0' }]);
-    await runNpmUpdater(runner, baseConfig(), scan, '/tmp/project'); // default: false
+    await runNpmUpdater(runner, baseConfig(), scan, '/tmp/project', false, [], 'npm-audit');
 
     const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(calledCommands.some((cmd) => cmd.includes('react@18.0.0'))).toBe(false);
   });
 
-  it('breaking install failure => status is "error"', async () => {
-    // Sequence: npm outdated (ok), npm audit (ok), osv fix (ok), npm install react@18.0.0 (FAIL)
+  it('breaking install failure (npm-audit) => status is "error"', async () => {
+    // Sequence: npm outdated (ok), npm audit (ok), npm audit fix (ok), npm install react@18.0.0 (FAIL)
     const runner = makeRunner();
     const runMock = runner.run as ReturnType<typeof vi.fn>;
     runMock
       .mockResolvedValueOnce(ok()) // npm outdated
       .mockResolvedValueOnce(ok()) // npm audit
-      .mockResolvedValueOnce(ok()) // osv fix
+      .mockResolvedValueOnce(ok()) // npm audit fix
       .mockResolvedValueOnce(fail('peer dep conflict')); // npm install react@18.0.0
 
     const scan = baseScan([], [{ pkg: 'react', safeVersion: '18.0.0' }]);
-    const result = await runNpmUpdater(runner, baseConfig(), scan, '/tmp/project', true);
+    const result = await runNpmUpdater(runner, baseConfig(), scan, '/tmp/project', true, [], 'npm-audit');
 
     expect(result.status).toBe('error');
     expect(result.error).toContain('npm install react@18.0.0 failed');
@@ -320,6 +334,27 @@ describe('runNpmUpdater — breaking package installs (authorized)', () => {
 describe('runNpmUpdater — build validation via validationCommands', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('runs npm ci before validation commands when validations are configured', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+    );
+
+    const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
+    const ciIndex = calledCommands.indexOf('npm ci');
+    const buildIndex = calledCommands.indexOf('npm run build');
+
+    expect(ciIndex).toBeGreaterThanOrEqual(0);
+    expect(buildIndex).toBeGreaterThan(ciIndex);
   });
 
   it('runs validation commands after fixer and returns pass on success', async () => {
@@ -345,6 +380,7 @@ describe('runNpmUpdater — build validation via validationCommands', () => {
 
   it('returns single skipped entry when no validation commands configured', async () => {
     const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
 
     const result = await runNpmUpdater(
       runner,
@@ -358,17 +394,21 @@ describe('runNpmUpdater — build validation via validationCommands', () => {
     expect(result.validations).toHaveLength(1);
     expect(result.validations[0]!.status).toBe('skipped');
     expect(result.status).toBe('success');
+
+    const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(calledCommands).not.toContain('npm ci');
   });
 
-  it('validation failure => status is "error" and changes are reverted', async () => {
+  it('validation failure (npm-audit) => status is "error" and changes are reverted', async () => {
     const runner = makeRunner();
     const runMock = runner.run as ReturnType<typeof vi.fn>;
 
-    // Sequence: npm outdated (ok), npm audit (ok), osv fix (ok), build (FAIL), revert npm install (ok)
+    // Sequence: npm outdated (ok), npm audit (ok), npm audit fix (ok), npm ci (ok), build (FAIL), revert npm install (ok)
     runMock
       .mockResolvedValueOnce(ok()) // npm outdated
       .mockResolvedValueOnce(ok()) // npm audit
-      .mockResolvedValueOnce(ok()) // osv fix
+      .mockResolvedValueOnce(ok()) // npm audit fix
+      .mockResolvedValueOnce(ok()) // npm ci (bootstrap before validation)
       .mockResolvedValueOnce(fail('build failed')) // npm run build
       .mockResolvedValueOnce(ok()); // npm install (revert)
 
@@ -379,6 +419,7 @@ describe('runNpmUpdater — build validation via validationCommands', () => {
       '/tmp/project',
       false,
       [{ name: 'build', command: 'npm run build' }],
+      'npm-audit',
     );
 
     expect(result.status).toBe('error');
@@ -389,6 +430,40 @@ describe('runNpmUpdater — build validation via validationCommands', () => {
     // Revert should have been called (npm install)
     const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(calledCommands).toContain('npm install');
+  });
+
+  it('validation failure (osv) => status is "error" and changes are reverted', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    // With fixer=osv, updater is a no-op for remediation.
+    // Sequence: npm outdated (ok), npm audit (ok), npm ci (ok), build (FAIL), revert npm install (ok)
+    runMock
+      .mockResolvedValueOnce(ok()) // npm outdated
+      .mockResolvedValueOnce(ok()) // npm audit
+      .mockResolvedValueOnce(ok()) // npm ci (bootstrap before validation)
+      .mockResolvedValueOnce(fail('build failed')) // npm run build
+      .mockResolvedValueOnce(ok()); // npm install (revert)
+
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+      'osv',
+    );
+
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('reverted');
+    expect(result.validations[0]!.name).toBe('build');
+    expect(result.validations[0]!.status).toBe('fail');
+
+    const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(calledCommands).toContain('npm install');
+    // osv strategy: no npm audit fix
+    expect(calledCommands.some((cmd) => cmd === 'npm audit fix')).toBe(false);
   });
 
   it('osv-scanner fix and post-update scan do NOT run inside updater (orchestrator responsibility)', async () => {
@@ -434,7 +509,7 @@ describe('runNpmUpdater — fixer strategy dispatch', () => {
     expect(calledCommands.some((cmd) => cmd.includes('osv-scanner fix'))).toBe(false);
   });
 
-  it('defaults to npm-audit fix when fixerStrategy is "osv" (osv is orchestrator-only, falls back to npm-audit in updater)', async () => {
+  it('defaults to osv strategy (no-op in updater) when no fixerStrategy provided', async () => {
     const runner = makeRunner();
     const runMock = runner.run as ReturnType<typeof vi.fn>;
 
@@ -445,13 +520,327 @@ describe('runNpmUpdater — fixer strategy dispatch', () => {
       '/tmp/project',
       false,
       [],
-      'osv',
+      // no fixerStrategy — defaults to 'osv'
     );
 
     const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
-    // osv-scanner fix is NOT called by the updater (it's orchestrator's responsibility)
+    // osv strategy: no npm audit fix, no osv-scanner fix (orchestrator does it)
+    expect(calledCommands.some((cmd) => cmd === 'npm audit fix')).toBe(false);
     expect(calledCommands.some((cmd) => cmd.includes('osv-scanner fix'))).toBe(false);
-    // npm-audit fix is used as fallback when osv strategy is passed to updater
-    expect(calledCommands.some((cmd) => cmd === 'npm audit fix')).toBe(true);
+  });
+
+  it('osv strategy is a no-op in updater (packages_updated reflects scan result)', async () => {
+    const runner = makeRunner();
+
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [],
+      'osv',
+    );
+
+    expect(result.status).toBe('success');
+    // packages_updated comes from auto_safe_packages in the scan result
+    expect(result.packages_updated).toContain('lodash@4.17.21');
+  });
+});
+
+// ── New regression tests: container-path diagnostics & streaming ─────────────
+
+describe('runNpmUpdater — npm ci failure diagnostics (container-path regression)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('npm ci failure surfaces command, exit code, stdout, and stderr in validation detail', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    // osv fixer: npm outdated, npm audit, then npm ci FAIL
+    runMock
+      .mockResolvedValueOnce(ok())                              // npm outdated
+      .mockResolvedValueOnce(ok())                              // npm audit
+      .mockResolvedValueOnce({                                  // npm ci FAIL
+        stdout: 'npm WARN...',
+        stderr: 'npm ERR! peer dep conflict',
+        exitCode: 1,
+        command: 'npm ci',
+        dryRun: false,
+      })
+      .mockResolvedValueOnce(ok());                             // npm install (revert)
+
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+      'osv',
+    );
+
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('npm ci failed before validation');
+    expect(result.validations).toHaveLength(1);
+    expect(result.validations[0]!.name).toBe('npm ci');
+    expect(result.validations[0]!.status).toBe('fail');
+    // detail must contain exit code
+    expect(result.validations[0]!.detail).toMatch(/exit.*1/i);
+    // detail must contain stderr
+    expect(result.validations[0]!.detail).toContain('peer dep conflict');
+    // detail must contain stdout
+    expect(result.validations[0]!.detail).toContain('npm WARN');
+  });
+
+  it('npm ci failure invokes revert (npm install) with stream: true', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    runMock
+      .mockResolvedValueOnce(ok())  // npm outdated
+      .mockResolvedValueOnce(ok())  // npm audit
+      .mockResolvedValueOnce(fail('peer dep conflict')) // npm ci FAIL
+      .mockResolvedValueOnce(ok()); // npm install (revert)
+
+    await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+      'osv',
+    );
+
+    // Last call should be npm install (revert) with stream: true
+    const calls = (runMock.mock.calls as [string, Record<string, unknown>?][]);
+    const revertCall = calls.find(([cmd]) => cmd === 'npm install');
+    expect(revertCall).toBeDefined();
+    expect(revertCall![1]).toMatchObject({ stream: true });
+  });
+
+  it('npm ci failure emits error-level log with diagnostics before revert', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    runMock
+      .mockResolvedValueOnce(ok())  // npm outdated
+      .mockResolvedValueOnce(ok())  // npm audit
+      .mockResolvedValueOnce(fail('ci stderr output')) // npm ci FAIL
+      .mockResolvedValueOnce(ok()); // npm install (revert)
+
+    const { logger: mockLogger } = await import('@infra/utils/logger.js');
+    const errorSpy = mockLogger.error as ReturnType<typeof vi.fn>;
+    errorSpy.mockClear();
+
+    await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+      'osv',
+    );
+
+    const errorCalls: string[] = errorSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(errorCalls.some((msg) => msg.includes('npm ci failed') && msg.includes('ci stderr output'))).toBe(true);
+  });
+
+  it('npm ci is invoked with stream: true for real-time progress', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+      'osv',
+    );
+
+    const calls = (runMock.mock.calls as [string, Record<string, unknown>?][]);
+    const ciCall = calls.find(([cmd]) => cmd === 'npm ci');
+    expect(ciCall).toBeDefined();
+    expect(ciCall![1]).toMatchObject({ stream: true });
+  });
+});
+
+describe('runNpmUpdater — revert npm install failure diagnostics (regression)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('revert npm install failure throws and is NOT silently swallowed', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    // Sequence (osv): outdated, audit, npm ci FAIL, then revert npm install FAIL
+    runMock
+      .mockResolvedValueOnce(ok())               // npm outdated
+      .mockResolvedValueOnce(ok())               // npm audit
+      .mockResolvedValueOnce(fail('ci failed'))  // npm ci FAIL
+      .mockResolvedValueOnce(fail('revert failed too')); // npm install (revert) FAIL
+
+    // revertNpmChanges throws when install fails — updater wraps in PhaseError
+    await expect(
+      runNpmUpdater(
+        runner,
+        baseConfig(),
+        baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+        '/tmp/project',
+        false,
+        [{ name: 'build', command: 'npm run build' }],
+        'osv',
+      ),
+    ).rejects.toThrow(/revert/i);
+  });
+
+  it('revert npm install failure emits error-level log with diagnostics', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    runMock
+      .mockResolvedValueOnce(ok())
+      .mockResolvedValueOnce(ok())
+      .mockResolvedValueOnce(fail('ci err'))
+      .mockResolvedValueOnce({
+        stdout: 'revert stdout',
+        stderr: 'revert stderr details',
+        exitCode: 1,
+        command: 'npm install',
+        dryRun: false,
+      });
+
+    const { logger: mockLogger } = await import('@infra/utils/logger.js');
+    const errorSpy = mockLogger.error as ReturnType<typeof vi.fn>;
+    errorSpy.mockClear();
+
+    await expect(
+      runNpmUpdater(
+        runner,
+        baseConfig(),
+        baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+        '/tmp/project',
+        false,
+        [{ name: 'build', command: 'npm run build' }],
+        'osv',
+      ),
+    ).rejects.toThrow();
+
+    const errorCalls: string[] = errorSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(
+      errorCalls.some(
+        (msg) => msg.includes('npm install (revert) failed') && msg.includes('revert stderr details'),
+      ),
+    ).toBe(true);
+  });
+});
+
+// ── preFixBackups: orchestrator-provided backups for osv strategy ────────────
+
+describe('runNpmUpdater — preFixBackups (osv rollback uses orchestrator backup)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('uses preFixBackups instead of calling backupFiles when provided', async () => {
+    const { backupFiles: mockBackupFiles } = await import('@infra/utils/git.js');
+    const backupSpy = mockBackupFiles as ReturnType<typeof vi.fn>;
+    backupSpy.mockClear();
+
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    // validation fails → triggers rollback
+    runMock
+      .mockResolvedValueOnce(ok())  // npm outdated
+      .mockResolvedValueOnce(ok())  // npm audit
+      .mockResolvedValueOnce(ok())  // npm ci
+      .mockResolvedValueOnce(fail('build failed')) // npm run build
+      .mockResolvedValueOnce(ok()); // npm install (revert)
+
+    const preFixBackups = new Map([
+      ['package.json', '{"name":"test"}'],
+      ['package-lock.json', '{"lockfileVersion":3}'],
+    ]);
+
+    await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+      'osv',
+      preFixBackups,
+    );
+
+    // backupFiles must NOT have been called — the caller's backups were used
+    expect(backupSpy).not.toHaveBeenCalled();
+  });
+
+  it('passes provided preFixBackups to restoreFiles on validation failure', async () => {
+    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/git.js');
+    const restoreSpy = mockRestoreFiles as ReturnType<typeof vi.fn>;
+    restoreSpy.mockClear();
+
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    runMock
+      .mockResolvedValueOnce(ok())  // npm outdated
+      .mockResolvedValueOnce(ok())  // npm audit
+      .mockResolvedValueOnce(ok())  // npm ci
+      .mockResolvedValueOnce(fail('build failed')) // npm run build
+      .mockResolvedValueOnce(ok()); // npm install (revert)
+
+    const preFixBackups = new Map([
+      ['package.json', '{"name":"test"}'],
+      ['package-lock.json', '{"lockfileVersion":3}'],
+    ]);
+
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+      'osv',
+      preFixBackups,
+    );
+
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('reverted');
+    // restoreFiles must have been called with the exact preFixBackups map
+    expect(restoreSpy).toHaveBeenCalledWith(preFixBackups, '/tmp/project');
+  });
+
+  it('falls back to internal backupFiles when preFixBackups is not provided (npm-audit)', async () => {
+    const { backupFiles: mockBackupFiles } = await import('@infra/utils/git.js');
+    const backupSpy = mockBackupFiles as ReturnType<typeof vi.fn>;
+    backupSpy.mockClear();
+
+    const runner = makeRunner();
+
+    await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [],
+      'npm-audit',
+      // no preFixBackups
+    );
+
+    // Without preFixBackups, internal backupFiles must be called
+    expect(backupSpy).toHaveBeenCalledWith(['package.json', 'package-lock.json'], '/tmp/project');
   });
 });

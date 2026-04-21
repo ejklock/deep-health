@@ -143,7 +143,7 @@ describe('validateEcosystemsAgainstRegistry', () => {
   it('returns error when fixer is incompatible with plugin', () => {
     const registry = makeRegistry();
     // composer does not support any fixers — specifying one is an error
-    const config = baseConfig({ ecosystems: [{ id: 'composer', fixer: 'osv' }] });
+    const config = baseConfig({ ecosystems: [{ id: 'composer', fixer: 'npm-audit' }] });
     const errors = validateEcosystemsAgainstRegistry(config, registry);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toMatch(/composer/);
@@ -151,21 +151,19 @@ describe('validateEcosystemsAgainstRegistry', () => {
   });
 
   it('returns error when fixer is not in supported list', () => {
-    // If somehow a plugin only supports 'osv' but config specifies 'npm-audit'
-    const registry = new EcosystemRegistry();
-    const limitedPlugin = { ...npmPlugin, id: 'limited', supportedFixers: ['osv' as const] };
-    registry.register(limitedPlugin);
-    const config = baseConfig({ ecosystems: [{ id: 'limited', fixer: 'npm-audit' as const }] });
+    // composer supports no fixers; specifying npm-audit for it is unsupported
+    const registry = makeRegistry();
+    const config = baseConfig({ ecosystems: [{ id: 'composer', fixer: 'npm-audit' as const }] });
     const errors = validateEcosystemsAgainstRegistry(config, registry);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toMatch(/npm-audit/);
-    expect(errors[0]).toMatch(/not supported/i);
+    expect(errors[0]).toMatch(/does not support|not supported/i);
   });
 
   it('passes when fixer is in plugin supportedFixers', () => {
     const registry = makeRegistry();
-    // npm supports both 'osv' and 'npm-audit'
-    const config = baseConfig({ ecosystems: [{ id: 'npm', fixer: 'osv' }] });
+    // npm supports 'npm-audit'
+    const config = baseConfig({ ecosystems: [{ id: 'npm', fixer: 'npm-audit' }] });
     const errors = validateEcosystemsAgainstRegistry(config, registry);
     expect(errors).toHaveLength(0);
   });
@@ -180,6 +178,73 @@ describe('validateEcosystemsAgainstRegistry', () => {
     });
     const errors = validateEcosystemsAgainstRegistry(config, registry);
     expect(errors).toHaveLength(2);
+  });
+});
+
+describe('fixer schema validation', () => {
+  it('accepts fixer: osv in ecosystems[] (osv is the default fixer strategy for npm)', async () => {
+    const yaml = [
+      'project:',
+      '  name: test',
+      '  client: test',
+      'ecosystems:',
+      '  - id: npm',
+      '    fixer: osv',
+      'protected_packages: {}',
+      'safe_update_policy:',
+      '  allow_patch_and_minor_within_constraints: true',
+      '  require_authorization_for_constraint_change: false',
+      'conflict_resolution: fail',
+    ].join('\n') + '\n';
+
+    await withTempConfig(yaml, async (absPath, filename) => {
+      const dir = require('node:path').dirname(absPath);
+      const config = await loadConfig(filename, dir);
+      expect(config.ecosystems[0]?.fixer).toBe('osv');
+    });
+  });
+
+  it('accepts fixer: npm-audit in ecosystems[]', async () => {
+    const yaml = [
+      'project:',
+      '  name: test',
+      '  client: test',
+      'ecosystems:',
+      '  - id: npm',
+      '    fixer: npm-audit',
+      'protected_packages: {}',
+      'safe_update_policy:',
+      '  allow_patch_and_minor_within_constraints: true',
+      '  require_authorization_for_constraint_change: false',
+      'conflict_resolution: fail',
+    ].join('\n') + '\n';
+
+    await withTempConfig(yaml, async (absPath, filename) => {
+      const dir = require('node:path').dirname(absPath);
+      const config = await loadConfig(filename, dir);
+      expect(config.ecosystems[0]?.fixer).toBe('npm-audit');
+    });
+  });
+
+  it('rejects unknown fixer strategy in ecosystems[]', async () => {
+    const yaml = [
+      'project:',
+      '  name: test',
+      '  client: test',
+      'ecosystems:',
+      '  - id: npm',
+      '    fixer: unknown-strategy',
+      'protected_packages: {}',
+      'safe_update_policy:',
+      '  allow_patch_and_minor_within_constraints: true',
+      '  require_authorization_for_constraint_change: false',
+      'conflict_resolution: fail',
+    ].join('\n') + '\n';
+
+    await withTempConfig(yaml, async (absPath, filename) => {
+      const dir = require('node:path').dirname(absPath);
+      await expect(loadConfig(filename, dir)).rejects.toThrow(ConfigLoadError);
+    });
   });
 });
 

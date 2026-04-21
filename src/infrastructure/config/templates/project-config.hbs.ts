@@ -14,7 +14,7 @@ project:
 
 # Declare ecosystems to scan and update.
 # id must match a registered plugin (e.g. composer, npm).
-# fixer: strategy id for automated remediation ('osv' or 'npm-audit').
+# fixer: strategy id for automated remediation ('osv' (default) | 'npm-audit').
 # validationCommands: commands to run after updates to verify correctness.
 # advisors: commands to run for security/health analysis.
 ecosystems:

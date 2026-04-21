@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { logger } from '../utils/logger';
 import { needsHostGateway, resolvePlatform } from '../utils/docker-platform';
@@ -78,6 +78,65 @@ export class NpmDockerRunner implements EphemeralContainerRunner<string[]> {
     this.image = options.image ?? NPM_DEFAULT_IMAGE;
     this.projectDir = options.projectDir;
     this.resolvedPlatform = resolvePlatform(options.platform);
+  }
+
+  /**
+   * Run an npm command inside an ephemeral container with real-time streaming
+   * of stdout/stderr to logger.info, while still capturing both streams for
+   * returning in `ContainerRunResult`.
+   *
+   * Use this for long-running steps (npm ci, npm install) where progress
+   * visibility is important.
+   *
+   * @param args - npm subcommand + arguments.
+   * @returns `ContainerRunResult` with exitCode, stdout, and stderr.
+   */
+  async runStreaming(args: string[]): Promise<ContainerRunResult> {
+    const dockerArgs = this._buildDockerArgs(args);
+
+    logger.debug(`NpmDockerRunner (streaming): docker ${dockerArgs.join(' ')}`);
+
+    return new Promise<ContainerRunResult>((resolve) => {
+      const stdoutChunks: string[] = [];
+      const stderrChunks: string[] = [];
+
+      const child = spawn('docker', dockerArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+
+      child.stdout.on('data', (chunk: Buffer) => {
+        const text = chunk.toString();
+        stdoutChunks.push(text);
+        for (const line of text.split('\n')) {
+          if (line.trim()) logger.info(`[npm] ${line}`);
+        }
+      });
+
+      child.stderr.on('data', (chunk: Buffer) => {
+        const text = chunk.toString();
+        stderrChunks.push(text);
+        for (const line of text.split('\n')) {
+          if (line.trim()) logger.info(`[npm] ${line}`);
+        }
+      });
+
+      child.on('close', (code) => {
+        const exitCode = typeof code === 'number' ? code : 1;
+        logger.debug(`NpmDockerRunner (streaming): npm container exited ${exitCode}`);
+        resolve({
+          exitCode,
+          stdout: stdoutChunks.join(''),
+          stderr: stderrChunks.join(''),
+        });
+      });
+
+      child.on('error', (err) => {
+        logger.debug(`NpmDockerRunner (streaming): spawn error: ${err.message}`);
+        resolve({
+          exitCode: 1,
+          stdout: stdoutChunks.join(''),
+          stderr: err.message,
+        });
+      });
+    });
   }
 
   /**

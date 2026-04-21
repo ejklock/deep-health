@@ -44,11 +44,24 @@ describe('buildOsvDockerRunArgs', () => {
     expect(args[1]).toBe('--rm');
   });
 
-  it('includes --volume <projectDir>:/project:ro', () => {
+  it('includes --volume <projectDir>:/project:ro by default', () => {
     const args = buildOsvDockerRunArgs('/my/project', OSV_DEFAULT_IMAGE, []);
     const volIdx = args.indexOf('--volume');
     expect(volIdx).toBeGreaterThanOrEqual(0);
     expect(args[volIdx + 1]).toBe('/my/project:/project:ro');
+  });
+
+  it('includes --volume <projectDir>:/project:ro when readonly=true', () => {
+    const args = buildOsvDockerRunArgs('/my/project', OSV_DEFAULT_IMAGE, [], undefined, true);
+    const volIdx = args.indexOf('--volume');
+    expect(args[volIdx + 1]).toBe('/my/project:/project:ro');
+  });
+
+  it('includes --volume <projectDir>:/project:rw when readonly=false', () => {
+    const args = buildOsvDockerRunArgs('/my/project', OSV_DEFAULT_IMAGE, [], undefined, false);
+    const volIdx = args.indexOf('--volume');
+    expect(volIdx).toBeGreaterThanOrEqual(0);
+    expect(args[volIdx + 1]).toBe('/my/project:/project:rw');
   });
 
   it('includes --workdir /project after --volume', () => {

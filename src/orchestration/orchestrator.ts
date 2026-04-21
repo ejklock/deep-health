@@ -1,6 +1,7 @@
 import type { CommandRunner, PhaseStatus } from '@core/types/common';
-import type { ProjectConfig, AdvisorConfig } from '@core/types/config';
+import type { ProjectConfig, AdvisorConfig, FixerStrategyId } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
+import { emptyEcosystem } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
 import type { AdvisorResult, AdvisorFinding } from '@core/types/report';
 import type { EngineWarning, ScannerEngineContext } from '@modules/scanner/types';
@@ -8,6 +9,7 @@ import type { EphemeralContainerRunner } from '@infra/provisioner/types';
 import { validateGateA, validateEcosystemGate } from '@core/gates/validator';
 import { GateValidationError } from '@core/errors';
 import { logger } from '@infra/utils/logger';
+import { backupFiles } from '@infra/utils/git';
 import { detectGitBranch } from '@infra/utils/git-branch';
 import { NpmDockerRunner, resolveNpmDockerImage } from '@infra/provisioner/npm-runner';
 import { OsvDockerRunner } from '@infra/provisioner/osv-runner';
@@ -415,6 +417,7 @@ function resolveOsvCommandRunner(
   cwd: string,
   fallback: CommandRunner,
   dryRun: boolean,
+  readonly = true,
 ): CommandRunner {
   const osvConfig = config.scanners?.osv;
   const mode = osvConfig?.runner ?? 'docker';
@@ -427,9 +430,12 @@ function resolveOsvCommandRunner(
 
   // docker or auto: use OsvDockerRunner-backed OsvContainerCommandRunner
   const image = osvConfig?.image;
-  const osvDockerRunner = new OsvDockerRunner({ projectDir: cwd, image });
+  const mountMode = readonly ? 'read-only' : 'read-write';
+  const osvDockerRunner = new OsvDockerRunner({ projectDir: cwd, image, readonly });
 
-  logger.info(`[OSV runner] Resolving dedicated OSV container runner (mode: ${mode}${image ? `, image: ${image}` : ''})`);
+  logger.info(
+    `[OSV runner] Dedicated OSV container runner (mode: ${mode}, mount: ${mountMode}${image ? `, image: ${image}` : ''})`,
+  );
 
   return new OsvContainerCommandRunner({
     container: osvDockerRunner,
@@ -437,6 +443,9 @@ function resolveOsvCommandRunner(
     dryRun,
   });
 }
+
+/** npm files that must be backed up before any fixer mutates them */
+const NPM_FILES = ['package.json', 'package-lock.json'];
 
 /** osv-scanner in-place fix command for npm lockfile */
 const OSV_FIX_NPM = 'osv-scanner fix --strategy=in-place -L package-lock.json';
@@ -574,10 +583,10 @@ export async function runOrchestrator(
     const validationCommands =
       ecoConfigEntry?.validationCommands ?? plugin.defaultValidationCommands;
 
-    // Resolve fixer strategy: config override → first supported fixer → 'osv'
-    const fixerStrategy =
+    // Resolve fixer strategy: config override → first supported fixer → 'osv' (npm) or plugin-specific
+    const fixerStrategy: FixerStrategyId =
       ecoConfigEntry?.fixer ??
-      (plugin.supportedFixers.length > 0 ? plugin.supportedFixers[0] : undefined);
+      (plugin.supportedFixers.length > 0 ? plugin.supportedFixers[0] : 'osv') as FixerStrategyId;
 
     // Resolve advisors: config override → plugin defaults
     const advisors = ecoConfigEntry?.advisors ?? plugin.defaultAdvisors;
@@ -611,6 +620,7 @@ export async function runOrchestrator(
     // OSV commands (fix + verify) are run separately with a dedicated OSV runner
     // at the orchestration layer — never inside the npm updater.
     let effectiveRunner: CommandRunner = runner;
+    let preFixBackups: Map<string, string> | undefined;
     if (plugin.id === 'npm') {
       const npmContainerRunner = await resolveNpmContainerRunner(config, options.cwd, ecosystemRegistry);
       effectiveRunner = npmContainerRunner
@@ -621,9 +631,35 @@ export async function runOrchestrator(
           })
         : runner;
 
-      // === Step 1: OSV fix (explicit, orchestrator-coordinated, independent OSV runner) ===
-      const osvRunner = resolveOsvCommandRunner(config, options.cwd, runner, runner.dryRun);
-      await runOsvFix(osvRunner, options.cwd, options.dryRun);
+      if (fixerStrategy === 'osv') {
+        // === Strategy: osv ===
+        // Step 0: Backup npm files BEFORE osv-scanner fix mutates them.
+        // This backup is passed to the updater so rollback on validation failure
+        // restores the true pre-fix state (not a post-fix snapshot).
+        if (!options.dryRun) {
+          preFixBackups = await backupFiles(NPM_FILES, options.cwd);
+        }
+
+        // Step 1: Run OSV in-place fix with the dedicated OSV runner (before updater).
+        // The updater's 'osv' fixer is a no-op — it only reports packages_updated from scan result.
+        // read-write mount required: osv-scanner fix writes package-lock.json in-place.
+        const osvRunner = resolveOsvCommandRunner(config, options.cwd, runner, runner.dryRun, false);
+        const _osvFixMode = config.scanners?.osv?.runner ?? 'docker';
+        if (_osvFixMode === 'local') {
+          logger.info('[OSV fix] Using local osv-scanner binary for in-place fix');
+        } else {
+          logger.info('[OSV fix] Using OSV container runner with read-write mount for in-place fix');
+        }
+        await runOsvFix(osvRunner, options.cwd, options.dryRun);
+
+        // Step 2 (deferred): OSV residual verification runs after updater — see below.
+        // Step 3: Authorized breaking changes are handled below after updater returns,
+        //         using the npm runner (effectiveRunner), NOT inside the fixer/updater.
+      }
+      // When fixerStrategy === 'npm-audit':
+      // - OSV fix is NOT run here (exclusive strategy).
+      // - The updater will call `npm audit fix` via the npm runner.
+      // - No OSV residual verification is run for this path.
     }
 
     const updateResult = await plugin.runUpdater({
@@ -634,12 +670,59 @@ export async function runOrchestrator(
       authorizeBreaking,
       validationCommands,
       fixerStrategy,
+      preFixBackups,
     });
 
-    // === Step 2 (npm only): OSV residual verification after npm updates ===
+    // === Post-updater steps for npm (strategy-conditional) ===
     if (plugin.id === 'npm' && updateResult.status !== 'error') {
-      const osvRunner = resolveOsvCommandRunner(config, options.cwd, runner, runner.dryRun);
-      await runOsvResidualVerification(osvRunner, options.cwd, options.dryRun);
+      if (fixerStrategy === 'osv') {
+        // Step 3 (osv strategy): Apply authorized breaking changes with npm runner.
+        // The OSV fixer no-op inside the updater deliberately skips breaking install;
+        // the orchestrator handles it here using the npm runner (effectiveRunner).
+        if (authorizeBreaking) {
+          const ecosystemResult2 = scanResult.ecosystems['npm'] ?? emptyEcosystem();
+          const breakingPkgs = ecosystemResult2.vulnerabilities
+            .filter((v) => v.classification === 'breaking' && v.safeVersion)
+            .reduce<Map<string, string>>((map, v) => {
+              if (!map.has(v.package)) map.set(v.package, v.safeVersion!);
+              return map;
+            }, new Map());
+
+          if (breakingPkgs.size > 0) {
+            const specs = [...breakingPkgs.entries()].map(([name, ver]) => `${name}@${ver}`).join(' ');
+            logger.info(`[OSV strategy] Installing authorized breaking-change packages via npm: ${specs}`);
+            if (!options.dryRun) {
+              const installResult = await effectiveRunner.run(`npm install ${specs}`, { cwd: options.cwd, stream: true });
+              if (installResult.exitCode !== 0) {
+                logger.error(
+                  `[OSV strategy] npm install for breaking packages failed (exit ${installResult.exitCode}): ${installResult.stderr}`,
+                );
+                result.updates[plugin.id] = {
+                  ...updateResult,
+                  status: 'error',
+                  error: `npm install ${specs} failed: ${installResult.stderr}`,
+                };
+                result.overallStatus = 'error';
+                break;
+              }
+            } else {
+              logger.info(`[DRY-RUN] Would execute: npm install ${specs}`);
+            }
+          }
+        }
+
+        // Step 4 (osv strategy): OSV residual verification after all npm updates.
+        // read-only mount is safe for verification (scan only).
+        const osvRunner = resolveOsvCommandRunner(config, options.cwd, runner, runner.dryRun, true);
+        const _osvVerifyMode = config.scanners?.osv?.runner ?? 'docker';
+        if (_osvVerifyMode === 'local') {
+          logger.info('[OSV verify] Using local osv-scanner binary for residual verification');
+        } else {
+          logger.info('[OSV verify] Using OSV container runner with read-only mount for residual verification');
+        }
+        await runOsvResidualVerification(osvRunner, options.cwd, options.dryRun);
+      }
+      // npm-audit strategy: no OSV residual verification (exclusive paths).
     }
 
     result.updates[plugin.id] = updateResult;

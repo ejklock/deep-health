@@ -121,6 +121,12 @@ describe('OsvDockerRunner', () => {
         () => new OsvDockerRunner({ projectDir: '/app', platform: 'linux/amd64' }),
       ).not.toThrow();
     });
+
+    it('accepts readonly: false option', () => {
+      expect(
+        () => new OsvDockerRunner({ projectDir: '/app', readonly: false }),
+      ).not.toThrow();
+    });
   });
 
   // ── _buildDockerArgs() ───────────────────────────────────────────────────────
@@ -133,12 +139,20 @@ describe('OsvDockerRunner', () => {
       expect(args).toContain('--rm');
     });
 
-    it('mounts projectDir at /project read-only', () => {
+    it('mounts projectDir at /project read-only by default', () => {
       const runner = new OsvDockerRunner({ projectDir: '/my/project' });
       const args = runner._buildDockerArgs([]);
       const volIdx = args.indexOf('--volume');
       expect(volIdx).toBeGreaterThanOrEqual(0);
       expect(args[volIdx + 1]).toBe('/my/project:/project:ro');
+    });
+
+    it('mounts projectDir at /project read-write when readonly: false', () => {
+      const runner = new OsvDockerRunner({ projectDir: '/my/project', readonly: false });
+      const args = runner._buildDockerArgs([]);
+      const volIdx = args.indexOf('--volume');
+      expect(volIdx).toBeGreaterThanOrEqual(0);
+      expect(args[volIdx + 1]).toBe('/my/project:/project:rw');
     });
 
     it('sets --workdir /project after --volume', () => {
@@ -307,7 +321,7 @@ describe('OsvDockerRunner', () => {
       expect(args[fmtIdx + 1]).toBe('json');
     });
 
-    it('mounts projectDir at /project:ro in the docker args', async () => {
+    it('mounts projectDir at /project:ro in the docker args by default', async () => {
       const runner = new OsvDockerRunner({ projectDir: '/my-project' });
       await runner.run([]);
       const [, dockerArgs] = mockExecFile.mock.calls[0]!;
@@ -315,6 +329,16 @@ describe('OsvDockerRunner', () => {
       const volIdx = args.indexOf('--volume');
       expect(volIdx).toBeGreaterThanOrEqual(0);
       expect(args[volIdx + 1]).toBe('/my-project:/project:ro');
+    });
+
+    it('mounts projectDir at /project:rw when readonly: false', async () => {
+      const runner = new OsvDockerRunner({ projectDir: '/my-project', readonly: false });
+      await runner.run([]);
+      const [, dockerArgs] = mockExecFile.mock.calls[0]!;
+      const args = dockerArgs as string[];
+      const volIdx = args.indexOf('--volume');
+      expect(volIdx).toBeGreaterThanOrEqual(0);
+      expect(args[volIdx + 1]).toBe('/my-project:/project:rw');
     });
 
     it('sets --workdir /project in the docker args', async () => {

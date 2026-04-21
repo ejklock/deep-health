@@ -117,6 +117,7 @@ export const npmPlugin: EcosystemPlugin = {
       ctx.authorizeBreaking,
       ctx.validationCommands ?? [],
       ctx.fixerStrategy ?? 'osv',
+      ctx.preFixBackups,
     );
   },
 

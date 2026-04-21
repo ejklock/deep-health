@@ -7,7 +7,11 @@ const ProtectedPackageSchema = z.object({
   reason: z.string(),
 }).strict();
 
-/** Fixer strategy identifier */
+/**
+ * Fixer strategy identifier.
+ * - 'osv' (default for npm): OSV in-place fix coordinated by the orchestrator.
+ * - 'npm-audit': `npm audit fix` approach (OSV fix is skipped).
+ */
 const FixerStrategyIdSchema = z.enum(['osv', 'npm-audit']);
 
 /** Advisor command config */

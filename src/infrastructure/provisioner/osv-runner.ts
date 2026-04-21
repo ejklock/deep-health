@@ -36,6 +36,14 @@ export interface OsvDockerRunnerOptions {
    * Set to an empty string `''` to explicitly suppress any override.
    */
   platform?: string;
+
+  /**
+   * Whether to mount the project directory as read-only inside the container.
+   *
+   * Defaults to `true` (read-only), which is the safe default for scan/verify operations.
+   * Set to `false` when the container needs write access (e.g. `osv-scanner fix --strategy=in-place`).
+   */
+  readonly?: boolean;
 }
 
 // ─── OsvDockerRunner ────────────────────────────────────────────────────────────
@@ -66,6 +74,7 @@ export class OsvDockerRunner implements EphemeralContainerRunner<string[]> {
   private readonly image: string;
   private readonly projectDir: string;
   private readonly resolvedPlatform: string | undefined;
+  private readonly mountReadonly: boolean;
 
   constructor(options: OsvDockerRunnerOptions) {
     this.image = options.image ?? OSV_DEFAULT_IMAGE;
@@ -73,6 +82,7 @@ export class OsvDockerRunner implements EphemeralContainerRunner<string[]> {
     // OSV image has native arm64 support; defaultPlatform is not provided here.
     // Explicit override still respected via the shared resolvePlatform helper.
     this.resolvedPlatform = resolvePlatform(options.platform);
+    this.mountReadonly = options.readonly ?? true;
   }
 
   /**
@@ -117,6 +127,7 @@ export class OsvDockerRunner implements EphemeralContainerRunner<string[]> {
       this.image,
       lockfileArgs,
       this.resolvedPlatform,
+      this.mountReadonly,
     );
 
     // On Linux, host.docker.internal must be mapped explicitly.

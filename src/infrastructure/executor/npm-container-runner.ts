@@ -3,6 +3,20 @@ import type { EphemeralContainerRunner } from '@infra/provisioner/types';
 import { logger } from '../utils/logger';
 
 /**
+ * Optional streaming extension on EphemeralContainerRunner<string[]>.
+ * NpmDockerRunner implements this to provide real-time progress logging.
+ * NpmContainerCommandRunner detects it at runtime via duck-typing so that
+ * streaming stays entirely within the provisioner layer.
+ */
+interface StreamingContainerRunner {
+  runStreaming(args: string[]): Promise<import('@infra/provisioner/types').ContainerRunResult>;
+}
+
+function hasStreaming(c: unknown): c is StreamingContainerRunner {
+  return typeof (c as StreamingContainerRunner).runStreaming === 'function';
+}
+
+/**
  * NpmContainerCommandRunner — adapts NpmDockerRunner (EphemeralContainerRunner<string[]>)
  * to the CommandRunner interface.
  *
@@ -13,6 +27,9 @@ import { logger } from '../utils/logger';
  *  - `run("npm install", ...)` → container.run(["install"])
  *  - `runArgs("npm", ["install"], ...)` → container.run(["install"])
  *  - Non-npm commands are delegated to `fallback`.
+ *
+ * When `options.stream` is true and the underlying container implements `runStreaming`,
+ * the streaming variant is used so output is forwarded to logger.info in real time.
  *
  * Environment is always 'docker' to reflect that npm runs in Docker.
  */
@@ -44,7 +61,7 @@ export class NpmContainerCommandRunner implements CommandRunner {
     const npmArgs = extractNpmArgs(trimmed);
     if (npmArgs !== null) {
       logger.debug(`NpmContainerCommandRunner: routing to container: npm ${npmArgs.join(' ')}`);
-      const result = await this.container.run(npmArgs);
+      const result = await this._runContainer(npmArgs, options?.stream);
       return {
         stdout: result.stdout,
         stderr: result.stderr,
@@ -66,7 +83,7 @@ export class NpmContainerCommandRunner implements CommandRunner {
     // Route npm invocations to container
     if (file === 'npm' || file.endsWith('/npm')) {
       logger.debug(`NpmContainerCommandRunner: routing to container: npm ${args.join(' ')}`);
-      const result = await this.container.run(args);
+      const result = await this._runContainer(args, options?.stream);
       const command = `npm ${args.join(' ')}`;
       return {
         stdout: result.stdout,
@@ -78,6 +95,19 @@ export class NpmContainerCommandRunner implements CommandRunner {
     }
 
     return this.fallback.runArgs(file, args, options);
+  }
+
+  /**
+   * Dispatch to runStreaming (if supported and stream=true) or plain run.
+   */
+  private async _runContainer(
+    args: string[],
+    stream?: boolean,
+  ): Promise<import('@infra/provisioner/types').ContainerRunResult> {
+    if (stream && hasStreaming(this.container)) {
+      return this.container.runStreaming(args);
+    }
+    return this.container.run(args);
   }
 }
 

@@ -111,7 +111,7 @@ const DEFAULT_ECOSYSTEM_CONFIGS: EcosystemConfigEntry[] = [
   },
   {
     id: 'npm',
-    fixerStrategy: 'npm-audit',
+    fixerStrategy: 'osv',
     validationCommands: [{ name: 'build', command: 'npm run build' }],
     advisors: [{ name: 'audit', command: 'npm audit' }],
   },

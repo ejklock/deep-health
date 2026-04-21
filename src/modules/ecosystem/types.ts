@@ -13,6 +13,13 @@ export interface EcosystemUpdaterContext {
   validationCommands?: ValidationCommandConfig[];
   /** Fixer strategy from ecosystems[] config entry (overrides plugin default) */
   fixerStrategy?: FixerStrategyId;
+  /**
+   * Pre-fix file backups taken by the orchestrator before running any fixer
+   * (e.g. before osv-scanner fix mutates package-lock.json).
+   * When provided, the updater must use these backups for rollback instead of
+   * taking its own backup (which would be too late for the osv strategy).
+   */
+  preFixBackups?: Map<string, string>;
 }
 
 export interface EcosystemPlugin {

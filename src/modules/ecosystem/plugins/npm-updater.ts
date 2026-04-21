@@ -23,7 +23,25 @@ async function revertNpmChanges(
   cwd: string,
 ): Promise<void> {
   await restoreFiles(backups, cwd);
-  await runner.run('npm install', { cwd });
+  logger.info('Running npm install to restore dependencies after revert...');
+  const revertResult = await runner.run('npm install', { cwd, stream: true });
+  if (revertResult.exitCode !== 0) {
+    logger.error(
+      [
+        'npm install (revert) failed!',
+        `  command : ${revertResult.command}`,
+        `  exit    : ${revertResult.exitCode}`,
+        revertResult.stdout ? `  stdout  :\n${revertResult.stdout}` : null,
+        revertResult.stderr ? `  stderr  :\n${revertResult.stderr}` : null,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    );
+    // Surface to caller so the error is not silently swallowed
+    throw new Error(
+      `npm install (revert) failed (exit ${revertResult.exitCode}): ${revertResult.stderr || revertResult.stdout || '(no output)'}`,
+    );
+  }
 }
 
 export async function runNpmUpdater(
@@ -33,24 +51,14 @@ export async function runNpmUpdater(
   cwd: string,
   authorizeBreaking = false,
   validationCommands: ValidationCommandConfig[] = [],
-  fixerStrategy: FixerStrategyId = 'npm-audit',
+  fixerStrategy: FixerStrategyId = 'osv',
+  preFixBackups?: Map<string, string>,
 ): Promise<UpdateResultJson> {
   logger.info('Running npm safe updates...');
 
   const npmEcosystem = scanResult.ecosystems['npm'] ?? emptyEcosystem();
 
-  // Resolve which fixer function to use.
-  // 'osv' strategy is handled by the orchestrator before this updater runs —
-  // if it somehow arrives here, fall back to 'npm-audit' with a warning.
-  const resolvedStrategy: Exclude<FixerStrategyId, 'osv'> =
-    fixerStrategy === 'osv' ? 'npm-audit' : fixerStrategy;
-  if (fixerStrategy === 'osv') {
-    logger.warn(
-      '[npm-updater] fixerStrategy="osv" is not valid here — ' +
-      'osv-scanner fix is coordinated by the orchestrator. Falling back to "npm-audit".',
-    );
-  }
-  const fixerFn = FIXER_MAP[resolvedStrategy];
+  const fixerFn = FIXER_MAP[fixerStrategy];
 
   const skippedValidations: ValidationEntry[] =
     validationCommands.length > 0
@@ -79,7 +87,11 @@ export async function runNpmUpdater(
   }
 
   try {
-    const backups = await backupFiles(NPM_FILES, cwd);
+    // Use caller-provided backups (e.g. taken before osv-scanner fix) when available.
+    // This is required for the 'osv' strategy where the orchestrator runs osv-scanner fix
+    // before invoking the updater — at that point files are already mutated, so a backup
+    // taken here would capture the post-fix state rather than the pre-fix state.
+    const backups = preFixBackups ?? await backupFiles(NPM_FILES, cwd);
 
     await checkCurrentState(runner, cwd);
 
@@ -93,6 +105,35 @@ export async function runNpmUpdater(
         validations: [{ name: 'validation', status: 'fail', detail: fixerResult.breakingInstallError }],
         error: fixerResult.breakingInstallError,
       };
+    }
+
+    // Bootstrap dependencies before running validations
+    if (validationCommands.length > 0) {
+      logger.info('Running npm ci to ensure clean dependency state before validation...');
+      const ciResult = await runner.run('npm ci', { cwd, stream: true });
+      if (ciResult.exitCode !== 0) {
+        const detail = [
+          `npm ci failed (exit ${ciResult.exitCode})`,
+          `  command : ${ciResult.command}`,
+          ciResult.stdout ? `  stdout  :\n${ciResult.stdout}` : null,
+          ciResult.stderr ? `  stderr  :\n${ciResult.stderr}` : null,
+        ]
+          .filter(Boolean)
+          .join('\n');
+        logger.error(`npm ci failed before validation:\n${detail}`);
+        logger.error('Reverting npm changes...');
+        await revertNpmChanges(runner, backups, cwd);
+        return {
+          ...base,
+          status: 'error',
+          validations: [{
+            name: 'npm ci',
+            status: 'fail',
+            detail,
+          }],
+          error: 'npm ci failed before validation — changes reverted',
+        };
+      }
     }
 
     // Run configured validation commands

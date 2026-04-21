@@ -55,6 +55,14 @@ describe('generateConfigYaml', () => {
     expect(parsed.ecosystems.length).toBeGreaterThanOrEqual(1);
   });
 
+  it('defaults npm fixer to "osv" in generated config', () => {
+    const yaml = generateConfigYaml();
+    const parsed = parse(yaml) as { ecosystems: Array<{ id: string; fixer?: string }> };
+    const npm = parsed.ecosystems.find((e) => e.id === 'npm');
+    expect(npm).toBeDefined();
+    expect(npm?.fixer).toBe('osv');
+  });
+
   it('includes both composer and npm ecosystems when both provided via ecosystemConfigs', () => {
     const yaml = generateConfigYaml({
       ecosystemConfigs: [
