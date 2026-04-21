@@ -54,7 +54,7 @@ const NpmRunnerConfigSchema = z.object({
   mode: z.enum(['auto', 'local', 'docker']).default('docker'),
   /**
    * Docker image to use when mode is 'docker'.
-   * Defaults to a version-resolved image (e.g. 'node:20-slim'), falling back to 'node:lts-slim'.
+   * Defaults to a version-resolved image (e.g. 'node:20'), falling back to 'node:lts'.
    * Takes precedence over runtime_version.
    */
   image: z.string().optional(),

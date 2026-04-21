@@ -23,12 +23,12 @@ async function revertNpmChanges(
   cwd: string,
 ): Promise<void> {
   await restoreFiles(backups, cwd);
-  logger.info('Running npm install to restore dependencies after revert...');
-  const revertResult = await runner.run('npm install', { cwd, stream: true });
+  logger.info('Running npm ci to restore dependencies after revert...');
+  const revertResult = await runner.run('npm ci', { cwd, stream: true });
   if (revertResult.exitCode !== 0) {
     logger.error(
       [
-        'npm install (revert) failed!',
+        'npm ci (revert) failed!',
         `  command : ${revertResult.command}`,
         `  exit    : ${revertResult.exitCode}`,
         revertResult.stdout ? `  stdout  :\n${revertResult.stdout}` : null,
@@ -39,7 +39,7 @@ async function revertNpmChanges(
     );
     // Surface to caller so the error is not silently swallowed
     throw new Error(
-      `npm install (revert) failed (exit ${revertResult.exitCode}): ${revertResult.stderr || revertResult.stdout || '(no output)'}`,
+      `npm ci (revert) failed (exit ${revertResult.exitCode}): ${revertResult.stderr || revertResult.stdout || '(no output)'}`,
     );
   }
 }

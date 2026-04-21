@@ -378,7 +378,7 @@ async function resolveNpmContainerRunner(
     // Precedence for node version:
     // 1) scanners.npm.runtime_version (explicit config)
     // 2) inferVersion() from the npm plugin (project file inference)
-    // 3) resolveNpmDockerImage fallback → 'node:lts-slim'
+    // 3) resolveNpmDockerImage fallback → 'node:lts'
     let nodeVersion: string | undefined = npmRunnerConfig?.runtime_version;
 
     if (!nodeVersion) {

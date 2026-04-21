@@ -427,9 +427,9 @@ describe('runNpmUpdater — build validation via validationCommands', () => {
     expect(result.validations[0]!.name).toBe('build');
     expect(result.validations[0]!.status).toBe('fail');
 
-    // Revert should have been called (npm install)
+    // Revert should have been called (npm ci)
     const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
-    expect(calledCommands).toContain('npm install');
+    expect(calledCommands).toContain('npm ci');
   });
 
   it('validation failure (osv) => status is "error" and changes are reverted', async () => {
@@ -461,7 +461,7 @@ describe('runNpmUpdater — build validation via validationCommands', () => {
     expect(result.validations[0]!.status).toBe('fail');
 
     const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
-    expect(calledCommands).toContain('npm install');
+    expect(calledCommands).toContain('npm ci');
     // osv strategy: no npm audit fix
     expect(calledCommands.some((cmd) => cmd === 'npm audit fix')).toBe(false);
   });
@@ -595,7 +595,7 @@ describe('runNpmUpdater — npm ci failure diagnostics (container-path regressio
     expect(result.validations[0]!.detail).toContain('npm WARN');
   });
 
-  it('npm ci failure invokes revert (npm install) with stream: true', async () => {
+  it('npm ci failure invokes revert (npm ci) with stream: true', async () => {
     const runner = makeRunner();
     const runMock = runner.run as ReturnType<typeof vi.fn>;
 
@@ -615,9 +615,9 @@ describe('runNpmUpdater — npm ci failure diagnostics (container-path regressio
       'osv',
     );
 
-    // Last call should be npm install (revert) with stream: true
+    // Last call should be npm ci (revert) with stream: true
     const calls = (runMock.mock.calls as [string, Record<string, unknown>?][]);
-    const revertCall = calls.find(([cmd]) => cmd === 'npm install');
+    const revertCall = calls.find(([cmd]) => cmd === 'npm ci');
     expect(revertCall).toBeDefined();
     expect(revertCall![1]).toMatchObject({ stream: true });
   });
@@ -701,7 +701,7 @@ describe('runNpmUpdater — revert npm install failure diagnostics (regression)'
     ).rejects.toThrow(/revert/i);
   });
 
-  it('revert npm install failure emits error-level log with diagnostics', async () => {
+  it('revert npm ci failure emits error-level log with diagnostics', async () => {
     const runner = makeRunner();
     const runMock = runner.run as ReturnType<typeof vi.fn>;
 
@@ -736,7 +736,7 @@ describe('runNpmUpdater — revert npm install failure diagnostics (regression)'
     const errorCalls: string[] = errorSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(
       errorCalls.some(
-        (msg) => msg.includes('npm install (revert) failed') && msg.includes('revert stderr details'),
+        (msg) => msg.includes('npm ci (revert) failed') && msg.includes('revert stderr details'),
       ),
     ).toBe(true);
   });

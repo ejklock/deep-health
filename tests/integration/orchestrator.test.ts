@@ -1383,8 +1383,8 @@ describe('runOrchestrator — primary-by-engine-id (registry-order independence)
       }),
     ).rejects.toThrow(GateValidationError);
 
-    // A revert (npm install) should have been called after the failure
-    const revertCalls = runner.calledCommands.filter((c) => c.includes('npm install'));
+    // A revert (npm ci) should have been called after the failure
+    const revertCalls = runner.calledCommands.filter((c) => c.includes('npm ci'));
     expect(revertCalls.length).toBeGreaterThan(0);
 
     // The diagnostics (stdout content, stderr, exit code) must have been logged

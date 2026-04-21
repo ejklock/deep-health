@@ -83,7 +83,7 @@ scanners:
   npm:
     runtime_version: '{{npmRuntimeVersion}}'
     # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
-    # image: 'node:{{npmRuntimeVersion}}-slim'  # optional — override resolved Node image
+    # image: 'node:{{npmRuntimeVersion}}'  # optional — override resolved Node image
 {{/if}}
 {{else}}
 {{#if npmRuntimeVersion}}
@@ -91,7 +91,7 @@ scanners:
   npm:
     runtime_version: '{{npmRuntimeVersion}}'
     # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
-    # image: 'node:{{npmRuntimeVersion}}-slim'  # optional — override resolved Node image
+    # image: 'node:{{npmRuntimeVersion}}'  # optional — override resolved Node image
 {{else}}
 # scanners:                              # optional — additional scanner engines
 #   sonarqube:
@@ -121,7 +121,7 @@ scanners:
 #                                        #   auto   — deprecated escape hatch ⚠ warns
 #     runtime_version: '20'             # optional — Node version for Docker image resolution
 #                                        #   Overrides inferVersion(); ignored when 'image' is set.
-#     image: 'node:20-slim'              # optional — override resolved Node image
+#     image: 'node:20'              # optional — override resolved Node image
 {{/if}}
 {{/if}}
 
