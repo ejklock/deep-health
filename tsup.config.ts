@@ -8,4 +8,5 @@ export default defineConfig({
   dts: true,
   sourcemap: false,
   splitting: false,
+  external: ['googleapis', 'google-auth-library'],
 });

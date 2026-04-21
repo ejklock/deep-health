@@ -4,7 +4,6 @@ import { createServer } from 'node:http';
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { CodeChallengeMethod } from 'google-auth-library';
 
 export const OAUTH_SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
@@ -93,7 +92,8 @@ export async function runOAuthFlow(): Promise<StoredTokens> {
     scope: OAUTH_SCOPES,
     state,
     code_challenge: codeChallenge,
-    code_challenge_method: CodeChallengeMethod.S256,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    code_challenge_method: 'S256' as any,
     prompt: 'consent', // force refresh_token to be returned
   });
 
