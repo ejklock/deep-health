@@ -21,10 +21,11 @@ describe('generateConfigYaml', () => {
   it('includes empty protected_packages arrays with example comments', () => {
     const yaml = generateConfigYaml();
     const parsed = parse(yaml) as {
-      protected_packages: { composer: unknown[]; npm: unknown[] };
+      protected_packages: { composer: unknown[]; npm: unknown[]; pip: unknown[] };
     };
     expect(Array.isArray(parsed.protected_packages.composer)).toBe(true);
     expect(Array.isArray(parsed.protected_packages.npm)).toBe(true);
+    expect(Array.isArray(parsed.protected_packages.pip)).toBe(true);
     expect(yaml).toContain('# - package:');
   });
 
@@ -95,6 +96,51 @@ describe('generateConfigYaml', () => {
     expect(parsed.outputs?.formats).toContain('markdown');
     // 'sonarqube' is not an output format — it is not a toggle in formats
     expect(parsed.outputs?.formats).not.toContain('sonarqube');
+  });
+
+  it('includes pip ecosystem entry when specified in ecosystemConfigs', () => {
+    const yaml = generateConfigYaml({
+      ecosystemConfigs: [
+        {
+          id: 'pip',
+          validationCommands: [{ name: 'check', command: 'pip check' }],
+          advisors: [{ name: 'audit', command: 'pip-audit' }],
+        },
+      ],
+    });
+    const parsed = parse(yaml) as { ecosystems: Array<{ id: string }> };
+    const pip = parsed.ecosystems.find((e) => e.id === 'pip');
+    expect(pip).toBeDefined();
+  });
+
+  it('always emits pip: [] in protected_packages even when pip not in ecosystemConfigs', () => {
+    const yaml = generateConfigYaml({
+      ecosystemConfigs: [{ id: 'npm', fixerStrategy: 'osv' }],
+    });
+    const parsed = parse(yaml) as { protected_packages: Record<string, unknown[]> };
+    expect(Array.isArray(parsed.protected_packages['pip'])).toBe(true);
+  });
+
+  it('emits scanners.pip block when pipRuntimeVersion provided (no sonarqube)', () => {
+    const yaml = generateConfigYaml({
+      pipRuntimeVersion: '3.11',
+      ecosystemConfigs: [{ id: 'pip' }],
+    });
+    const parsed = parse(yaml) as { scanners?: { pip?: { runtime_version?: string } } };
+    expect(parsed.scanners?.pip?.runtime_version).toBe('3.11');
+  });
+
+  it('emits both scanners.npm and scanners.pip blocks when both runtimeVersion options provided', () => {
+    const yaml = generateConfigYaml({
+      npmRuntimeVersion: '20',
+      pipRuntimeVersion: '3.11',
+      ecosystemConfigs: [{ id: 'npm' }, { id: 'pip' }],
+    });
+    const parsed = parse(yaml) as {
+      scanners?: { npm?: { runtime_version?: string }; pip?: { runtime_version?: string } };
+    };
+    expect(parsed.scanners?.npm?.runtime_version).toBe('20');
+    expect(parsed.scanners?.pip?.runtime_version).toBe('3.11');
   });
 });
 

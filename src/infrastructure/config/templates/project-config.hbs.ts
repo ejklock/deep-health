@@ -4,6 +4,7 @@ export default `\
 #
 # ecosystems: declarative list of ecosystems to scan and update.
 #   Each entry configures the plugin, optional fixer strategy, validation commands, and advisors.
+#   Plugin ids: composer, npm, pip
 # protected_packages: packages that must NEVER be auto-upgraded beyond their stated constraint.
 #   Any update requiring a constraint change needs explicit per-package authorization.
 # safe_update_policy: patch/minor updates within existing constraints are auto-safe.
@@ -13,7 +14,7 @@ project:
   client: '{{client}}'
 
 # Declare ecosystems to scan and update.
-# id must match a registered plugin (e.g. composer, npm).
+# id must match a registered plugin (e.g. composer, npm, pip).
 # fixer: strategy id for automated remediation ('osv' (default) | 'npm-audit').
 # validationCommands: commands to run after updates to verify correctness.
 # advisors: commands to run for security/health analysis.
@@ -85,6 +86,12 @@ scanners:
     # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
     # image: 'node:{{npmRuntimeVersion}}'  # optional — override resolved Node image
 {{/if}}
+{{#if pipRuntimeVersion}}
+  pip:
+    runtime_version: '{{pipRuntimeVersion}}'
+    # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
+    # image: 'python:{{pipRuntimeVersion}}-slim'  # optional — override resolved Python image
+{{/if}}
 {{else}}
 {{#if npmRuntimeVersion}}
 scanners:
@@ -92,6 +99,19 @@ scanners:
     runtime_version: '{{npmRuntimeVersion}}'
     # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
     # image: 'node:{{npmRuntimeVersion}}'  # optional — override resolved Node image
+{{#if pipRuntimeVersion}}
+  pip:
+    runtime_version: '{{pipRuntimeVersion}}'
+    # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
+    # image: 'python:{{pipRuntimeVersion}}-slim'  # optional — override resolved Python image
+{{/if}}
+{{else}}
+{{#if pipRuntimeVersion}}
+scanners:
+  pip:
+    runtime_version: '{{pipRuntimeVersion}}'
+    # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
+    # image: 'python:{{pipRuntimeVersion}}-slim'  # optional — override resolved Python image
 {{else}}
 # scanners:                              # optional — additional scanner engines
 #   sonarqube:
@@ -122,6 +142,15 @@ scanners:
 #     runtime_version: '20'             # optional — Node version for Docker image resolution
 #                                        #   Overrides inferVersion(); ignored when 'image' is set.
 #     image: 'node:20'              # optional — override resolved Node image
+#   pip:
+#     mode: 'docker'                     # 'docker' (default) | 'local' | 'auto'
+#                                        #   docker — run pip inside an ephemeral Python container (default)
+#                                        #   local  — use the locally installed pip binary ⚠ warns
+#                                        #   auto   — deprecated escape hatch ⚠ warns
+#     runtime_version: '3.11'           # optional — Python version for Docker image resolution
+#                                        #   Overrides inferVersion(); ignored when 'image' is set.
+#     image: 'python:3.11-slim'         # optional — override resolved Python image
+{{/if}}
 {{/if}}
 {{/if}}
 

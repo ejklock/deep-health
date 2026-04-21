@@ -45,6 +45,13 @@ export interface GenerateConfigOptions {
    * Example: '20', '20.11'
    */
   npmRuntimeVersion?: string;
+  /**
+   * Inferred Python runtime version to persist into `scanners.pip.runtime_version`.
+   * When set, the generated config includes this value so the orchestrator can use it
+   * for Docker image resolution without running inferVersion() at scan time.
+   * Example: '3.11', '3.11.2'
+   */
+  pipRuntimeVersion?: string;
 }
 
 const compiled = Handlebars.compile(configTemplate, { noEscape: true });
@@ -100,6 +107,11 @@ const ECOSYSTEM_EXAMPLES: Record<
     exampleConstraint: '^3.0.0',
     exampleReason: 'v4 has breaking API changes',
   },
+  pip: {
+    examplePackage: 'requests',
+    exampleConstraint: '>=2.31',
+    exampleReason: 'Major upgrade requires API migration',
+  },
 };
 
 /** Default ecosystem entries used when ecosystemConfigs is not provided */
@@ -114,6 +126,11 @@ const DEFAULT_ECOSYSTEM_CONFIGS: EcosystemConfigEntry[] = [
     fixerStrategy: 'osv',
     validationCommands: [{ name: 'build', command: 'npm run build' }],
     advisors: [{ name: 'audit', command: 'npm audit' }],
+  },
+  {
+    id: 'pip',
+    validationCommands: [{ name: 'check', command: 'pip check' }],
+    advisors: [{ name: 'audit', command: 'pip-audit' }],
   },
 ];
 
@@ -136,8 +153,8 @@ export function generateConfigYaml(opts: GenerateConfigOptions = {}): string {
   // Resolve selected ecosystem ids for protected_packages
   const selectedIds = ecosystems.map((e) => e.id);
 
-  // Always emit both known ecosystem keys in protected_packages for schema compatibility.
-  const allKnownIds = ['composer', 'npm'];
+  // Always emit all known ecosystem keys in protected_packages for schema compatibility.
+  const allKnownIds = ['composer', 'npm', 'pip'];
   const allIds = [...new Set([...allKnownIds, ...selectedIds])];
   const protectedPackageEcosystems = allIds.map((id) => ({
     id,
@@ -170,6 +187,7 @@ export function generateConfigYaml(opts: GenerateConfigOptions = {}): string {
     outputsDir,
     sonarProjectKey,
     npmRuntimeVersion: opts.npmRuntimeVersion,
+    pipRuntimeVersion: opts.pipRuntimeVersion,
   });
 }
 

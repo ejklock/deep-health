@@ -203,10 +203,40 @@ export interface SonarQubeConfig {
   coverage_exclusions?: string[];
 }
 
+/** Runner selection for pip commands */
+export type PipRunnerMode = 'auto' | 'docker' | 'local';
+
+/** pip runner configuration */
+export interface PipRunnerConfig {
+  /**
+   * Runner selection strategy (default: 'docker').
+   * - 'docker': run pip via an ephemeral Python Docker container. ← DEFAULT
+   * - 'local':  use the locally installed pip binary. ⚠ emits a warning.
+   * - 'auto':   try local pip first; fall back to Docker. ⚠ DEPRECATED escape hatch — emits a warning.
+   */
+  mode?: PipRunnerMode;
+  /**
+   * Docker image to use when mode is 'docker'.
+   * When absent, the image is resolved from the inferred/configured Python version.
+   * Falls back to 'python:3-slim'.
+   * Takes precedence over `runtime_version`.
+   */
+  image?: string;
+  /**
+   * Python runtime version to use when resolving the Docker image.
+   * Example: '3.11', '3.11.2'.
+   * When set, the image is resolved as `python:{major}.{minor}-slim`.
+   * Overrides the version inferred from project files.
+   * Only used when `image` is not set.
+   */
+  runtime_version?: string;
+}
+
 export interface ScannersConfig {
   sonarqube?: SonarQubeConfig;
   osv?: OsvScannerConfig;
   npm?: NpmRunnerConfig;
+  pip?: PipRunnerConfig;
 }
 
 export interface SafeUpdatePolicy {

@@ -1,0 +1,103 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: osv-security-cli/package-lock.json
+
+      - name: Install dependencies
+        working-directory: osv-security-cli
+        run: npm ci
+
+      - name: Type check
+        working-directory: osv-security-cli
+        run: npm run typecheck
+
+      - name: Unit tests
+        working-directory: osv-security-cli
+        run: npm run test:unit
+
+      - name: Integration tests
+        working-directory: osv-security-cli
+        run: npm run test:integration
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: osv-security-cli/package-lock.json
+
+      - name: Install dependencies
+        working-directory: osv-security-cli
+        run: npm ci
+
+      - name: Build
+        working-directory: osv-security-cli
+        run: npm run build
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: osv-security-cli/dist/
+
+  # -----------------------------------------------------------------------
+  # PUBLISH — read-only, not active yet.
+  # Uncomment and configure NPM_TOKEN secret before enabling.
+  # -----------------------------------------------------------------------
+  # publish:
+  #   name: Publish to npm
+  #   runs-on: ubuntu-latest
+  #   needs: build
+  #   permissions:
+  #     contents: write   # needed to create GitHub Release
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #
+  #     - uses: actions/setup-node@v4
+  #       with:
+  #         node-version: '22'
+  #         registry-url: 'https://registry.npmjs.org'
+  #         cache: 'npm'
+  #         cache-dependency-path: osv-security-cli/package-lock.json
+  #
+  #     - name: Download dist
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         name: dist
+  #         path: osv-security-cli/dist/
+  #
+  #     - name: Install dependencies (prod only)
+  #       working-directory: osv-security-cli
+  #       run: npm ci --omit=dev
+  #
+  #     - name: Publish
+  #       working-directory: osv-security-cli
+  #       run: npm publish --access public
+  #       env:
+  #         NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+  #
+  #     - name: Create GitHub Release
+  #       uses: softprops/action-gh-release@v2
+  #       with:
+  #         generate_release_notes: true

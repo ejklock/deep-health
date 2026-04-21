@@ -140,10 +140,34 @@ const SonarQubeConfigSchema = z.object({
   coverage_exclusions: z.array(z.string()).optional(),
 }).strict();
 
+/** pip runner config */
+const PipRunnerConfigSchema = z.object({
+  /**
+   * Runner selection (default: 'docker'):
+   * - 'docker' (default): run pip via an ephemeral Python Docker container.
+   * - 'local': use the locally installed pip binary. ⚠ Emits a warning.
+   * - 'auto': try local pip first; fall back to Docker. ⚠ Deprecated escape hatch — emits a warning.
+   */
+  mode: z.enum(['auto', 'local', 'docker']).default('docker'),
+  /**
+   * Docker image to use when mode is 'docker'.
+   * Defaults to a version-resolved image (e.g. 'python:3.11-slim'), falling back to 'python:3-slim'.
+   * Takes precedence over runtime_version.
+   */
+  image: z.string().optional(),
+  /**
+   * Python runtime version hint used to resolve the Docker image when `image` is not set.
+   * Example: '3.11', '3.11.2'.
+   * Overrides the version inferred from project files.
+   */
+  runtime_version: z.string().optional(),
+}).strict();
+
 const ScannersConfigSchema = z.object({
   sonarqube: SonarQubeConfigSchema.optional(),
   osv: OsvScannerConfigSchema.optional(),
   npm: NpmRunnerConfigSchema.optional(),
+  pip: PipRunnerConfigSchema.optional(),
 }).strict();
 
 const CloudStorageConfigSchema = z.object({

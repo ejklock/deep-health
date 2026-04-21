@@ -11,8 +11,10 @@ import { backupFiles } from '@infra/utils/git';
 import { detectGitBranch } from '@infra/utils/git-branch';
 import { NpmDockerRunner, resolveNpmDockerImage } from '@infra/provisioner/npm-runner';
 import { OsvDockerRunner } from '@infra/provisioner/osv-runner';
+import { PipDockerRunner, resolvePipDockerImage } from '@infra/provisioner/pip-runner';
 import { NpmContainerCommandRunner } from '@infra/executor/npm-container-runner';
 import { OsvContainerCommandRunner } from '@infra/executor/osv-container-runner';
+import { PipContainerCommandRunner } from '@infra/executor/pip-container-runner';
 // Ecosystem registry — plugins are registered via modules/ecosystem/index.ts side-effects
 import { EcosystemRegistry, defaultRegistry } from '@modules/ecosystem/index';
 // Scanner registry — engines are bootstrapped lazily via bootstrapDefaultEngines()
@@ -270,6 +272,78 @@ async function resolveNpmContainerRunner(
 }
 
 /**
+ * Resolve the pip container runner based on config.
+ * Dispatched by plugin.runtimeContainer === 'pip-docker'.
+ *
+ * - 'docker' (default): create PipDockerRunner using inferred/configured python version.
+ * - 'local': use local pip (return base runner); emit a warning.
+ * - 'auto': try docker if available; emit a warning about deprecation.
+ *
+ * @param inferVersion Optional function to infer python version from project files.
+ *                     Provided by the orchestrator from the pip plugin's inferVersion hook.
+ */
+async function resolvePipContainerRunner(
+  config: ProjectConfig,
+  cwd: string,
+  runner: CommandRunner,
+  inferVersion?: (cwd: string) => Promise<string | undefined>,
+): Promise<CommandRunner> {
+  const pipRunnerConfig = config.scanners?.pip;
+  const mode = pipRunnerConfig?.mode ?? 'docker';
+
+  if (mode === 'local') {
+    logger.warn(
+      '[pip runner] mode=local: using local pip binary. ' +
+      'Docker (mode: docker) is the recommended default for reproducible, ' +
+      'platform-independent pip updates. Set scanners.pip.mode to "docker" in your config.',
+    );
+    return runner;
+  }
+
+  if (mode === 'auto') {
+    logger.warn(
+      '[pip runner] mode=auto is a deprecated escape hatch. ' +
+      'Docker (mode: docker) is now the default for pip. ' +
+      'Set scanners.pip.mode explicitly to "docker" or "local" in your config.',
+    );
+    // auto: fall through to docker (docker is the preferred path)
+  }
+
+  // Resolve explicit image or infer from python version
+  let image = pipRunnerConfig?.image;
+  if (!image) {
+    // Precedence for python version:
+    // 1) scanners.pip.runtime_version (explicit config)
+    // 2) inferVersion() from the pip plugin (project file inference)
+    // 3) resolvePipDockerImage fallback → 'python:3-slim'
+    let pythonVersion: string | undefined = pipRunnerConfig?.runtime_version;
+
+    if (!pythonVersion && inferVersion) {
+      try {
+        pythonVersion = await inferVersion(cwd);
+        if (pythonVersion) {
+          logger.info(`[pip runner] Inferred Python version: ${pythonVersion} → resolving Docker image`);
+        }
+      } catch {
+        // inferVersion must never throw — defensive guard
+      }
+    } else if (pythonVersion) {
+      logger.info(`[pip runner] Using configured runtime_version: ${pythonVersion} → resolving Docker image`);
+    }
+
+    image = resolvePipDockerImage(pythonVersion);
+  }
+
+  logger.info(`[pip runner] Using Docker image: ${image}`);
+  const pipDockerRunner = new PipDockerRunner({ projectDir: cwd, image });
+  return new PipContainerCommandRunner({
+    container: pipDockerRunner,
+    fallback: runner,
+    dryRun: runner.dryRun,
+  });
+}
+
+/**
  * Resolve a dedicated CommandRunner for OSV commands based on config.
  *
  * When the effective OSV runner mode is 'docker', returns an OsvContainerCommandRunner
@@ -482,6 +556,8 @@ export async function runOrchestrator(
     let effectiveRunner: CommandRunner = runner;
     if (plugin.runtimeContainer === 'npm-docker') {
       effectiveRunner = await resolveNpmContainerRunner(config, options.cwd, runner, plugin.inferVersion?.bind(plugin));
+    } else if (plugin.runtimeContainer === 'pip-docker') {
+      effectiveRunner = await resolvePipContainerRunner(config, options.cwd, runner, plugin.inferVersion?.bind(plugin));
     }
 
     // OSV pre-fix preparation (generic, driven by plugin.osvFixSpec)
