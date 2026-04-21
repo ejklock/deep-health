@@ -100,7 +100,11 @@ export class OsvDockerRunner implements EphemeralContainerRunner<string[]> {
     logger.debug(`OsvDockerRunner: docker ${dockerArgs.join(' ')}`);
 
     try {
-      const { stdout, stderr } = await execFileAsync('docker', dockerArgs);
+      const { stdout, stderr } = await execFileAsync('docker', dockerArgs, {
+        // OSV JSON output can be large for projects with many dependencies.
+        // Default maxBuffer is 1 MB — raise to 256 MB to avoid truncation.
+        maxBuffer: 256 * 1024 * 1024,
+      });
       logger.debug('OsvDockerRunner: osv-scanner container exited 0');
       return { exitCode: 0, stdout, stderr };
     } catch (err: unknown) {
