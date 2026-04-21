@@ -2,7 +2,11 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import type { EcosystemPlugin, EcosystemUpdaterContext } from '../types';
 import type { ProjectConfig, ProtectedPackage } from '@core/types/config';
+import type { CommandRunner } from '@core/types/common';
+import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
+import { emptyEcosystem } from '@core/types/scan';
+import { logger } from '@infra/utils/logger';
 import { runNpmUpdater } from './npm-updater';
 
 // ─── Version inference helpers ────────────────────────────────────────────────
@@ -90,6 +94,15 @@ export const npmPlugin: EcosystemPlugin = {
   /** Label used in executive report evidence tables */
   reportLabel: 'npm',
 
+  runtimeContainer: 'npm-docker',
+
+  osvFixSpec: {
+    fixLockfile: 'package-lock.json',
+    backupFiles: ['package.json', 'package-lock.json'],
+  },
+
+  postUpdateOsvVerify: 'osv-strategy-only',
+
   supportedFixers: ['osv', 'npm-audit'],
 
   defaultValidationCommands: [
@@ -119,6 +132,45 @@ export const npmPlugin: EcosystemPlugin = {
       ctx.fixerStrategy ?? 'osv',
       ctx.preFixBackups,
     );
+  },
+
+  async installBreakingPackages(args: {
+    runner: CommandRunner;
+    cwd: string;
+    scanResult: ScanResultJson;
+    dryRun: boolean;
+    fixerStrategy: string;
+  }): Promise<{ status: 'success' | 'error'; error?: string } | null> {
+    // Only applies for osv strategy
+    if (args.fixerStrategy !== 'osv') return null;
+
+    const ecosystemResult = args.scanResult.ecosystems['npm'] ?? emptyEcosystem();
+    const breakingPkgs = ecosystemResult.vulnerabilities
+      .filter((v) => v.classification === 'breaking' && v.safeVersion)
+      .reduce<Map<string, string>>((map, v) => {
+        if (!map.has(v.package)) map.set(v.package, v.safeVersion!);
+        return map;
+      }, new Map());
+
+    if (breakingPkgs.size === 0) return { status: 'success' };
+
+    const specs = [...breakingPkgs.entries()].map(([name, ver]) => `${name}@${ver}`).join(' ');
+    logger.info(`[OSV strategy] Installing authorized breaking-change packages via npm: ${specs}`);
+
+    if (args.dryRun) {
+      logger.info(`[DRY-RUN] Would execute: npm install ${specs}`);
+      return { status: 'success' };
+    }
+
+    const installResult = await args.runner.run(`npm install ${specs}`, { cwd: args.cwd, stream: true });
+    if (installResult.exitCode !== 0) {
+      logger.error(
+        `[OSV strategy] npm install for breaking packages failed (exit ${installResult.exitCode}): ${installResult.stderr}`,
+      );
+      return { status: 'error', error: `npm install ${specs} failed: ${installResult.stderr}` };
+    }
+
+    return { status: 'success' };
   },
 
   /**

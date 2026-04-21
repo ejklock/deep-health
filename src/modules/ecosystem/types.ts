@@ -75,6 +75,41 @@ export interface EcosystemPlugin {
   runUpdater(ctx: EcosystemUpdaterContext): Promise<UpdateResultJson>;
 
   /**
+   * Declarative tag indicating the container runtime this ecosystem needs.
+   * The orchestrator uses this to resolve an effective CommandRunner.
+   * Undefined means no special runtime wrapping — use the base runner.
+   */
+  readonly runtimeContainer?: 'npm-docker';
+
+  /**
+   * Declarative spec for the OSV in-place fix pre-phase.
+   * Undefined means no OSV fix preparation is needed for this ecosystem.
+   */
+  readonly osvFixSpec?: {
+    readonly fixLockfile: string;
+    readonly backupFiles: readonly string[];
+  };
+
+  /**
+   * Policy for post-update OSV residual verification.
+   * Required — every plugin must declare explicitly.
+   */
+  readonly postUpdateOsvVerify: 'always' | 'osv-strategy-only' | 'never';
+
+  /**
+   * Optional hook: install authorized breaking-change packages after the
+   * non-breaking updater phase. Called only when authorizeBreaking=true.
+   * Undefined means the plugin handles breaking internally (e.g. composer-updater).
+   */
+  installBreakingPackages?(args: {
+    runner: CommandRunner;
+    cwd: string;
+    scanResult: ScanResultJson;
+    dryRun: boolean;
+    fixerStrategy: string;
+  }): Promise<{ status: 'success' | 'error'; error?: string } | null>;
+
+  /**
    * Optional file-based runtime version inference for this ecosystem.
    *
    * Reads project files in `cwd` to infer a reasonable runtime version hint

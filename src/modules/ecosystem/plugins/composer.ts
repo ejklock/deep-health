@@ -66,6 +66,8 @@ export const composerPlugin: EcosystemPlugin = {
   /** Composer does not support osv-scanner fix; osv fixer used as best-effort only */
   supportedFixers: [],
 
+  postUpdateOsvVerify: 'always',
+
   defaultValidationCommands: [
     { name: 'tests', command: 'php artisan test --compact' },
   ],
