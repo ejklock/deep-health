@@ -178,8 +178,10 @@ describe('normalizeSonarProjectKey', () => {
     expect(normalizeSonarProjectKey('!!!')).toBe('my-project');
   });
 
-  it('generated project_key passes schema validation when enableSonarQube=true', () => {
-    // Project names with spaces must not cause schema rejection in generated config
+  it('generated config with enableSonarQube=true passes schema validation (no project_key in config anymore)', () => {
+    // project_key moved to sonar-project.properties — config.yml only contains
+    // CLI-layer fields. Still worth a round-trip check to confirm the template
+    // emits valid YAML + a valid sonarqube block when the flag is on.
     const yaml = generateConfigYaml({
       projectName: 'My Project',
       enableSonarQube: true,
@@ -188,12 +190,20 @@ describe('normalizeSonarProjectKey', () => {
     const parsed = parse(yaml);
     const result = ProjectConfigSchema.safeParse(parsed);
     expect(result.success).toBe(true);
-    const projectKey = (parsed as { scanners?: { sonarqube?: { project_key?: string } } })
-      .scanners?.sonarqube?.project_key;
-    expect(projectKey).toBe('My-Project');
+
+    const sonarBlock = (parsed as { scanners?: { sonarqube?: Record<string, unknown> } })
+      .scanners?.sonarqube;
+    expect(sonarBlock).toBeDefined();
+    expect(sonarBlock).toHaveProperty('enabled', true);
+    expect(sonarBlock).toHaveProperty('mode', 'external');
+    // Removed fields must NOT leak into generated config.
+    expect(sonarBlock).not.toHaveProperty('project_key');
+    expect(sonarBlock).not.toHaveProperty('host_url');
+    expect(sonarBlock).not.toHaveProperty('token_env');
+    expect(sonarBlock).not.toHaveProperty('exclusions');
   });
 
-  it('project names with special chars produce valid keys in generated config', () => {
+  it('project names with special chars still produce valid YAML when enableSonarQube=true', () => {
     const yaml = generateConfigYaml({
       projectName: 'My App (v2)!',
       enableSonarQube: true,

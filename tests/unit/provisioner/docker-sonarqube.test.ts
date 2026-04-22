@@ -288,4 +288,38 @@ describe('DockerSonarQubeProvisioner', () => {
       await provisioner.teardown();
     });
   });
+
+  // ── shutdown-hook integration ─────────────────────────────────────────────────
+
+  describe('shutdown-hook integration (signal-safe cleanup)', () => {
+    it('registers a shutdown hook during provision() so abrupt exit still tears down', async () => {
+      const { _activeHookCount, _resetShutdownHooks } = await import('@infra/utils/shutdown-hooks');
+      _resetShutdownHooks();
+
+      expect(_activeHookCount()).toBe(0);
+
+      const provisioner = new DockerSonarQubeProvisioner({ hostPort: 19040 });
+      await provisioner.provision();
+
+      // Exactly one hook registered after provisioning.
+      expect(_activeHookCount()).toBe(1);
+
+      _resetShutdownHooks();
+    });
+
+    it('unregisters the shutdown hook during normal teardown() to avoid double-fire at exit', async () => {
+      const { _activeHookCount, _resetShutdownHooks } = await import('@infra/utils/shutdown-hooks');
+      _resetShutdownHooks();
+
+      const provisioner = new DockerSonarQubeProvisioner({ hostPort: 19041 });
+      await provisioner.provision();
+      expect(_activeHookCount()).toBe(1);
+
+      resolveExecFile();
+      await provisioner.teardown();
+
+      // Hook is gone after normal teardown — won't re-fire at process exit.
+      expect(_activeHookCount()).toBe(0);
+    });
+  });
 });

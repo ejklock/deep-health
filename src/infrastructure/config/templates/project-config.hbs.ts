@@ -66,20 +66,22 @@ outputs:
 scanners:
   sonarqube:
     enabled: true
+    # mode: 'external' (default) — sonar.host.url and sonar.projectKey come from
+    #       sonar-project.properties at your project root; SONAR_TOKEN env var
+    #       provides auth.
+    # mode: 'managed' — the CLI provisions an ephemeral SonarQube container via
+    #       Docker, generates a token automatically, tears it down on exit.
     mode: 'external'
-    host_url: 'http://localhost:9000'
-    project_key: '{{sonarProjectKey}}'
-    token_env: 'SONAR_TOKEN'
     on_failure: 'warn'
     # ce_task_timeout_seconds: 120     # optional — seconds to wait for Compute Engine task before
     #                                  #   fetching quality gate; 0 disables waiting (default: 120)
-    # exclusions:                      # optional — sonar.exclusions glob patterns (full override)
-    #   - 'node_modules/**'            #   When absent, ecosystem-specific defaults apply:
-    #   - 'tests/**'                   #     npm:      node_modules/**, tests/**
-    #   - 'dist/**'                    #     composer: vendor/**, tests/**
-    # coverage_exclusions:             # optional — sonar.coverage.exclusions glob patterns
-    #   - 'node_modules/**'
-    #   - 'tests/**'
+    # send_branch_name: false          # optional — forward git branch as -Dsonar.branch.name
+    #                                  #   (requires SonarQube Developer Edition or higher)
+    # scanner_image: 'sonarsource/sonar-scanner-cli:latest'  # optional — only used in managed mode
+    #                                                        # when local sonar-scanner is unavailable
+    #
+    # NOTE: project_key, host_url, sources, exclusions, etc. live in sonar-project.properties.
+    #       Run "deep-health init" (with SonarQube enabled) to generate a template if missing.
 {{#if npmRuntimeVersion}}
   npm:
     runtime_version: '{{npmRuntimeVersion}}'
@@ -116,18 +118,12 @@ scanners:
 # scanners:                              # optional — additional scanner engines
 #   sonarqube:
 #     enabled: true
-#     mode: 'external'
-#     host_url: 'http://localhost:9000'
-#     project_key: 'my-project'
-#     token_env: 'SONAR_TOKEN'
-#     on_failure: 'warn'
-#     # ce_task_timeout_seconds: 120   # seconds to wait for CE task (0 = disable; default: 120)
-#     # exclusions:                    # sonar.exclusions (full override; omit for ecosystem defaults)
-#     #   - 'node_modules/**'
-#     #   - 'tests/**'
-#     # coverage_exclusions:           # sonar.coverage.exclusions (full override; omit for defaults)
-#     #   - 'node_modules/**'
-#     #   - 'tests/**'
+#     mode: 'external'                   # 'external' (default) | 'managed'
+#     on_failure: 'warn'                 # 'warn' (default) | 'fail'
+#     # ce_task_timeout_seconds: 120     # optional — seconds to wait for CE task (0 = disable; default: 120)
+#     # send_branch_name: false          # optional — requires Developer Edition or higher
+#     # scanner_image: 'sonarsource/sonar-scanner-cli:latest'  # optional — managed-mode container fallback
+#     # project_key, host_url, exclusions, etc. live in sonar-project.properties.
 #   osv:
 #     runner: 'docker'                   # 'docker' (default) | 'local' | 'auto'
 #                                        #   docker — always run via an ephemeral container (default)

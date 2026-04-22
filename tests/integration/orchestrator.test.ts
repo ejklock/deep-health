@@ -109,9 +109,6 @@ function withSonarQube(
       sonarqube: {
         enabled: options.enabled ?? true,
         mode: options.mode ?? 'external',
-        host_url: options.hostUrl ?? 'http://localhost:9000',
-        project_key: options.projectKey ?? 'test-project',
-        token_env: options.tokenEnv ?? 'SONAR_TOKEN',
         on_failure: options.onFailure ?? 'warn',
       },
     },

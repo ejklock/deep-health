@@ -139,17 +139,35 @@ export function isValidSonarProjectKey(key: string): boolean {
   return SONARQUBE_PROJECT_KEY_REGEX.test(key);
 }
 
+/**
+ * SonarQube engine configuration — CLI-side concerns only.
+ *
+ * Project-level configuration (project_key, sources, exclusions, host_url,
+ * credentials) lives in the project's `sonar-project.properties` file per
+ * SonarQube convention. The CLI reads that file at scan time — adding those
+ * fields to config.yml would duplicate them, which is the source of the bug
+ * this model eliminates.
+ *
+ * External mode: reads everything from sonar-project.properties; SONAR_TOKEN
+ * env var supplies the authentication token.
+ *
+ * Managed mode: CLI provisions an ephemeral SonarQube container, generates a
+ * token via the admin API, overrides `sonar.host.url` + `sonar.token` at the
+ * CLI arg layer (higher precedence than the properties file). Any
+ * `sonar.login` / `sonar.password` in the properties file are stripped via a
+ * sanitized temp copy (sonar-scanner 5+ rejects their mere presence).
+ */
 export interface SonarQubeConfig {
   enabled: boolean;
   /**
-   * 'external' (default): connect to a pre-existing SonarQube instance at host_url.
-   * 'managed': provision an ephemeral SonarQube CE Docker container automatically.
+   * 'external' (default): sonar-scanner connects to a pre-existing SonarQube
+   *   instance — host URL and project key come from sonar-project.properties;
+   *   token comes from the SONAR_TOKEN env var.
+   * 'managed': the CLI provisions an ephemeral SonarQube CE container via
+   *   Docker, generates a token via the admin API, overrides host.url+token
+   *   at the CLI arg layer, runs the scan, tears the container down.
    */
   mode: 'external' | 'managed';
-  host_url: string;
-  project_key: string;
-  /** Name of the environment variable holding the SonarQube token. Defaults to SONAR_TOKEN. */
-  token_env: string;
   /** What to do when SonarQube scan fails: 'warn' (default) or 'fail'. */
   on_failure: 'warn' | 'fail';
   /**
@@ -181,24 +199,6 @@ export interface SonarQubeConfig {
    * Defaults to 120 seconds.  Set to 0 to disable CE waiting entirely.
    */
   ce_task_timeout_seconds?: number;
-  /**
-   * Glob patterns forwarded to sonar-scanner as `-Dsonar.exclusions`.
-   * When absent, ecosystem-specific defaults are used:
-   *   - npm:      node_modules/**, tests/**
-   *   - composer: vendor/**, tests/**
-   * If explicitly set (even to an empty array), the value is used as-is (full override —
-   * no merging with defaults).
-   */
-  exclusions?: string[];
-  /**
-   * Glob patterns forwarded to sonar-scanner as `-Dsonar.coverage.exclusions`.
-   * When absent, ecosystem-specific defaults are used:
-   *   - npm:      node_modules/**, tests/**
-   *   - composer: vendor/**, tests/**
-   * If explicitly set (even to an empty array), the value is used as-is (full override —
-   * no merging with defaults).
-   */
-  coverage_exclusions?: string[];
 }
 
 /** Runner selection for pip commands */

@@ -7,6 +7,42 @@ import type { ProjectConfig } from '@core/types/config';
 import type { EcosystemRegistry } from '@modules/ecosystem/registry';
 import fs from 'node:fs';
 
+// ─── Mock sonar-properties helper ──────────────────────────────────────────────
+// Tests now read project-level config (projectKey, host.url, etc.) from
+// sonar-project.properties via readSonarProperties. We mock that helper with a
+// shared in-memory fixture so tests don't touch the filesystem and can drive
+// scenarios (missing file, missing key, etc.) via setSonarPropsFixture.
+//
+// sanitizeAndWriteProperties is stubbed to a no-op returning a fake temp path —
+// the engine never reads the returned file during unit tests.
+const { setSonarPropsFixture, readPropsMock, sanitizeMock } = vi.hoisted(() => {
+  const fixture: { value: Map<string, string> | null } = {
+    value: new Map<string, string>([
+      ['sonar.projectKey', 'my-project'],
+      ['sonar.host.url', 'http://localhost:9000'],
+    ]),
+  };
+  return {
+    setSonarPropsFixture: (value: Map<string, string> | null): void => {
+      fixture.value = value;
+    },
+    readPropsMock: vi.fn(async () => fixture.value),
+    sanitizeMock: vi.fn(async () => ({
+      path: '/tmp/fake-sanitized-sonar.properties',
+      cleanup: async () => undefined,
+      strippedKeys: [],
+      fromScratch: false,
+    })),
+  };
+});
+
+vi.mock('@modules/scanner/sonar-properties', () => ({
+  readSonarProperties: readPropsMock,
+  sanitizeAndWriteProperties: sanitizeMock,
+  DEPRECATED_AUTH_KEYS: ['sonar.login', 'sonar.password'],
+  CLI_OWNED_KEYS: ['sonar.host.url', 'sonar.token'],
+}));
+
 // ─── Mock DockerSonarQubeProvisioner for unit tests ────────────────────────────
 // We do NOT want real Docker calls in unit tests.
 
@@ -88,9 +124,6 @@ function makeConfig(sonarEnabled = false, onFailure: 'warn' | 'fail' = 'warn', m
             sonarqube: {
               enabled: true,
               mode,
-              host_url: 'http://localhost:9000',
-              project_key: 'my-project',
-              token_env: 'SONAR_TOKEN',
               on_failure: onFailure,
               send_branch_name: sendBranchName,
             },
@@ -822,7 +855,16 @@ describe('SonarQubeEngine — project_key runtime guard', () => {
     delete process.env['SONAR_TOKEN'];
   });
 
+  /**
+   * projectKey now lives in sonar-project.properties, not in config.yml.
+   * This helper returns a standard sonarqube-enabled config AND installs a
+   * matching fixture for the properties mock. Call it in the test body.
+   */
   function makeConfigWithKey(projectKey: string): ProjectConfig {
+    setSonarPropsFixture(new Map<string, string>([
+      ['sonar.projectKey', projectKey],
+      ['sonar.host.url', 'http://localhost:9000'],
+    ]));
     return {
       project: { name: 'test', client: 'client' },
       protected_packages: {},
@@ -836,9 +878,6 @@ describe('SonarQubeEngine — project_key runtime guard', () => {
         sonarqube: {
           enabled: true,
           mode: 'external',
-          host_url: 'http://localhost:9000',
-          project_key: projectKey,
-          token_env: 'SONAR_TOKEN',
           on_failure: 'warn',
         },
       },
@@ -853,13 +892,15 @@ describe('SonarQubeEngine — project_key runtime guard', () => {
     await expect(engine.scan(makeCtx(runner, config))).rejects.toThrow(EnvironmentError);
   });
 
-  it('error message mentions project_key and actionable fix instruction', async () => {
+  it('error message mentions sonar.projectKey and references sonar-project.properties', async () => {
     process.env['SONAR_TOKEN'] = 'test-token';
     const runner = new MockRunner();
     const config = makeConfigWithKey('My Project!');
 
-    await expect(engine.scan(makeCtx(runner, config))).rejects.toThrow(/project_key/);
-    await expect(engine.scan(makeCtx(runner, config))).rejects.toThrow(/project-config\.yml/);
+    // Error now mentions the properties-file field name (sonar.projectKey)
+    // and points the user at sonar-project.properties, not config.yml.
+    await expect(engine.scan(makeCtx(runner, config))).rejects.toThrow(/sonar\.projectKey/);
+    await expect(engine.scan(makeCtx(runner, config))).rejects.toThrow(/sonar-project\.properties/);
   });
 
   it('does NOT throw for already-valid project_key', async () => {
@@ -1076,13 +1117,21 @@ describe('SonarQubeEngine — branch forwarding', () => {
   });
 });
 
-// ─── Exclusion args ───────────────────────────────────────────────────────────
+// ─── project.settings integration (sanitized properties file handoff) ────────
 
-describe('SonarQubeEngine — exclusion args', () => {
+describe('SonarQubeEngine — project.settings integration', () => {
   const engine = new SonarQubeEngine();
 
   beforeEach(() => {
     process.env['SONAR_TOKEN'] = 'test-token';
+    // Reset sanitize mock between tests so call assertions are clean.
+    sanitizeMock.mockClear();
+    // Reset the properties fixture — earlier describe blocks (project_key runtime
+    // guard) install custom fixtures via setSonarPropsFixture that persist otherwise.
+    setSonarPropsFixture(new Map<string, string>([
+      ['sonar.projectKey', 'my-project'],
+      ['sonar.host.url', 'http://localhost:9000'],
+    ]));
   });
   afterEach(() => {
     delete process.env['SONAR_TOKEN'];
@@ -1090,10 +1139,8 @@ describe('SonarQubeEngine — exclusion args', () => {
     vi.unstubAllGlobals();
   });
 
-  function makeConfigWithEcosystems(
-    ecosystemIds: string[],
-    sonarOverrides: Partial<{ exclusions: string[]; coverage_exclusions: string[]; ce_task_timeout_seconds: number }> = {},
-  ): ProjectConfig {
+  // Inlined ecosystem config builder — used only within this block.
+  function makeConfigWithEcosystems(ecosystemIds: string[]): ProjectConfig {
     return {
       project: { name: 'test', client: 'client' },
       ecosystems: ecosystemIds.map((id) => ({ id })),
@@ -1104,138 +1151,49 @@ describe('SonarQubeEngine — exclusion args', () => {
       },
       conflict_resolution: 'stop_and_ask',
       scanners: {
-        sonarqube: {
-          enabled: true,
-          mode: 'external',
-          host_url: 'http://localhost:9000',
-          project_key: 'my-project',
-          token_env: 'SONAR_TOKEN',
-          on_failure: 'warn',
-          ...sonarOverrides,
-        },
+        sonarqube: { enabled: true, mode: 'external', on_failure: 'warn' },
       },
     } as ProjectConfig;
   }
 
-  it('applies npm ecosystem defaults when exclusions not set (node_modules/**, tests/**)', async () => {
+  it('passes -Dproject.settings pointing to the sanitized temp file', async () => {
     const runner = new MockRunner({
       '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
       'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
     });
-    const config = makeConfigWithEcosystems(['npm']);
-
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
 
-    await engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
+    await engine.scan({ runner, config: makeConfigWithEcosystems(['npm']), cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
 
-    const scanCmd = runner.calledCommands.find((c) => c.includes('-Dsonar.projectKey'));
+    // runner.calledCommands contains both the `--version` probe and the real scan.
+    // Pick the scan (the one that has the -D args).
+    const scanCmd = runner.calledCommands.find((c) => c.includes('-Dproject.settings='));
     expect(scanCmd).toBeDefined();
-    expect(scanCmd).toContain('-Dsonar.exclusions=node_modules/**,tests/**');
-    expect(scanCmd).toContain('-Dsonar.coverage.exclusions=node_modules/**,tests/**');
+    expect(scanCmd).toContain('-Dproject.settings=/tmp/fake-sanitized-sonar.properties');
   });
 
-  it('applies composer ecosystem defaults when exclusions not set (vendor/**, tests/**)', async () => {
+  it('invokes sanitizeAndWriteProperties with os-tmpdir location and host/projectKey overrides (external mode)', async () => {
     const runner = new MockRunner({
       '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
       'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
     });
-    const config = makeConfigWithEcosystems(['composer']);
-
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
 
-    await engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
+    await engine.scan({ runner, config: makeConfigWithEcosystems(['npm']), cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
 
-    const scanCmd = runner.calledCommands.find((c) => c.includes('-Dsonar.projectKey'));
-    expect(scanCmd).toBeDefined();
-    expect(scanCmd).toContain('-Dsonar.exclusions=vendor/**,tests/**');
-    expect(scanCmd).toContain('-Dsonar.coverage.exclusions=vendor/**,tests/**');
+    expect(sanitizeMock).toHaveBeenCalledTimes(1);
+    const callArgs = sanitizeMock.mock.calls[0]![0] as { cwd: string; location: string; overrides?: Record<string, string> };
+    expect(callArgs.cwd).toBe('/tmp/test');
+    expect(callArgs.location).toBe('os-tmpdir');
+    // External mode passes through the host URL from the properties fixture + projectKey.
+    expect(callArgs.overrides).toEqual({
+      'sonar.host.url': 'http://localhost:9000',
+      'sonar.projectKey': 'my-project',
+    });
   });
 
-  it('deduplicates exclusion patterns when both npm and composer are active', async () => {
-    const runner = new MockRunner({
-      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
-      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
-    });
-    const config = makeConfigWithEcosystems(['npm', 'composer']);
-
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
-
-    await engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
-
-    const scanCmd = runner.calledCommands.find((c) => c.includes('-Dsonar.projectKey'));
-    expect(scanCmd).toBeDefined();
-    // tests/** appears in both npm and composer defaults — must NOT be duplicated
-    const excl = scanCmd?.match(/-Dsonar\.exclusions=([^ ]+)/)?.[1] ?? '';
-    const parts = excl.split(',');
-    const uniqueParts = new Set(parts);
-    expect(parts.length).toBe(uniqueParts.size);
-    // Should contain all four unique patterns
-    expect(excl).toContain('node_modules/**');
-    expect(excl).toContain('vendor/**');
-    expect(excl).toContain('tests/**');
-  });
-
-  it('uses explicit exclusions as full override (no merge with defaults)', async () => {
-    const runner = new MockRunner({
-      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
-      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
-    });
-    const config = makeConfigWithEcosystems(['npm'], {
-      exclusions: ['dist/**', 'build/**'],
-      coverage_exclusions: ['**/*.spec.ts'],
-    });
-
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
-
-    await engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
-
-    const scanCmd = runner.calledCommands.find((c) => c.includes('-Dsonar.projectKey'));
-    expect(scanCmd).toBeDefined();
-    expect(scanCmd).toContain('-Dsonar.exclusions=dist/**,build/**');
-    expect(scanCmd).toContain('-Dsonar.coverage.exclusions=**/*.spec.ts');
-    // defaults must NOT appear when explicit override is set
-    expect(scanCmd).not.toContain('node_modules/**');
-  });
-
-  it('omits -Dsonar.exclusions entirely when explicit override is empty array', async () => {
-    const runner = new MockRunner({
-      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
-      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
-    });
-    const config = makeConfigWithEcosystems(['npm'], {
-      exclusions: [],
-      coverage_exclusions: [],
-    });
-
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
-
-    await engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
-
-    const scanCmd = runner.calledCommands.find((c) => c.includes('-Dsonar.projectKey'));
-    expect(scanCmd).toBeDefined();
-    expect(scanCmd).not.toContain('-Dsonar.exclusions=');
-    expect(scanCmd).not.toContain('-Dsonar.coverage.exclusions=');
-  });
-
-  it('produces no exclusion args for unknown ecosystem without explicit config', async () => {
-    const runner = new MockRunner({
-      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
-      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
-    });
-    const config = makeConfigWithEcosystems(['ruby']); // no defaults defined
-
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
-
-    await engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
-
-    const scanCmd = runner.calledCommands.find((c) => c.includes('-Dsonar.projectKey'));
-    expect(scanCmd).toBeDefined();
-    expect(scanCmd).not.toContain('-Dsonar.exclusions=');
-    expect(scanCmd).not.toContain('-Dsonar.coverage.exclusions=');
-  });
-
-  it('passes exclusion args through to container fallback path in managed mode', async () => {
-    // Local scanner unavailable — forces container fallback
+  it('invokes sanitizeAndWriteProperties with cwd-hidden location in managed mode container fallback', async () => {
+    // Force container path: local scanner probe returns non-zero
     const runner = new MockRunner({ '--version': { exitCode: 127, stderr: 'not found' } });
     const config: ProjectConfig = {
       project: { name: 'test', client: 'client' },
@@ -1247,11 +1205,7 @@ describe('SonarQubeEngine — exclusion args', () => {
         sonarqube: {
           enabled: true,
           mode: 'managed',
-          host_url: 'http://localhost:9000',
-          project_key: 'my-project',
-          token_env: 'SONAR_TOKEN',
           on_failure: 'warn',
-          exclusions: ['custom/**'],
         },
       },
     } as ProjectConfig;
@@ -1263,12 +1217,26 @@ describe('SonarQubeEngine — exclusion args', () => {
 
     await engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
 
+    expect(sanitizeMock).toHaveBeenCalledTimes(1);
+    const callArgs = sanitizeMock.mock.calls[0]![0] as { cwd: string; location: string; overrides?: Record<string, string> };
+    // Container fallback requires the sanitized file inside cwd (container mounts cwd).
+    expect(callArgs.location).toBe('cwd-hidden');
+    // Managed mode overrides host.url with the ephemeral container URL, not the one
+    // from sonar-project.properties (which came from the fixture).
+    expect(callArgs.overrides!['sonar.host.url']).toBe('http://localhost:19999');
+    expect(callArgs.overrides!['sonar.projectKey']).toBe('my-project');
+
+    // The -Dproject.settings arg is passed to the container runner (container
+    // auto-injects -Dsonar.host.url, so we strip that duplicate — but project.settings
+    // survives).
     const MockScannerRunner = vi.mocked(DockerSonarScannerRunner);
     const scannerInstance = MockScannerRunner.mock.results[0]?.value as {
       run: ReturnType<typeof vi.fn>;
     };
     const runArgs: string[] = scannerInstance.run.mock.calls[0]?.[0] ?? [];
-    expect(runArgs.some((a: string) => a === '-Dsonar.exclusions=custom/**')).toBe(true);
+    expect(runArgs.some((a: string) => a.startsWith('-Dproject.settings='))).toBe(true);
+    // The -Dsonar.host.url is NOT passed — scanner runner adds it itself.
+    expect(runArgs.some((a: string) => a.startsWith('-Dsonar.host.url='))).toBe(false);
   });
 });
 

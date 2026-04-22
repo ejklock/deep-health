@@ -171,9 +171,7 @@ export function generateConfigYaml(opts: GenerateConfigOptions = {}): string {
   const outputFormats = outputsConfig?.formats ?? [];
   const outputsDir = outputsConfig?.dir;
 
-  // Normalize the project name into a valid SonarQube project_key for the template.
   const rawProjectName = opts.projectName ?? 'My Project';
-  const sonarProjectKey = normalizeSonarProjectKey(rawProjectName);
 
   return compiled({
     projectName: rawProjectName,
@@ -185,7 +183,6 @@ export function generateConfigYaml(opts: GenerateConfigOptions = {}): string {
     hasOutputs,
     outputFormats,
     outputsDir,
-    sonarProjectKey,
     npmRuntimeVersion: opts.npmRuntimeVersion,
     pipRuntimeVersion: opts.pipRuntimeVersion,
   });

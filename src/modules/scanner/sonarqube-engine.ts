@@ -7,6 +7,7 @@ import { EnvironmentError } from '@core/errors';
 import { logger } from '@infra/utils/logger';
 import { getPlatformInstallHint } from '@infra/utils/platform';
 import { SONARQUBE_PROJECT_KEY_REGEX } from '@core/types/config';
+import { readSonarProperties, sanitizeAndWriteProperties, type SanitizedPropertiesFile } from './sonar-properties';
 import fs from 'node:fs';
 
 // ─── SonarQube API types (minimal) ─────────────────────────────────────────────
@@ -48,59 +49,10 @@ interface SonarQubeCeTaskResponse {
   };
 }
 
-// ─── Ecosystem-aware exclusion defaults ───────────────────────────────────────
-
-/**
- * Default sonar.exclusions / sonar.coverage.exclusions patterns per ecosystem.
- * Applied only when the user has NOT explicitly set `exclusions` / `coverage_exclusions`
- * in their config.
- */
-const ECOSYSTEM_DEFAULT_EXCLUSIONS: Record<string, string[]> = {
-  npm: ['node_modules/**', 'tests/**'],
-  composer: ['vendor/**', 'tests/**'],
-};
-
-/**
- * Derive the effective exclusion list for a given set of ecosystem ids.
- * - If `explicit` is set (even to `[]`), it is returned as-is (full override).
- * - Otherwise, gather the union of defaults for all active ecosystems,
- *   deduplicating entries. Falls back to an empty list if no ecosystems match.
- */
-function resolveExclusions(
-  explicit: string[] | undefined,
-  ecosystemIds: string[],
-): string[] {
-  if (explicit !== undefined) {
-    // User set the field — treat as full override, no merging
-    return explicit;
-  }
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const id of ecosystemIds) {
-    for (const pattern of ECOSYSTEM_DEFAULT_EXCLUSIONS[id] ?? []) {
-      if (!seen.has(pattern)) {
-        seen.add(pattern);
-        result.push(pattern);
-      }
-    }
-  }
-  return result;
-}
-
-/**
- * Build `-Dsonar.exclusions` and `-Dsonar.coverage.exclusions` args
- * from the resolved pattern lists. Returns an empty array when both lists are empty.
- */
-function buildExclusionArgs(exclusions: string[], coverageExclusions: string[]): string[] {
-  const args: string[] = [];
-  if (exclusions.length > 0) {
-    args.push(`-Dsonar.exclusions=${exclusions.join(',')}`);
-  }
-  if (coverageExclusions.length > 0) {
-    args.push(`-Dsonar.coverage.exclusions=${coverageExclusions.join(',')}`);
-  }
-  return args;
-}
+// Exclusions and sources are now sourced from the project's sonar-project.properties.
+// Ecosystem-aware defaults moved to the init-time template generator in
+// src/app/commands/init.ts — generating once at setup is simpler than mixing
+// defaults at scan time.
 
 // ─── CE-task waiting ──────────────────────────────────────────────────────────
 
@@ -388,64 +340,69 @@ async function generateEphemeralToken(
 // ─── Shared scan execution (used by both external and managed modes) ────────────
 
 /**
- * Build sonar-scanner auth args as an array (no shell quoting hazards).
- * Used when invoking via DockerSonarScannerRunner.
+ * Shape shared by both scan paths (local vs container scanner).
+ *
+ * `sanitized` is the staged sonar-project.properties copy: the user's file
+ * minus deprecated/CLI-owned keys, with any overrides (host.url + token for
+ * managed mode) applied. Passed to sonar-scanner via `-Dproject.settings=<path>`.
+ * Caller owns the cleanup in a finally block.
  */
-function buildAuthArgs(token: string): string[] {
-  return [`-Dsonar.token=${token}`];
+interface SonarScanExecContext {
+  hostUrl: string;
+  projectKey: string;
+  token: string;
+  branch: string | null;
+  ceTimeoutMs: number;
+  sanitized: SanitizedPropertiesFile;
+}
+
+/** Build the `-D` args common to both local and container scanner invocations. */
+function buildSonarScanCliArgs(ec: SonarScanExecContext): string[] {
+  const args: string[] = [
+    // project.settings wins the file-loading race: scanner uses OUR sanitized
+    // copy instead of the user's original sonar-project.properties. Everything
+    // else passed as `-D` has higher precedence than the file — safe overrides.
+    `-Dproject.settings=${ec.sanitized.path}`,
+    `-Dsonar.host.url=${ec.hostUrl}`,
+    `-Dsonar.projectKey=${ec.projectKey}`,
+    `-Dsonar.token=${ec.token}`,
+  ];
+  if (ec.branch) {
+    args.push(`-Dsonar.branch.name=${ec.branch}`);
+  }
+  return args;
 }
 
 /**
- * Execute sonar-scanner and collect quality gate + metrics from the SonarQube API.
- * Returns the final ScanResultJson.
+ * Execute sonar-scanner via the local runner (CommandRunner.runArgs) and
+ * collect quality gate + metrics.
  *
  * Security: token and branch are always passed via runner.runArgs() (shell=false),
  * preventing shell-injection.  runner.run() is never used for scan invocations.
- *
- * @param branch - Git branch to forward as -Dsonar.branch.name, or null to omit it.
- *   Callers must only pass a non-null value when send_branch_name is explicitly enabled;
- *   the default (CE-safe) behaviour is to pass null regardless of detected branch.
- * @param exclusionArgs - Pre-built `-Dsonar.exclusions` / `-Dsonar.coverage.exclusions` args.
- * @param ceTimeoutMs - Milliseconds to wait for CE task completion before quality gate fetch.
  */
 async function executeSonarScan(
   ctx: ScannerEngineContext,
-  hostUrl: string,
-  projectKey: string,
-  token: string,
   base: ScanResultJson,
-  branch: string | null,
-  exclusionArgs: string[],
-  ceTimeoutMs: number,
+  ec: SonarScanExecContext,
 ): Promise<ScanResultJson> {
   const { runner, cwd } = ctx;
 
   if (runner.dryRun) {
     logger.info(
       `[DRY-RUN] Would execute: sonar-scanner ` +
-      `-Dsonar.host.url=${hostUrl} -Dsonar.projectKey=${projectKey}`,
+      `-Dsonar.host.url=${ec.hostUrl} -Dsonar.projectKey=${ec.projectKey}`,
     );
     return { ...base, status: 'success' };
   }
 
-  // Build sonar-scanner args as an array — no shell quoting hazards.
-  // Token and branch values are never shell-interpolated.
-  const scanArgs = [
-    `-Dsonar.host.url=${hostUrl}`,
-    `-Dsonar.projectKey=${projectKey}`,
-    `-Dsonar.token=${token}`,
-    ...(branch ? [`-Dsonar.branch.name=${branch}`] : []),
-    ...exclusionArgs,
-  ];
+  const scanArgs = buildSonarScanCliArgs(ec);
 
   logger.debug(
-    `Running: sonar-scanner -Dsonar.host.url=${hostUrl} -Dsonar.projectKey=${projectKey}` +
-    (branch ? ` -Dsonar.branch.name=${branch}` : '') +
-    ` [token omitted]`,
+    `Running: sonar-scanner -Dsonar.host.url=${ec.hostUrl} -Dsonar.projectKey=${ec.projectKey}` +
+    (ec.branch ? ` -Dsonar.branch.name=${ec.branch}` : '') +
+    ` -Dproject.settings=${ec.sanitized.path} [token omitted]`,
   );
 
-  // Always use shell-free runArgs() — no fallback to run().
-  // runner.runArgs is required by the CommandRunner contract.
   const scanRun = await runner.runArgs('sonar-scanner', scanArgs, { cwd });
 
   if (scanRun.exitCode !== 0) {
@@ -456,46 +413,40 @@ async function executeSonarScan(
     };
   }
 
-  // Wait for CE task before fetching quality gate
   const taskId = parseCeTaskId(cwd);
-  await waitForCeTask(hostUrl, taskId, token, ceTimeoutMs);
+  await waitForCeTask(ec.hostUrl, taskId, ec.token, ec.ceTimeoutMs);
 
-  return collectSonarMetadataAndBuildResult(hostUrl, projectKey, token, base);
+  return collectSonarMetadataAndBuildResult(ec.hostUrl, ec.projectKey, ec.token, base);
 }
 
 /**
  * Execute sonar-scanner inside an ephemeral container (fallback when local
  * sonar-scanner is not installed) and collect quality gate + metrics.
+ *
+ * NOTE: when using this path, `ec.sanitized.path` MUST be inside `cwd` (the
+ * container mounts only that directory). The caller is responsible for
+ * passing a sanitized file built with `location: 'cwd-hidden'`.
  */
 async function executeSonarScanViaContainer(
   cwd: string,
-  hostUrl: string,
-  projectKey: string,
-  token: string,
   base: ScanResultJson,
+  ec: SonarScanExecContext,
   scannerImage?: string,
-  branch?: string | null,
-  exclusionArgs: string[] = [],
-  ceTimeoutMs: number = 120_000,
 ): Promise<ScanResultJson> {
   const scannerRunner = new DockerSonarScannerRunner({
     projectDir: cwd,
-    sonarHostUrl: hostUrl,
+    sonarHostUrl: ec.hostUrl,
     ...(scannerImage ? { image: scannerImage } : {}),
   });
 
-  const authArgs = buildAuthArgs(token);
-  const extraArgs = [
-    `-Dsonar.projectKey=${projectKey}`,
-    ...authArgs,
-    ...(branch ? [`-Dsonar.branch.name=${branch}`] : []),
-    ...exclusionArgs,
-  ];
+  // The scanner runner injects `-Dsonar.host.url` itself (translating localhost
+  // → host.docker.internal). Strip our duplicate so we don't pass it twice.
+  const extraArgs = buildSonarScanCliArgs(ec).filter((a) => !a.startsWith('-Dsonar.host.url='));
 
   logger.debug(
-    `Running sonar-scanner via container — host: ${hostUrl}, projectKey: ${projectKey}` +
-    (branch ? `, branch: ${branch}` : '') +
-    ` [token omitted]`,
+    `Running sonar-scanner via container — host: ${ec.hostUrl}, projectKey: ${ec.projectKey}` +
+    (ec.branch ? `, branch: ${ec.branch}` : '') +
+    ` project.settings: ${ec.sanitized.path} [token omitted]`,
   );
 
   const scanRun = await scannerRunner.run(extraArgs);
@@ -508,12 +459,10 @@ async function executeSonarScanViaContainer(
     };
   }
 
-  // Wait for CE task before fetching quality gate.
-  // For the container path, report-task.txt is mounted from cwd — same location.
   const taskId = parseCeTaskId(cwd);
-  await waitForCeTask(hostUrl, taskId, token, ceTimeoutMs);
+  await waitForCeTask(ec.hostUrl, taskId, ec.token, ec.ceTimeoutMs);
 
-  return collectSonarMetadataAndBuildResult(hostUrl, projectKey, token, base);
+  return collectSonarMetadataAndBuildResult(ec.hostUrl, ec.projectKey, ec.token, base);
 }
 
 /**
@@ -629,8 +578,14 @@ export class SonarQubeEngine implements ScannerEngine {
    *
    * - If SonarQube is not configured or disabled: returns a 'skipped' result immediately.
    * - If sonar-scanner is unavailable: throws EnvironmentError (caller handles warn/fail).
-   * - mode='external' (default): connects to configured host_url.
-   * - mode='managed': provisions ephemeral Docker container, scans, tears down.
+   * - mode='external' (default): uses sonar.host.url from sonar-project.properties
+   *   and SONAR_TOKEN from the environment.
+   * - mode='managed': provisions an ephemeral SonarQube container, generates a token,
+   *   overrides host.url+token via CLI args, scans, tears down.
+   *
+   * In both modes the sonar-project.properties is sanitized into a temp copy
+   * before being handed to sonar-scanner (strips sonar.login/sonar.password
+   * which sonar-scanner ≥5 rejects outright).
    */
   async scan(ctx: ScannerEngineContext): Promise<ScanResultJson> {
     const { runner, config, cwd } = ctx;
@@ -652,52 +607,84 @@ export class SonarQubeEngine implements ScannerEngine {
       return base;
     }
 
-    // Defensive runtime guard: project_key must be valid even if it passed schema
-    // (e.g. when config was constructed programmatically without Zod validation).
-    const { project_key, token_env } = sonarConfig;
-    if (!SONARQUBE_PROJECT_KEY_REGEX.test(project_key)) {
+    // Read sonar.projectKey from the project's sonar-project.properties — the
+    // SonarQube-convention source of truth. Missing file is a hard error:
+    // run `deep-health init` to generate a template.
+    const userProps = await readSonarProperties(cwd);
+    if (!userProps) {
       throw new EnvironmentError(
-        `SonarQube: invalid project_key "${project_key}". ` +
-        `Project keys may only contain letters, digits, hyphens (-), underscores (_), periods (.), and colons (:). ` +
-        `Update your project-config.yml and set scanners.sonarqube.project_key to a valid value (e.g. "my-project").`,
+        `SonarQube: sonar-project.properties not found at ${cwd}. ` +
+        `Run \`deep-health init\` (with SonarQube enabled) to generate a template, ` +
+        `or create the file manually at your project root.`,
       );
     }
 
-    // ─── Resolve ecosystem IDs for exclusion defaults ───────────────────────────
-    const ecosystemIds = config.ecosystems?.map((e) => e.id) ?? [];
-    const exclusions = resolveExclusions(sonarConfig.exclusions, ecosystemIds);
-    const coverageExclusions = resolveExclusions(sonarConfig.coverage_exclusions, ecosystemIds);
-    const exclusionArgs = buildExclusionArgs(exclusions, coverageExclusions);
+    const projectKey = userProps.get('sonar.projectKey');
+    if (!projectKey) {
+      throw new EnvironmentError(
+        `SonarQube: sonar-project.properties is missing \`sonar.projectKey\`. ` +
+        `Add a line like: sonar.projectKey=my-project`,
+      );
+    }
+    if (!SONARQUBE_PROJECT_KEY_REGEX.test(projectKey)) {
+      throw new EnvironmentError(
+        `SonarQube: invalid sonar.projectKey "${projectKey}" in sonar-project.properties. ` +
+        `Project keys may only contain letters, digits, hyphens (-), underscores (_), periods (.), and colons (:).`,
+      );
+    }
 
-    // CE task timeout (config field default is 120, Zod ensures non-negative integer)
     const ceTimeoutMs = (sonarConfig.ce_task_timeout_seconds ?? 120) * 1_000;
-
     const mode = sonarConfig.mode ?? 'external';
 
-    // ─── Managed mode ────────────────────────────────────────────────────────
     if (mode === 'managed') {
-      return this._scanManaged(ctx, project_key, sonarConfig.scanner_image, base, sonarConfig.send_branch_name ?? false, exclusionArgs, ceTimeoutMs);
+      return this._scanManaged(ctx, projectKey, sonarConfig.scanner_image, base, sonarConfig.send_branch_name ?? false, ceTimeoutMs);
     }
 
     // ─── External mode ────────────────────────────────────────────────────────
-    const token = process.env[token_env] ?? '';
-
+    // SONAR_TOKEN is the conventional env var name; no longer configurable via
+    // config.yml (keeping the CLI→env contract as narrow as possible).
+    const token = process.env['SONAR_TOKEN'] ?? '';
     if (!token) {
       throw new EnvironmentError(
-        `SonarQube: token environment variable "${token_env}" is not set. ` +
-        `Set it before running the scan.`,
+        `SonarQube: the SONAR_TOKEN environment variable is not set. ` +
+        `Set it before running the scan (generate a token in your SonarQube UI at User → My Account → Security).`,
+      );
+    }
+
+    const hostUrl = userProps.get('sonar.host.url');
+    if (!hostUrl) {
+      throw new EnvironmentError(
+        `SonarQube: sonar-project.properties is missing \`sonar.host.url\` (required in external mode). ` +
+        `Add a line like: sonar.host.url=http://your-sonarqube-server:9000`,
       );
     }
 
     logger.info('SonarQube: running sonar-scanner (external mode)...');
-
-    // Verify sonar-scanner is installed
     await this.assertAvailable(ctx);
 
-    // Only forward branch when explicitly opted-in — Community Edition does not support branch analysis.
     const effectiveBranch = sonarConfig.send_branch_name ? (ctx.branch ?? null) : null;
 
-    return executeSonarScan(ctx, sonarConfig.host_url, project_key, token, base, effectiveBranch, exclusionArgs, ceTimeoutMs);
+    const sanitized = await sanitizeAndWriteProperties({
+      cwd,
+      location: 'os-tmpdir', // local scanner: any readable path works
+      overrides: {
+        'sonar.host.url': hostUrl,
+        'sonar.projectKey': projectKey,
+      },
+    });
+
+    try {
+      return await executeSonarScan(ctx, base, {
+        hostUrl,
+        projectKey,
+        token,
+        branch: effectiveBranch,
+        ceTimeoutMs,
+        sanitized,
+      });
+    } finally {
+      await sanitized.cleanup();
+    }
   }
 
   // ─── Private: managed mode execution ─────────────────────────────────────────
@@ -708,7 +695,6 @@ export class SonarQubeEngine implements ScannerEngine {
     scannerImage: string | undefined,
     base: ScanResultJson,
     sendBranchName: boolean,
-    exclusionArgs: string[],
     ceTimeoutMs: number,
   ): Promise<ScanResultJson> {
     const { runner, cwd } = ctx;
@@ -735,7 +721,6 @@ export class SonarQubeEngine implements ScannerEngine {
     }
 
     const provisioner = new DockerSonarQubeProvisioner();
-    // Only forward branch when explicitly opted-in — Community Edition does not support branch analysis.
     const branch = sendBranchName ? (ctx.branch ?? null) : null;
 
     let hostUrl: string;
@@ -747,7 +732,6 @@ export class SonarQubeEngine implements ScannerEngine {
       await provisioner.waitReady();
       logger.info('SonarQube: container ready');
 
-      // Generate an ephemeral token from the admin API — avoids deprecated sonar.login/sonar.password
       logger.info('SonarQube: generating ephemeral scan token...');
       const ephemeralToken = await generateEphemeralToken(hostUrl, 'deep-health-scan');
 
@@ -762,12 +746,34 @@ export class SonarQubeEngine implements ScannerEngine {
 
       logger.info('SonarQube: ephemeral token generated (value not logged)');
 
-      if (localAvailable) {
-        // ── Local scanner path ──────────────────────────────────────────────
-        return await executeSonarScan(ctx, hostUrl, projectKey, ephemeralToken, base, branch, exclusionArgs, ceTimeoutMs);
-      } else {
-        // ── Container fallback path ─────────────────────────────────────────
-        return await executeSonarScanViaContainer(cwd, hostUrl, projectKey, ephemeralToken, base, scannerImage, branch, exclusionArgs, ceTimeoutMs);
+      // Build sanitized properties with the managed-mode overrides. Location
+      // depends on the execution path:
+      //   - local scanner: can read anywhere → use os.tmpdir
+      //   - container scanner: only sees cwd (mounted volume) → use hidden cwd file
+      const sanitized = await sanitizeAndWriteProperties({
+        cwd,
+        location: localAvailable ? 'os-tmpdir' : 'cwd-hidden',
+        overrides: {
+          'sonar.host.url': hostUrl,
+          'sonar.projectKey': projectKey,
+        },
+      });
+
+      try {
+        const ec = {
+          hostUrl,
+          projectKey,
+          token: ephemeralToken,
+          branch,
+          ceTimeoutMs,
+          sanitized,
+        };
+        if (localAvailable) {
+          return await executeSonarScan(ctx, base, ec);
+        }
+        return await executeSonarScanViaContainer(cwd, base, ec, scannerImage);
+      } finally {
+        await sanitized.cleanup();
       }
     } finally {
       await provisioner.teardown();

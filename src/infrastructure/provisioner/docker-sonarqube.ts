@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import { createServer } from 'node:net';
 import type { ServiceProvisioner, DockerSonarQubeProvisionerOptions } from './types';
 import { logger } from '../utils/logger';
+import { registerShutdownHook } from '../utils/shutdown-hooks';
 
 const execFileAsync = promisify(execFile);
 
@@ -109,6 +110,9 @@ export class DockerSonarQubeProvisioner implements ServiceProvisioner {
   private containerName: string | null = null;
   private resolvedPort: number | null = null;
   private torn = false;
+  // Unregister callback returned by registerShutdownHook(). Set when provision()
+  // installs the hook, cleared when teardown() runs normally.
+  private unregisterShutdownHook: (() => void) | null = null;
 
   constructor(options: DockerSonarQubeProvisionerOptions = {}) {
     this.image = options.image ?? 'sonarqube:community';
@@ -148,6 +152,14 @@ export class DockerSonarQubeProvisioner implements ServiceProvisioner {
     this.containerName = containerName;
     this.resolvedPort = hostPort;
 
+    // Register a shutdown hook so the container is still torn down when the
+    // process dies abruptly (Ctrl+C, SIGTERM from parent, uncaught exception).
+    // Without this, JavaScript `finally` never runs on signal termination and
+    // the container leaks on the user's Docker daemon.
+    this.unregisterShutdownHook = registerShutdownHook(async () => {
+      await this.teardown();
+    });
+
     logger.info(`SonarQube provisioner: container started (${containerName} → localhost:${hostPort})`);
 
     return { baseUrl: this._baseUrl() };
@@ -176,6 +188,15 @@ export class DockerSonarQubeProvisioner implements ServiceProvisioner {
 
     this.torn = true;
     const name = this.containerName;
+
+    // Unregister from the shutdown-hook registry — normal teardown is happening,
+    // so the hook doesn't need to fire at exit. Safe to call even if the hook
+    // is what invoked us (the registry snapshots the list on signal, so deleting
+    // mid-iteration is a no-op).
+    if (this.unregisterShutdownHook) {
+      this.unregisterShutdownHook();
+      this.unregisterShutdownHook = null;
+    }
 
     logger.info(`SonarQube provisioner: tearing down container "${name}"...`);
 

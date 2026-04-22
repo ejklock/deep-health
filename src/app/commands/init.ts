@@ -2,6 +2,7 @@ import { writeFile, access, mkdir } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { DEFAULT_CONFIG_PATH } from '@infra/config/loader';
 import { generateConfigYaml, type GenerateConfigOptions } from '@infra/config/generator';
+import { writeSonarPropertiesTemplateIfMissing } from './sonar-properties-template';
 import { prompt } from '@infra/utils/prompt';
 import { defaultRegistry } from '@modules/ecosystem/index';
 import { ConfigLoadError } from '@core/errors';
@@ -202,14 +203,41 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   await mkdir(dirname(outputPath), { recursive: true });
   await writeFile(outputPath, yaml, 'utf-8');
   process.stdout.write(`Created: ${outputPath}\n`);
+
+  // When SonarQube is enabled, make sure the project has a sonar-project.properties.
+  // That file is SonarQube's convention for project-level analysis config (sources,
+  // exclusions, project key). We never overwrite an existing one.
+  let sonarPropsCreated = false;
+  if (enableSonarQube) {
+    const status = await writeSonarPropertiesTemplateIfMissing(opts.cwd, {
+      projectName,
+      ecosystemIds: selectedEcosystemIds,
+    });
+    if (status === 'created') {
+      sonarPropsCreated = true;
+      process.stdout.write(`Created: ${resolve(opts.cwd, 'sonar-project.properties')}\n`);
+    } else {
+      process.stdout.write(`Found existing sonar-project.properties (not overwritten)\n`);
+    }
+  }
+
   process.stdout.write(`\nNext steps:\n`);
   process.stdout.write(`  1. Edit ${outputPath} to match your project\n`);
   process.stdout.write(
     `  2. Review protected_packages — add any packages that must not be auto-upgraded\n`,
   );
-  process.stdout.write(
-    `  3. Run: deep-health scan --cwd <your-project-dir>\n`,
-  );
+  if (sonarPropsCreated) {
+    process.stdout.write(
+      `  3. Review sonar-project.properties — adjust sonar.sources and sonar.exclusions for your layout\n`,
+    );
+    process.stdout.write(
+      `  4. Run: deep-health scan --cwd <your-project-dir>\n`,
+    );
+  } else {
+    process.stdout.write(
+      `  3. Run: deep-health scan --cwd <your-project-dir>\n`,
+    );
+  }
   process.stdout.write(
     `     (config will be loaded from project-config.yml at project root by default)\n`,
   );

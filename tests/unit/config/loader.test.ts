@@ -323,38 +323,10 @@ describe('OSV scanner config schema — runner + image fields', () => {
   });
 });
 
-describe('SonarQube project_key schema validation', () => {
-  it('rejects an invalid project_key containing spaces', async () => {
-    const yaml = minimalConfigWith(
-      'scanners:\n  sonarqube:\n    enabled: true\n    project_key: \'My Invalid Key\'',
-    );
-    await withTempConfig(yaml, async (absPath, filename) => {
-      const dir = require('node:path').dirname(absPath);
-      await expect(loadConfig(filename, dir)).rejects.toThrow(ConfigLoadError);
-    });
-  });
-
-  it('rejects an invalid project_key containing special characters', async () => {
-    const yaml = minimalConfigWith(
-      'scanners:\n  sonarqube:\n    enabled: true\n    project_key: \'my project!\'',
-    );
-    await withTempConfig(yaml, async (absPath, filename) => {
-      const dir = require('node:path').dirname(absPath);
-      await expect(loadConfig(filename, dir)).rejects.toThrow(ConfigLoadError);
-    });
-  });
-
-  it('accepts a valid project_key with hyphens and colons', async () => {
-    const yaml = minimalConfigWith(
-      'scanners:\n  sonarqube:\n    enabled: true\n    project_key: \'org:my-project_v2\'',
-    );
-    await withTempConfig(yaml, async (absPath, filename) => {
-      const dir = require('node:path').dirname(absPath);
-      const config = await loadConfig(filename, dir);
-      expect(config.scanners?.sonarqube?.project_key).toBe('org:my-project_v2');
-    });
-  });
-});
+// sonar.projectKey moved from project-config.yml to sonar-project.properties.
+// Format validation now happens at scan time inside the SonarQube engine (see
+// sonarqube-engine.test.ts). The schema rejects project_key as an unknown key
+// via strict mode — covered by the "strict schema enforcement" describe below.
 
 describe('strict schema enforcement — unknown keys', () => {
   it('rejects unknown top-level config key', async () => {

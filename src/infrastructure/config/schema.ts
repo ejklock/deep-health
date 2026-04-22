@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { SONARQUBE_PROJECT_KEY_REGEX } from '@core/types/config';
 
 const ProtectedPackageSchema = z.object({
   package: z.string(),
@@ -92,28 +91,37 @@ const EcosystemConfigSchema = z.object({
   advisors: z.array(AdvisorConfigSchema).optional(),
 }).strict();
 
+/**
+ * SonarQube config — CLI-side concerns only.
+ *
+ * Project-level configuration (project_key, sources, exclusions, host_url,
+ * credentials) lives in the project's `sonar-project.properties` file, which
+ * is the SonarQube-community convention. The CLI reads that file at scan time.
+ *
+ * What stays here: orchestration policy (on_failure), runtime dispatch (mode),
+ * infra choices (scanner_image), and CLI feature flags (send_branch_name,
+ * ce_task_timeout_seconds).
+ *
+ * In managed mode, the CLI overrides `sonar.host.url` and `sonar.token` with
+ * values generated at runtime; `sonar.login`/`sonar.password` are always
+ * stripped from the properties file (sonar-scanner 5+ errors when they exist).
+ */
 const SonarQubeConfigSchema = z.object({
   enabled: z.boolean().default(false),
   /**
-   * 'external' (default): sonar-scanner connects to a pre-existing SonarQube instance.
-   * 'managed': the CLI provisions an ephemeral SonarQube CE container via Docker,
-   *            runs the scan, then tears it down automatically.
-   *
-   * When mode is 'managed', host_url is ignored (the provisioner sets it dynamically).
-   * Omitting mode is equivalent to 'external'.
+   * 'external' (default): sonar-scanner connects to a pre-existing SonarQube
+   *   instance — host URL and project key come from sonar-project.properties;
+   *   token comes from the SONAR_TOKEN env var.
+   * 'managed': the CLI provisions an ephemeral SonarQube CE container via
+   *   Docker, generates a token via the admin API, overrides host.url+token
+   *   at the CLI layer, runs the scan, tears the container down.
    */
   mode: z.enum(['external', 'managed']).default('external'),
-  host_url: z.string().url().optional().default('http://localhost:9000'),
-  project_key: z.string().regex(
-    SONARQUBE_PROJECT_KEY_REGEX,
-    'SonarQube project_key may only contain letters, digits, hyphens (-), underscores (_), periods (.), and colons (:). ' +
-    'Spaces and special characters are not allowed. Example: "my-project" or "org:my-project".',
-  ),
-  token_env: z.string().default('SONAR_TOKEN'),
   on_failure: z.enum(['warn', 'fail']).default('warn'),
   /**
-   * Docker image tag for the sonar-scanner-cli container (managed mode fallback).
-   * Defaults to 'sonarsource/sonar-scanner-cli:latest'.
+   * Docker image tag for the sonar-scanner-cli container (managed mode fallback
+   * when local sonar-scanner is not installed). Defaults to
+   * 'sonarsource/sonar-scanner-cli:latest'.
    */
   scanner_image: z.string().optional(),
   /**
@@ -128,16 +136,6 @@ const SonarQubeConfigSchema = z.object({
    * before fetching the quality gate status.  Defaults to 120.  Set to 0 to disable.
    */
   ce_task_timeout_seconds: z.number().int().nonnegative().default(120),
-  /**
-   * Glob patterns for sonar.exclusions.  When omitted, ecosystem-specific defaults apply.
-   * When set (even to []), the value is used verbatim (full override).
-   */
-  exclusions: z.array(z.string()).optional(),
-  /**
-   * Glob patterns for sonar.coverage.exclusions.  When omitted, ecosystem-specific defaults apply.
-   * When set (even to []), the value is used verbatim (full override).
-   */
-  coverage_exclusions: z.array(z.string()).optional(),
 }).strict();
 
 /** pip runner config */
