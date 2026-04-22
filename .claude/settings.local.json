@@ -8,7 +8,11 @@
       "Bash(npm list:*)",
       "Bash(node:*)",
       "Bash(rtk read:*)",
-      "Bash(rtk find:*)"
+      "Bash(rtk find:*)",
+      "Bash(rtk ls *)",
+      "Bash(rtk git *)",
+      "Bash(rtk vitest *)",
+      "Bash(rtk tsc *)"
     ]
   },
   "outputStyle": "Explanatory"

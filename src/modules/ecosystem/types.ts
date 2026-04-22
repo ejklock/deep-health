@@ -20,6 +20,14 @@ export interface EcosystemUpdaterContext {
    * taking its own backup (which would be too late for the osv strategy).
    */
   preFixBackups?: Map<string, string>;
+  /**
+   * Populated by the orchestrator when fixerStrategy='osv' and the staging-apply
+   * flow completed (not dry-run). Contains evidence of what was actually applied to disk.
+   */
+  osvFixOutcome?: {
+    applied: boolean;
+    packagesUpdated: Array<{ name: string; versionFrom: string; versionTo: string }>;
+  };
 }
 
 export interface EcosystemPlugin {

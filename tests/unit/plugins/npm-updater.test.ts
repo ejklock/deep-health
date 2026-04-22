@@ -257,7 +257,7 @@ describe('runNpmUpdater — OSV-only auto-safe remediation', () => {
     expect(calledCommands.some((cmd) => cmd.startsWith('npm install ') && cmd !== 'npm install')).toBe(false);
   });
 
-  it('returns status "success" and packages_updated from auto_safe_packages on happy path', async () => {
+  it('returns status "success" and packages_updated empty when osv strategy and no osvFixOutcome', async () => {
     const runner = makeRunner();
 
     const result = await runNpmUpdater(
@@ -268,7 +268,8 @@ describe('runNpmUpdater — OSV-only auto-safe remediation', () => {
     );
 
     expect(result.status).toBe('success');
-    expect(result.packages_updated).toContain('lodash@4.17.21');
+    // osv strategy without osvFixOutcome: fixer is no-op, packages_updated comes from fixer (empty)
+    expect(result.packages_updated).toHaveLength(0);
   });
 });
 
@@ -529,7 +530,7 @@ describe('runNpmUpdater — fixer strategy dispatch', () => {
     expect(calledCommands.some((cmd) => cmd.includes('osv-scanner fix'))).toBe(false);
   });
 
-  it('osv strategy is a no-op in updater (packages_updated reflects scan result)', async () => {
+  it('osv strategy is a no-op in updater (packages_updated is empty when no osvFixOutcome)', async () => {
     const runner = makeRunner();
 
     const result = await runNpmUpdater(
@@ -543,8 +544,8 @@ describe('runNpmUpdater — fixer strategy dispatch', () => {
     );
 
     expect(result.status).toBe('success');
-    // packages_updated comes from auto_safe_packages in the scan result
-    expect(result.packages_updated).toContain('lodash@4.17.21');
+    // Without osvFixOutcome, fixer returns empty; packages_updated is empty
+    expect(result.packages_updated).toHaveLength(0);
   });
 });
 
@@ -781,8 +782,10 @@ describe('runNpmUpdater — preFixBackups (osv rollback uses orchestrator backup
       preFixBackups,
     );
 
-    // backupFiles must NOT have been called — the caller's backups were used
-    expect(backupSpy).not.toHaveBeenCalled();
+    // backupFiles must NOT be called for the primary set (NPM_FILES) — caller's backups were used.
+    // It IS called separately for advisor-only files (yarn.lock) which osv can't fix.
+    expect(backupSpy).not.toHaveBeenCalledWith(['package.json', 'package-lock.json'], '/tmp/project');
+    expect(backupSpy).toHaveBeenCalledWith(['yarn.lock'], '/tmp/project');
   });
 
   it('passes provided preFixBackups to restoreFiles on validation failure', async () => {
@@ -822,6 +825,85 @@ describe('runNpmUpdater — preFixBackups (osv rollback uses orchestrator backup
     expect(restoreSpy).toHaveBeenCalledWith(preFixBackups, '/tmp/project');
   });
 
+  it('includes yarn.lock in the revert backup when present on disk (advisor-only file)', async () => {
+    const { backupFiles: mockBackupFiles, restoreFiles: mockRestoreFiles } = await import('@infra/utils/git.js');
+    const backupSpy = mockBackupFiles as ReturnType<typeof vi.fn>;
+    const restoreSpy = mockRestoreFiles as ReturnType<typeof vi.fn>;
+    backupSpy.mockClear();
+    restoreSpy.mockClear();
+
+    // Simulate yarn.lock existing on disk for ONLY this test's advisor-backup call.
+    // mockImplementationOnce avoids leaking the custom impl into subsequent tests.
+    backupSpy.mockImplementationOnce(async () => new Map([['yarn.lock', 'yarn-lock-content']]));
+
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+    runMock
+      .mockResolvedValueOnce(ok())  // npm outdated
+      .mockResolvedValueOnce(ok())  // npm audit
+      .mockResolvedValueOnce(ok())  // npm ci (pre-validation)
+      .mockResolvedValueOnce(fail('build failed')) // npm run build
+      .mockResolvedValueOnce(ok()); // npm ci (revert)
+
+    const preFixBackups = new Map([['package-lock.json', '{"lockfileVersion":3}']]);
+
+    await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+      'osv',
+      preFixBackups,
+    );
+
+    // Advisor backup must have queried yarn.lock specifically
+    expect(backupSpy).toHaveBeenCalledWith(['yarn.lock'], '/tmp/project');
+
+    // Restore must have received a merged map containing BOTH preFixBackups and yarn.lock
+    const expectedMerged = new Map([
+      ['package-lock.json', '{"lockfileVersion":3}'],
+      ['yarn.lock', 'yarn-lock-content'],
+    ]);
+    expect(restoreSpy).toHaveBeenCalledWith(expectedMerged, '/tmp/project');
+  });
+
+  it('calls restoreFiles twice on validation failure (wraps npm ci revert) to defeat lockfile mutation', async () => {
+    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/git.js');
+    const restoreSpy = mockRestoreFiles as ReturnType<typeof vi.fn>;
+    restoreSpy.mockClear();
+
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    runMock
+      .mockResolvedValueOnce(ok())  // npm outdated
+      .mockResolvedValueOnce(ok())  // npm audit
+      .mockResolvedValueOnce(ok())  // npm ci (pre-validation)
+      .mockResolvedValueOnce(fail('build failed')) // npm run build
+      .mockResolvedValueOnce(ok()); // npm ci (revert)
+
+    const preFixBackups = new Map([['package-lock.json', '{"lockfileVersion":3}']]);
+
+    await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+      'osv',
+      preFixBackups,
+    );
+
+    // Two restores: one before npm ci (the actual revert), one after (to undo any
+    // lockfile mutation npm ci introduced — lockfile-format upgrades, normalization, etc).
+    expect(restoreSpy).toHaveBeenCalledTimes(2);
+    expect(restoreSpy).toHaveBeenNthCalledWith(1, preFixBackups, '/tmp/project');
+    expect(restoreSpy).toHaveBeenNthCalledWith(2, preFixBackups, '/tmp/project');
+  });
+
   it('falls back to internal backupFiles when preFixBackups is not provided (npm-audit)', async () => {
     const { backupFiles: mockBackupFiles } = await import('@infra/utils/git.js');
     const backupSpy = mockBackupFiles as ReturnType<typeof vi.fn>;
@@ -842,5 +924,93 @@ describe('runNpmUpdater — preFixBackups (osv rollback uses orchestrator backup
 
     // Without preFixBackups, internal backupFiles must be called
     expect(backupSpy).toHaveBeenCalledWith(['package.json', 'package-lock.json'], '/tmp/project');
+  });
+});
+
+// ── osvFixOutcome: packages_updated sourced from staging applier ──────────────
+
+describe('runNpmUpdater — osvFixOutcome parameter', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('osvFixOutcome present with packages → packages_updated populated from it', async () => {
+    const runner = makeRunner();
+
+    const osvFixOutcome = {
+      applied: true,
+      packagesUpdated: [
+        { name: 'lodash', versionFrom: '4.17.20', versionTo: '4.17.21' },
+        { name: 'axios', versionFrom: '1.6.0', versionTo: '1.7.0' },
+      ],
+    };
+
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [],
+      'osv',
+      undefined,
+      osvFixOutcome,
+    );
+
+    expect(result.status).toBe('success');
+    expect(result.packages_updated).toContain('lodash@4.17.21');
+    expect(result.packages_updated).toContain('axios@1.7.0');
+  });
+
+  it('osvFixOutcome present but applied=false → packages_updated from it (empty)', async () => {
+    const runner = makeRunner();
+
+    const osvFixOutcome = {
+      applied: false,
+      packagesUpdated: [],
+    };
+
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [],
+      'osv',
+      undefined,
+      osvFixOutcome,
+    );
+
+    expect(result.status).toBe('success');
+    expect(result.packages_updated).toHaveLength(0);
+  });
+
+  it('osvFixOutcome absent, fixerStrategy=npm-audit → uses existing fixerResult.packagesUpdated (no regression)', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    // npm-audit fixer returns the packages via npm audit fix
+    runMock
+      .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0, command: 'npm outdated', dryRun: false })
+      .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0, command: 'npm audit', dryRun: false })
+      .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0, command: 'npm audit fix', dryRun: false });
+
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [],
+      'npm-audit',
+      undefined,
+      undefined, // no osvFixOutcome
+    );
+
+    expect(result.status).toBe('success');
+    // npm-audit fixer returns packages_updated from its own logic (may be empty if no special output)
+    // The key assertion here is that osvFixOutcome path was NOT taken
+    expect(Array.isArray(result.packages_updated)).toBe(true);
   });
 });

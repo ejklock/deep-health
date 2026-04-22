@@ -230,7 +230,8 @@ describe('runPipUpdater — update failure path', () => {
   it('pip install -U failure => status is "error" and error message contains stderr', async () => {
     const runMock = vi.fn()
       .mockResolvedValueOnce(ok()) // pip list --outdated
-      .mockResolvedValueOnce(fail('Could not find a version that satisfies the requirement'));
+      .mockResolvedValueOnce(fail('Could not find a version that satisfies the requirement'))
+      .mockResolvedValueOnce(ok()); // pip install -r requirements.txt (revert after install failure)
 
     const runner = makeRunner({ run: runMock });
     const result = await runPipUpdater(runner, baseConfig(), baseScan(), '/tmp/project');
@@ -243,12 +244,31 @@ describe('runPipUpdater — update failure path', () => {
   it('pip install -U failure => validations are skipped', async () => {
     const runMock = vi.fn()
       .mockResolvedValueOnce(ok()) // pip list --outdated
-      .mockResolvedValueOnce(fail('conflict'));
+      .mockResolvedValueOnce(fail('conflict'))
+      .mockResolvedValueOnce(ok()); // pip install -r requirements.txt (revert)
 
     const runner = makeRunner({ run: runMock });
     const result = await runPipUpdater(runner, baseConfig(), baseScan(), '/tmp/project');
 
     expect(result.validations[0]!.status).toBe('skipped');
+  });
+
+  it('pip install -U failure => reverts requirements.txt (revert wraps pip install with restore-twice)', async () => {
+    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/git.js');
+    const restoreSpy = mockRestoreFiles as ReturnType<typeof vi.fn>;
+    restoreSpy.mockClear();
+
+    const runMock = vi.fn()
+      .mockResolvedValueOnce(ok())                        // pip list --outdated
+      .mockResolvedValueOnce(fail('resolver error'))      // pip install -U
+      .mockResolvedValueOnce(ok());                       // pip install -r requirements.txt (revert)
+
+    const runner = makeRunner({ run: runMock });
+    const result = await runPipUpdater(runner, baseConfig(), baseScan(), '/tmp/project');
+
+    expect(result.status).toBe('error');
+    // Revert path runs restoreFiles twice (wrap pattern: pre + post pip install).
+    expect(restoreSpy).toHaveBeenCalledTimes(2);
   });
 });
 

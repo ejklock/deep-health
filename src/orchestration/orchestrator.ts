@@ -7,7 +7,6 @@ import type { EngineWarning, ScannerEngineContext } from '@modules/scanner/types
 import { validateGateA, validateEcosystemGate } from '@core/gates/validator';
 import { GateValidationError } from '@core/errors';
 import { logger } from '@infra/utils/logger';
-import { backupFiles } from '@infra/utils/git';
 import { detectGitBranch } from '@infra/utils/git-branch';
 import { NpmDockerRunner, resolveNpmDockerImage } from '@infra/provisioner/npm-runner';
 import { OsvDockerRunner } from '@infra/provisioner/osv-runner';
@@ -27,6 +26,7 @@ import {
 } from '@modules/scanner/index';
 import type { AggregatedScanResult } from '@modules/scanner/index';
 import { runAdvisors } from '@modules/advisor/index';
+import { applyOsvFixViaStaging } from './osv-fix-applier';
 
 export interface OrchestratorOptions {
   configPath: string;
@@ -349,13 +349,13 @@ async function resolvePipContainerRunner(
  * When the effective OSV runner mode is 'docker', returns an OsvContainerCommandRunner
  * that routes osv-scanner commands to an ephemeral OsvDockerRunner container.
  * Returns undefined for 'local' mode or when Docker is not configured.
+ * Always creates a read-only runner (for scan/verify operations).
  */
 function resolveOsvCommandRunner(
   config: ProjectConfig,
   cwd: string,
   fallback: CommandRunner,
   dryRun: boolean,
-  readonly = true,
 ): CommandRunner {
   const osvConfig = config.scanners?.osv;
   const mode = osvConfig?.runner ?? 'docker';
@@ -368,11 +368,10 @@ function resolveOsvCommandRunner(
 
   // docker or auto: use OsvDockerRunner-backed OsvContainerCommandRunner
   const image = osvConfig?.image;
-  const mountMode = readonly ? 'read-only' : 'read-write';
-  const osvDockerRunner = new OsvDockerRunner({ projectDir: cwd, image, readonly });
+  const osvDockerRunner = new OsvDockerRunner({ projectDir: cwd, image, readonly: true });
 
   logger.info(
-    `[OSV runner] Dedicated OSV container runner (mode: ${mode}, mount: ${mountMode}${image ? `, image: ${image}` : ''})`,
+    `[OSV runner] Dedicated OSV container runner (mode: ${mode}, mount: read-only${image ? `, image: ${image}` : ''})`,
   );
 
   return new OsvContainerCommandRunner({
@@ -380,22 +379,6 @@ function resolveOsvCommandRunner(
     fallback,
     dryRun,
   });
-}
-
-/**
- * Run `osv-scanner fix` using the dedicated OSV runner.
- * Best-effort: logs a warning on non-zero exit but does not abort the pipeline.
- */
-async function runOsvFix(osvRunner: CommandRunner, cwd: string, dryRun: boolean, command: string): Promise<void> {
-  if (dryRun) {
-    logger.info(`[DRY-RUN] Would execute: ${command}`);
-    return;
-  }
-  logger.info(`[OSV fix] Applying OSV in-place fix: ${command}`);
-  const result = await osvRunner.run(command, { cwd, stream: true });
-  if (result.exitCode !== 0) {
-    logger.warn(`[OSV fix] osv-scanner fix exited with ${result.exitCode}: ${result.stderr}`);
-  }
 }
 
 /**
@@ -560,22 +543,19 @@ export async function runOrchestrator(
       effectiveRunner = await resolvePipContainerRunner(config, options.cwd, runner, plugin.inferVersion?.bind(plugin));
     }
 
-    // OSV pre-fix preparation (generic, driven by plugin.osvFixSpec)
+    // OSV staging-apply (generic, driven by plugin.osvFixSpec)
     let preFixBackups: Map<string, string> | undefined;
-    if (fixerStrategy === 'osv' && plugin.osvFixSpec) {
-      if (!options.dryRun) {
-        preFixBackups = await backupFiles(plugin.osvFixSpec.backupFiles as string[], options.cwd);
-      }
+    let osvFixOutcome: { applied: boolean; packagesUpdated: Array<{ name: string; versionFrom: string; versionTo: string }> } | undefined;
 
-      const osvFixRunner = resolveOsvCommandRunner(config, options.cwd, runner, runner.dryRun, false);
-      const osvFixMode = config.scanners?.osv?.runner ?? 'docker';
-      if (osvFixMode === 'local') {
-        logger.info('[OSV fix] Using local osv-scanner binary for in-place fix');
-      } else {
-        logger.info('[OSV fix] Using OSV container runner with read-write mount for in-place fix');
-      }
-      const fixCmd = `osv-scanner fix --strategy=in-place -L ${plugin.osvFixSpec.fixLockfile}`;
-      await runOsvFix(osvFixRunner, options.cwd, options.dryRun, fixCmd);
+    if (fixerStrategy === 'osv' && plugin.osvFixSpec) {
+      const fixResult = await applyOsvFixViaStaging({
+        cwd: options.cwd,
+        osvConfig: config.scanners?.osv,
+        osvFixSpec: plugin.osvFixSpec,
+        dryRun: options.dryRun ?? false,
+      });
+      preFixBackups = fixResult.backups;
+      osvFixOutcome = { applied: fixResult.applied, packagesUpdated: fixResult.packagesUpdated };
     }
 
     const updateResult = await plugin.runUpdater({
@@ -587,6 +567,7 @@ export async function runOrchestrator(
       validationCommands,
       fixerStrategy,
       preFixBackups,
+      osvFixOutcome,
     });
 
     // === Post-updater: Breaking packages install (generic, via plugin hook) ===
@@ -612,7 +593,7 @@ export async function runOrchestrator(
         (plugin.postUpdateOsvVerify === 'osv-strategy-only' && fixerStrategy === 'osv'));
 
     if (shouldOsvVerify) {
-      const osvVerifyRunner = resolveOsvCommandRunner(config, options.cwd, runner, false, true);
+      const osvVerifyRunner = resolveOsvCommandRunner(config, options.cwd, runner, false);
       const osvVerifyMode = config.scanners?.osv?.runner ?? 'docker';
       if (osvVerifyMode === 'local') {
         logger.info('[OSV verify] Using local osv-scanner binary for residual verification');

@@ -48,19 +48,25 @@ async function revertPipChanges(
 ): Promise<void> {
   await restoreFiles(backups, cwd);
   logger.info('Running pip install -r requirements.txt to restore dependencies after revert...');
-  const revertResult = await runner.run('pip install -r requirements.txt', { cwd, stream: true });
-  if (revertResult.exitCode !== 0) {
-    logger.error(
-      [
-        'pip install -r requirements.txt (revert) failed!',
-        `  command : ${revertResult.command}`,
-        `  exit    : ${revertResult.exitCode}`,
-        revertResult.stdout ? `  stdout  :\n${revertResult.stdout}` : null,
-        revertResult.stderr ? `  stderr  :\n${revertResult.stderr}` : null,
-      ]
-        .filter(Boolean)
-        .join('\n'),
-    );
+  try {
+    const revertResult = await runner.run('pip install -r requirements.txt', { cwd, stream: true });
+    if (revertResult.exitCode !== 0) {
+      logger.error(
+        [
+          'pip install -r requirements.txt (revert) failed!',
+          `  command : ${revertResult.command}`,
+          `  exit    : ${revertResult.exitCode}`,
+          revertResult.stdout ? `  stdout  :\n${revertResult.stdout}` : null,
+          revertResult.stderr ? `  stderr  :\n${revertResult.stderr}` : null,
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      );
+    }
+  } finally {
+    // Re-restore after pip install in case any tool in the resolver chain rewrote
+    // requirements.txt (pip-tools compile, constraint files, etc).
+    await restoreFiles(backups, cwd);
   }
 }
 
@@ -138,10 +144,15 @@ export async function runPipUpdater(
     logger.info(`Updating packages: ${pkgList}`);
     const updateResult = await runner.run(`pip install -U ${pkgList}`, { cwd, stream: true });
     if (updateResult.exitCode !== 0) {
+      // pip install -U can mutate requirements.txt in projects where a post-hook
+      // or pip-tools compile is wired in, and always mutates the Python env.
+      // Revert to guarantee the working tree and env match the pre-update state.
+      logger.error('pip install -U failed — reverting pip changes...');
+      await revertPipChanges(runner, backups, cwd);
       return {
         ...base,
         status: 'error',
-        validations: [{ name: 'validation', status: 'skipped', detail: 'pip install -U failed — validations not run' }],
+        validations: [{ name: 'validation', status: 'skipped', detail: 'pip install -U failed — changes reverted' }],
         error: `pip install -U failed: ${updateResult.stderr}`,
       };
     }

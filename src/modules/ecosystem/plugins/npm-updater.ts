@@ -10,6 +10,9 @@ import { FIXER_MAP } from '../fixers/index';
 import { runValidations } from '../utils/validation-runner';
 
 const NPM_FILES = ['package.json', 'package-lock.json'];
+// Files osv-scanner fix cannot repair but that may drift during the update flow
+// (postinstall scripts, hybrid yarn+npm projects, etc). Backed up for rollback only.
+const NPM_ADVISOR_FILES = ['yarn.lock'];
 
 async function checkCurrentState(runner: CommandRunner, cwd: string): Promise<void> {
   logger.debug('Running npm outdated and npm audit (informational)...');
@@ -24,23 +27,30 @@ async function revertNpmChanges(
 ): Promise<void> {
   await restoreFiles(backups, cwd);
   logger.info('Running npm ci to restore dependencies after revert...');
-  const revertResult = await runner.run('npm ci', { cwd, stream: true });
-  if (revertResult.exitCode !== 0) {
-    logger.error(
-      [
-        'npm ci (revert) failed!',
-        `  command : ${revertResult.command}`,
-        `  exit    : ${revertResult.exitCode}`,
-        revertResult.stdout ? `  stdout  :\n${revertResult.stdout}` : null,
-        revertResult.stderr ? `  stderr  :\n${revertResult.stderr}` : null,
-      ]
-        .filter(Boolean)
-        .join('\n'),
-    );
-    // Surface to caller so the error is not silently swallowed
-    throw new Error(
-      `npm ci (revert) failed (exit ${revertResult.exitCode}): ${revertResult.stderr || revertResult.stdout || '(no output)'}`,
-    );
+  try {
+    const revertResult = await runner.run('npm ci', { cwd, stream: true });
+    if (revertResult.exitCode !== 0) {
+      logger.error(
+        [
+          'npm ci (revert) failed!',
+          `  command : ${revertResult.command}`,
+          `  exit    : ${revertResult.exitCode}`,
+          revertResult.stdout ? `  stdout  :\n${revertResult.stdout}` : null,
+          revertResult.stderr ? `  stderr  :\n${revertResult.stderr}` : null,
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      );
+      // Surface to caller so the error is not silently swallowed
+      throw new Error(
+        `npm ci (revert) failed (exit ${revertResult.exitCode}): ${revertResult.stderr || revertResult.stdout || '(no output)'}`,
+      );
+    }
+  } finally {
+    // npm ci can mutate package-lock.json (lockfile-format migration or normalization)
+    // even when it exits 0. Re-restore from the in-memory snapshot so the on-disk lockfile
+    // is byte-identical to the pre-update state regardless of what npm did.
+    await restoreFiles(backups, cwd);
   }
 }
 
@@ -53,6 +63,7 @@ export async function runNpmUpdater(
   validationCommands: ValidationCommandConfig[] = [],
   fixerStrategy: FixerStrategyId = 'osv',
   preFixBackups?: Map<string, string>,
+  osvFixOutcome?: { applied: boolean; packagesUpdated: Array<{ name: string; versionFrom: string; versionTo: string }> },
 ): Promise<UpdateResultJson> {
   logger.info('Running npm safe updates...');
 
@@ -91,7 +102,12 @@ export async function runNpmUpdater(
     // This is required for the 'osv' strategy where the orchestrator runs osv-scanner fix
     // before invoking the updater — at that point files are already mutated, so a backup
     // taken here would capture the post-fix state rather than the pre-fix state.
-    const backups = preFixBackups ?? await backupFiles(NPM_FILES, cwd);
+    const primaryBackups = preFixBackups ?? await backupFiles(NPM_FILES, cwd);
+    // Advisor files (e.g. yarn.lock) are never mutated by osv-scanner fix, so backing up
+    // here — after the orchestrator's OSV pre-phase — is safe. We still snapshot them so
+    // a postinstall/resolver side-effect during validation can be rolled back.
+    const advisorBackups = await backupFiles(NPM_ADVISOR_FILES, cwd);
+    const backups = new Map<string, string>([...primaryBackups, ...advisorBackups]);
 
     await checkCurrentState(runner, cwd);
 
@@ -160,9 +176,15 @@ export async function runNpmUpdater(
       };
     }
 
+    // When OSV strategy ran, use the applier's evidence; fall back to fixer result
+    const actualPackagesUpdated =
+      fixerStrategy === 'osv' && osvFixOutcome
+        ? osvFixOutcome.packagesUpdated.map((p) => `${p.name}@${p.versionTo}`)
+        : fixerResult.packagesUpdated;
+
     return {
       ...base,
-      packages_updated: fixerResult.packagesUpdated,
+      packages_updated: actualPackagesUpdated,
       validations: validationResult.entries,
     };
   } catch (err) {

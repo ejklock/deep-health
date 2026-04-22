@@ -14,6 +14,22 @@ import * as gitUtils from '@infra/utils/git';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
+// Mock applyOsvFixViaStaging so integration tests don't need Docker for OSV fix
+vi.mock('@orchestration/osv-fix-applier.js', () => ({
+  applyOsvFixViaStaging: vi.fn().mockResolvedValue({
+    applied: false,
+    packagesUpdated: [],
+    backups: new Map([
+      ['package.json', '{"name":"test"}'],
+      ['package-lock.json', '{"lockfileVersion":3}'],
+    ]),
+    rawFixStdout: '',
+    rawFixStderr: '',
+  }),
+}));
+
+import * as osvFixApplier from '@orchestration/osv-fix-applier.js';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = resolve(__dirname, '../fixtures');
 
@@ -340,7 +356,6 @@ describe('runOrchestrator — full pipeline', () => {
         stdout: scanOutput,
         exitCode: 0,
       },
-      'osv-scanner fix --strategy=in-place -L package-lock.json': { stdout: 'fixed', exitCode: 0 },
       'npm audit': { stdout: '', exitCode: 0 },
       'npm outdated': { stdout: '', exitCode: 0 },
       'npm run build': { stdout: 'build ok', exitCode: 0 },
@@ -348,6 +363,9 @@ describe('runOrchestrator — full pipeline', () => {
       // composer advisor in fixture config
       'composer audit': { stdout: '', exitCode: 0 },
     });
+
+    const applierMock = osvFixApplier.applyOsvFixViaStaging as ReturnType<typeof vi.fn>;
+    applierMock.mockClear();
 
     const result = await runOrchestrator(runner, osvFixerConfig, {
       configPath: 'project-config.yml',
@@ -357,22 +375,21 @@ describe('runOrchestrator — full pipeline', () => {
       scannerRegistry: makeOsvOnlyRegistry(),
     });
 
-    const osvFixIdx = runner.calledCommands.findIndex((c) =>
-      c.includes('osv-scanner fix --strategy=in-place -L package-lock.json'),
-    );
     const npmFixIdx = runner.calledCommands.findIndex((c) => c === 'npm audit fix');
     const verifyIdx = runner.calledCommands.findIndex((c) =>
       c.includes('osv-scanner --lockfile package-lock.json --format json'),
     );
 
     expect(result.updates['npm']).toBeDefined();
-    // osv strategy: osv-scanner fix runs before updater
-    expect(osvFixIdx).toBeGreaterThan(-1);
+    // osv strategy: applyOsvFixViaStaging was called (not runner.calledCommands)
+    expect(applierMock).toHaveBeenCalledTimes(1);
+    expect(applierMock.mock.calls[0]![0]).toMatchObject({
+      osvFixSpec: { fixLockfile: 'package-lock.json' },
+    });
     // osv strategy: npm audit fix does NOT run
     expect(npmFixIdx).toBe(-1);
     // osv strategy: residual verification runs after updater
     expect(verifyIdx).toBeGreaterThan(-1);
-    expect(osvFixIdx).toBeLessThan(verifyIdx);
   });
 
   it('backs up npm files before osv-scanner fix when fixer=osv', async () => {
@@ -416,7 +433,6 @@ describe('runOrchestrator — full pipeline', () => {
         stdout: scanOutput,
         exitCode: 0,
       },
-      'osv-scanner fix --strategy=in-place -L package-lock.json': { stdout: 'fixed', exitCode: 0 },
       'npm audit': { stdout: '', exitCode: 0 },
       'npm outdated': { stdout: '', exitCode: 0 },
       'npm run build': { stdout: 'build ok', exitCode: 0 },
@@ -425,8 +441,8 @@ describe('runOrchestrator — full pipeline', () => {
       'composer audit': { stdout: '', exitCode: 0 },
     });
 
-    const backupSpy = vi.spyOn(gitUtils, 'backupFiles');
-    const runSpy = vi.spyOn(runner, 'run');
+    const applierMock = osvFixApplier.applyOsvFixViaStaging as ReturnType<typeof vi.fn>;
+    applierMock.mockClear();
 
     await runOrchestrator(runner, osvFixerConfig, {
       configPath: 'project-config.yml',
@@ -436,20 +452,16 @@ describe('runOrchestrator — full pipeline', () => {
       scannerRegistry: makeOsvOnlyRegistry(),
     });
 
-    expect(backupSpy).toHaveBeenCalledWith(['package.json', 'package-lock.json'], fixturesDir);
-    expect(backupSpy).toHaveBeenCalledTimes(1);
-
-    const fixCallIndex = runSpy.mock.calls.findIndex(([cmd]) =>
-      String(cmd).includes('osv-scanner fix --strategy=in-place -L package-lock.json'),
-    );
-    expect(fixCallIndex).toBeGreaterThan(-1);
-
-    const backupOrder = backupSpy.mock.invocationCallOrder[0]!;
-    const fixOrder = runSpy.mock.invocationCallOrder[fixCallIndex]!;
-    expect(backupOrder).toBeLessThan(fixOrder);
-
-    runSpy.mockRestore();
-    backupSpy.mockRestore();
+    // applyOsvFixViaStaging is responsible for backups — verify it was called with correct input
+    expect(applierMock).toHaveBeenCalledTimes(1);
+    expect(applierMock.mock.calls[0]![0]).toMatchObject({
+      cwd: fixturesDir,
+      osvFixSpec: {
+        fixLockfile: 'package-lock.json',
+        backupFiles: ['package.json', 'package-lock.json'],
+      },
+      dryRun: false,
+    });
   });
 
   it('applies authorized breaking installs via npm at orchestrator level when fixer=osv', async () => {
@@ -498,7 +510,6 @@ describe('runOrchestrator — full pipeline', () => {
     reg.register(new StubScannerEngine('osv', breakingScan));
 
     const runner = new MockCommandRunner({
-      'osv-scanner fix --strategy=in-place -L package-lock.json': { stdout: 'fixed', exitCode: 0 },
       'npm audit': { stdout: '', exitCode: 0 },
       'npm outdated': { stdout: '', exitCode: 0 },
       'npm ci': { stdout: 'ci ok', exitCode: 0 },
@@ -532,7 +543,7 @@ describe('runOrchestrator — full pipeline', () => {
     expect(installIdx).toBeGreaterThan(buildIdx);
   });
 
-  it('logs local OSV runner usage for fix/verify without container mount claims', async () => {
+  it('logs local OSV runner usage for verify without container mount claims', async () => {
     const config = await loadTestConfig();
     const osvFixerConfig = {
       ...config,
@@ -573,7 +584,6 @@ describe('runOrchestrator — full pipeline', () => {
         stdout: scanOutput,
         exitCode: 0,
       },
-      'osv-scanner fix --strategy=in-place -L package-lock.json': { stdout: 'fixed', exitCode: 0 },
       'npm audit': { stdout: '', exitCode: 0 },
       'npm outdated': { stdout: '', exitCode: 0 },
       'npm run build': { stdout: 'build ok', exitCode: 0 },
@@ -592,16 +602,16 @@ describe('runOrchestrator — full pipeline', () => {
     });
 
     const infoMessages = infoSpy.mock.calls.map((c) => String(c[0]));
-    expect(infoMessages.some((m) => m.includes('[OSV fix] Using local osv-scanner binary for in-place fix'))).toBe(true);
+    // verify still uses local osv-scanner binary for residual scan
     expect(infoMessages.some((m) => m.includes('[OSV verify] Using local osv-scanner binary for residual verification'))).toBe(true);
+    // No rw/ro mount claims (fix now handled via staging temp dir by applyOsvFixViaStaging)
     expect(infoMessages.some((m) => m.includes('read-write mount'))).toBe(false);
-    expect(infoMessages.some((m) => m.includes('read-only mount'))).toBe(false);
     expect(infoMessages.some((m) => m.includes('Dedicated OSV container runner'))).toBe(false);
 
     infoSpy.mockRestore();
   });
 
-  it('logs docker OSV runner usage with rw for fix and ro for verify', async () => {
+  it('logs docker OSV runner usage with ro for verify (fix uses staging temp dir)', async () => {
     const config = await loadTestConfig();
     const osvFixerDockerConfig = {
       ...config,
@@ -662,12 +672,14 @@ describe('runOrchestrator — full pipeline', () => {
     });
 
     const infoMessages = infoSpy.mock.calls.map((c) => String(c[0]));
-    expect(infoMessages.some((m) => m.includes('[OSV fix] Using OSV container runner with read-write mount for in-place fix'))).toBe(true);
+    // Fix now runs via applyOsvFixViaStaging (no rw mount log from orchestrator)
+    // Verify still uses dedicated OSV container runner (read-only)
     expect(infoMessages.some((m) => m.includes('[OSV verify] Using OSV container runner with read-only mount for residual verification'))).toBe(true);
+    expect(infoMessages.some((m) => m.includes('read-write mount'))).toBe(false);
 
     const dedicatedRunnerLogs = infoMessages.filter((m) => m.includes('[OSV runner] Dedicated OSV container runner'));
-    expect(dedicatedRunnerLogs.some((m) => m.includes('mount: read-write'))).toBe(true);
     expect(dedicatedRunnerLogs.some((m) => m.includes('mount: read-only'))).toBe(true);
+    expect(dedicatedRunnerLogs.some((m) => m.includes('mount: read-write'))).toBe(false);
     expect(infoMessages.some((m) => m.includes('local osv-scanner binary'))).toBe(false);
 
     infoSpy.mockRestore();

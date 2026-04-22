@@ -131,6 +131,7 @@ export const npmPlugin: EcosystemPlugin = {
       ctx.validationCommands ?? [],
       ctx.fixerStrategy ?? 'osv',
       ctx.preFixBackups,
+      ctx.osvFixOutcome,
     );
   },
 

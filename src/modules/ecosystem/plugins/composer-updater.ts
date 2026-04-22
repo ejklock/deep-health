@@ -17,6 +17,17 @@ function extractPackageNames(packageRefs: string[]): string[] {
   });
 }
 
+// Shared composer flags for all write-path commands.
+// --no-interaction : no prompts (CI context)
+// --no-scripts     : skip post-install-cmd, post-autoload-dump, post-update-cmd, etc.
+//                    These framework hooks (e.g. Laravel's `artisan package:discover`)
+//                    bootstrap app state that depends on runtime services (db, cache, queue)
+//                    — not available inside a dependency-upgrade flow. Running them here
+//                    turns dep failures into app-bootstrap failures and makes rollback
+//                    noisier. The user's explicit validationCommands can still invoke them
+//                    if needed.
+const COMPOSER_AUTOMATION_FLAGS = '--no-interaction --no-scripts';
+
 async function checkCurrentState(runner: CommandRunner, cwd: string): Promise<void> {
   logger.debug('Running composer outdated --direct (informational)...');
   await runner.run('composer outdated --direct', { cwd });
@@ -29,7 +40,10 @@ async function applyComposerUpdate(
 ): Promise<CommandResult> {
   const pkgList = packageNames.join(' ');
   logger.info(`Updating packages: ${pkgList}`);
-  return runner.run(`composer update ${pkgList} --with-all-dependencies --no-interaction`, { cwd, stream: true });
+  return runner.run(
+    `composer update ${pkgList} --with-all-dependencies ${COMPOSER_AUTOMATION_FLAGS}`,
+    { cwd, stream: true },
+  );
 }
 
 async function revertComposerChanges(
@@ -38,7 +52,13 @@ async function revertComposerChanges(
   cwd: string,
 ): Promise<void> {
   await restoreFiles(backups, cwd);
-  await runner.run('composer install --no-interaction', { cwd });
+  try {
+    await runner.run(`composer install ${COMPOSER_AUTOMATION_FLAGS}`, { cwd });
+  } finally {
+    // composer install rewrites composer.lock on any drift; re-restore from the
+    // in-memory snapshot so the on-disk lockfile is byte-identical to pre-update.
+    await restoreFiles(backups, cwd);
+  }
 }
 
 export async function runComposerUpdater(
@@ -113,10 +133,16 @@ export async function runComposerUpdater(
 
     const updateResult = await applyComposerUpdate(runner, packageNamesToUpdate, cwd);
     if (updateResult.exitCode !== 0) {
+      // composer update may fail AFTER writing composer.lock (post-autoload-dump
+      // scripts, e.g. Laravel's `artisan package:discover`, run at the end and can
+      // return non-zero even though the lockfile is already on disk). Revert so
+      // the working tree is left byte-identical to the pre-update state.
+      logger.error('composer update failed — reverting Composer changes...');
+      await revertComposerChanges(runner, backups, cwd);
       return {
         ...base,
         status: 'error',
-        validations: [{ name: 'validation', status: 'skipped', detail: 'composer update failed — validations not run' }],
+        validations: [{ name: 'validation', status: 'skipped', detail: 'composer update failed — changes reverted' }],
         error: `composer update failed: ${updateResult.stderr}`,
       };
     }

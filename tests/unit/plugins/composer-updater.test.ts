@@ -271,6 +271,56 @@ describe('runComposerUpdater — update failure path', () => {
 
     expect(result.validations[0]!.name).toBe('validation');
   });
+
+  it('composer update failure => reverts composer.json/composer.lock (composer.lock may have been written before post-script failure)', async () => {
+    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/git.js');
+    const restoreSpy = mockRestoreFiles as ReturnType<typeof vi.fn>;
+    restoreSpy.mockClear();
+
+    const runMock = vi.fn()
+      .mockResolvedValueOnce(ok())                           // composer outdated --direct
+      .mockResolvedValueOnce(fail('post-autoload-dump hook failed')) // composer update
+      .mockResolvedValueOnce(ok());                          // composer install (revert)
+
+    const runner = makeRunner({ run: runMock });
+    const result = await runComposerUpdater(runner, baseConfig(), baseScan(), '/tmp/project');
+
+    expect(result.status).toBe('error');
+    // Revert must have been invoked — restoreFiles is called twice (wrap pattern: pre + post install).
+    expect(restoreSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ── Composer automation flags (no scripts / no interaction) ──────────────────
+
+describe('runComposerUpdater — automation flags', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('composer update command uses --no-scripts to avoid framework hooks (Laravel artisan, etc.)', async () => {
+    const runMock = vi.fn().mockResolvedValue(ok());
+    const runner = makeRunner({ run: runMock });
+
+    await runComposerUpdater(runner, baseConfig({ testCommand: 'phpunit' }), baseScan(), '/tmp/project');
+
+    const updateCall = runMock.mock.calls.find((c: unknown[]) => String(c[0]).startsWith('composer update'));
+    expect(updateCall).toBeDefined();
+    expect(String(updateCall![0])).toContain('--no-scripts');
+    expect(String(updateCall![0])).toContain('--no-interaction');
+  });
+
+  it('composer install (revert) uses --no-scripts to match update semantics', async () => {
+    const runMock = vi.fn()
+      .mockResolvedValueOnce(ok())                          // composer outdated
+      .mockResolvedValueOnce(fail('hook failed'))           // composer update (fails)
+      .mockResolvedValueOnce(ok());                         // composer install (revert)
+
+    const runner = makeRunner({ run: runMock });
+    await runComposerUpdater(runner, baseConfig(), baseScan(), '/tmp/project');
+
+    const installCall = runMock.mock.calls.find((c: unknown[]) => String(c[0]).startsWith('composer install'));
+    expect(installCall).toBeDefined();
+    expect(String(installCall![0])).toContain('--no-scripts');
+  });
 });
 
 // ── Validation commands ───────────────────────────────────────────────────────
