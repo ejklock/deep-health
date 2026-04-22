@@ -14,6 +14,24 @@ vi.mock('@infra/utils/logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+// npm-audit fixer reads package-lock.json before and after running npm audit fix.
+// Provide a default valid lockfile so tests using the npm-audit strategy do not abort early.
+const { mockReadFile } = vi.hoisted(() => ({ mockReadFile: vi.fn() }));
+
+const DEFAULT_LOCKFILE = JSON.stringify({
+  name: 'test',
+  lockfileVersion: 2,
+  dependencies: { lodash: { version: '4.17.20' } },
+  packages: {
+    '': { name: 'test', version: '1.0.0' },
+    'node_modules/lodash': { version: '4.17.20' },
+  },
+});
+
+vi.mock('node:fs/promises', () => ({
+  readFile: mockReadFile,
+}));
+
 // scanner.emptyEcosystem is used when 'npm' key is absent from scanResult
 vi.mock('@core/types/scan.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@core/types/scan.js')>();
@@ -276,6 +294,7 @@ describe('runNpmUpdater — OSV-only auto-safe remediation', () => {
 describe('runNpmUpdater — breaking package installs (authorized)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockReadFile.mockResolvedValue(DEFAULT_LOCKFILE);
   });
 
   it('does NOT install breaking packages when fixer=osv (orchestrator responsibility)', async () => {
@@ -335,6 +354,7 @@ describe('runNpmUpdater — breaking package installs (authorized)', () => {
 describe('runNpmUpdater — build validation via validationCommands', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockReadFile.mockResolvedValue(DEFAULT_LOCKFILE);
   });
 
   it('runs npm ci before validation commands when validations are configured', async () => {
@@ -489,6 +509,7 @@ describe('runNpmUpdater — build validation via validationCommands', () => {
 describe('runNpmUpdater — fixer strategy dispatch', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockReadFile.mockResolvedValue(DEFAULT_LOCKFILE);
   });
 
   it('uses npm audit fix when fixerStrategy is "npm-audit"', async () => {
@@ -748,6 +769,7 @@ describe('runNpmUpdater — revert npm install failure diagnostics (regression)'
 describe('runNpmUpdater — preFixBackups (osv rollback uses orchestrator backup)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockReadFile.mockResolvedValue(DEFAULT_LOCKFILE);
   });
 
   it('uses preFixBackups instead of calling backupFiles when provided', async () => {
@@ -932,6 +954,7 @@ describe('runNpmUpdater — preFixBackups (osv rollback uses orchestrator backup
 describe('runNpmUpdater — osvFixOutcome parameter', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockReadFile.mockResolvedValue(DEFAULT_LOCKFILE);
   });
 
   it('osvFixOutcome present with packages → packages_updated populated from it', async () => {
