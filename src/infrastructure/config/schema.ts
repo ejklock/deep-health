@@ -161,11 +161,49 @@ const PipRunnerConfigSchema = z.object({
   runtime_version: z.string().optional(),
 }).strict();
 
+/** composer runner config */
+const ComposerRunnerConfigSchema = z.object({
+  /**
+   * Runner selection (default: 'docker'):
+   * - 'docker' (default): run composer via an ephemeral PHP Docker container.
+   * - 'local': use the locally installed composer binary. ⚠ Emits a warning.
+   * - 'auto': try local composer first; fall back to Docker. ⚠ Deprecated escape hatch — emits a warning.
+   */
+  mode: z.enum(['auto', 'local', 'docker']).default('docker'),
+  /**
+   * Docker image to use when mode is 'docker'.
+   * Defaults to a version-resolved image (e.g. 'php:8.2-cli'), falling back to 'composer:2'.
+   * Takes precedence over runtime_version.
+   */
+  image: z.string().optional(),
+  /**
+   * PHP runtime version hint used to resolve the Docker image when `image` is not set.
+   * Example: '8.2', '8.2.1'.
+   * Overrides the version inferred from project files (.php-version / composer.json#require.php).
+   * Set by `deep-health init` when a PHP version can be inferred automatically.
+   */
+  runtime_version: z.string().optional(),
+  /**
+   * Image provisioning strategy when mode is 'docker'.
+   * - 'pull' (default): use the resolved base image as-is.
+   * - 'build' (Phase 2 — NOT YET IMPLEMENTED): build a custom image with framework PHP extensions.
+   */
+  image_strategy: z.enum(['pull', 'build']).default('pull'),
+  /**
+   * PHP framework profile for extension selection (used when image_strategy='build').
+   * - 'none' (default): no framework-specific extensions.
+   * - 'laravel' | 'symfony' | 'wordpress': installs profile extension list.
+   * Phase 1: persisted to config only. Phase 2: consumed by image builder.
+   */
+  framework_profile: z.enum(['none', 'laravel', 'symfony', 'wordpress']).default('none'),
+}).strict();
+
 const ScannersConfigSchema = z.object({
   sonarqube: SonarQubeConfigSchema.optional(),
   osv: OsvScannerConfigSchema.optional(),
   npm: NpmRunnerConfigSchema.optional(),
   pip: PipRunnerConfigSchema.optional(),
+  composer: ComposerRunnerConfigSchema.optional(),
 }).strict();
 
 const CloudStorageConfigSchema = z.object({

@@ -11,9 +11,12 @@ import { detectGitBranch } from '@infra/utils/git-branch';
 import { NpmDockerRunner, resolveNpmDockerImage } from '@infra/provisioner/npm-runner';
 import { OsvDockerRunner } from '@infra/provisioner/osv-runner';
 import { PipDockerRunner, resolvePipDockerImage } from '@infra/provisioner/pip-runner';
+import { ComposerDockerRunner } from '@infra/provisioner/composer-runner';
+import { resolveComposerDockerImage } from '@infra/provisioner/php-image-resolver';
 import { NpmContainerCommandRunner } from '@infra/executor/npm-container-runner';
 import { OsvContainerCommandRunner } from '@infra/executor/osv-container-runner';
 import { PipContainerCommandRunner } from '@infra/executor/pip-container-runner';
+import { ComposerContainerCommandRunner } from '@infra/executor/composer-container-runner';
 // Ecosystem registry — plugins are registered via modules/ecosystem/index.ts side-effects
 import { EcosystemRegistry, defaultRegistry } from '@modules/ecosystem/index';
 // Scanner registry — engines are bootstrapped lazily via bootstrapDefaultEngines()
@@ -344,6 +347,78 @@ async function resolvePipContainerRunner(
 }
 
 /**
+ * Resolve the composer container runner based on config.
+ * Dispatched by plugin.runtimeContainer === 'composer-docker'.
+ *
+ * - 'docker' (default): create ComposerDockerRunner using inferred/configured PHP version.
+ * - 'local': use local composer (return base runner); emit a warning.
+ * - 'auto': fall through to docker; emit a deprecation warning.
+ *
+ * @param inferVersion Optional function to infer PHP version from project files.
+ *                     Provided by the orchestrator from the composer plugin's inferVersion hook.
+ */
+async function resolveComposerContainerRunner(
+  config: ProjectConfig,
+  cwd: string,
+  runner: CommandRunner,
+  inferVersion?: (cwd: string) => Promise<string | undefined>,
+): Promise<CommandRunner> {
+  const composerRunnerConfig = config.scanners?.composer;
+  const mode = composerRunnerConfig?.mode ?? 'docker';
+
+  if (mode === 'local') {
+    logger.warn(
+      '[composer runner] mode=local: using local composer/php binary. ' +
+      'Docker (mode: docker) is the recommended default for reproducible, ' +
+      'platform-independent composer updates. Set scanners.composer.mode to "docker" in your config.',
+    );
+    return runner;
+  }
+
+  if (mode === 'auto') {
+    logger.warn(
+      '[composer runner] mode=auto is a deprecated escape hatch. ' +
+      'Docker (mode: docker) is now the default for composer. ' +
+      'Set scanners.composer.mode explicitly to "docker" or "local" in your config.',
+    );
+    // auto: fall through to docker (docker is the preferred path)
+  }
+
+  // Resolve explicit image or infer from PHP version
+  let image = composerRunnerConfig?.image;
+  if (!image) {
+    // Precedence for PHP version:
+    // 1) scanners.composer.runtime_version (explicit config)
+    // 2) inferVersion() from the composer plugin (project file inference)
+    // 3) resolveComposerDockerImage fallback → 'composer:2'
+    let phpVersion: string | undefined = composerRunnerConfig?.runtime_version;
+
+    if (!phpVersion && inferVersion) {
+      try {
+        phpVersion = await inferVersion(cwd);
+        if (phpVersion) {
+          logger.info(`[composer runner] Inferred PHP version: ${phpVersion} → resolving Docker image`);
+        }
+      } catch {
+        // inferVersion must never throw — defensive guard
+      }
+    } else if (phpVersion) {
+      logger.info(`[composer runner] Using configured runtime_version: ${phpVersion} → resolving Docker image`);
+    }
+
+    image = resolveComposerDockerImage(phpVersion);
+  }
+
+  logger.info(`[composer runner] Using Docker image: ${image}`);
+  const composerDockerRunner = new ComposerDockerRunner({ projectDir: cwd, image });
+  return new ComposerContainerCommandRunner({
+    container: composerDockerRunner,
+    fallback: runner,
+    dryRun: runner.dryRun,
+  });
+}
+
+/**
  * Resolve a dedicated CommandRunner for OSV commands based on config.
  *
  * When the effective OSV runner mode is 'docker', returns an OsvContainerCommandRunner
@@ -541,6 +616,8 @@ export async function runOrchestrator(
       effectiveRunner = await resolveNpmContainerRunner(config, options.cwd, runner, plugin.inferVersion?.bind(plugin));
     } else if (plugin.runtimeContainer === 'pip-docker') {
       effectiveRunner = await resolvePipContainerRunner(config, options.cwd, runner, plugin.inferVersion?.bind(plugin));
+    } else if (plugin.runtimeContainer === 'composer-docker') {
+      effectiveRunner = await resolveComposerContainerRunner(config, options.cwd, runner, plugin.inferVersion?.bind(plugin));
     }
 
     // OSV staging-apply (generic, driven by plugin.osvFixSpec)

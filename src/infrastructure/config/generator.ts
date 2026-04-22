@@ -52,6 +52,19 @@ export interface GenerateConfigOptions {
    * Example: '3.11', '3.11.2'
    */
   pipRuntimeVersion?: string;
+  /**
+   * Inferred PHP runtime version to persist into `scanners.composer.runtime_version`.
+   * When set, the generated config includes this value so the orchestrator can use it
+   * for Docker image resolution without running inferVersion() at scan time.
+   * Example: '8.2', '8.2.1'
+   */
+  composerRuntimeVersion?: string;
+  /**
+   * PHP framework profile to persist into `scanners.composer.framework_profile`.
+   * When set (and not 'none'), the generated config includes this value for Phase 2.
+   * Default: 'none' (stock php-cli image, no framework extensions).
+   */
+  composerFrameworkProfile?: 'none' | 'laravel' | 'symfony' | 'wordpress';
 }
 
 const compiled = Handlebars.compile(configTemplate, { noEscape: true });
@@ -185,6 +198,11 @@ export function generateConfigYaml(opts: GenerateConfigOptions = {}): string {
     outputsDir,
     npmRuntimeVersion: opts.npmRuntimeVersion,
     pipRuntimeVersion: opts.pipRuntimeVersion,
+    composerRuntimeVersion: opts.composerRuntimeVersion,
+    composerFrameworkProfile: opts.composerFrameworkProfile && opts.composerFrameworkProfile !== 'none'
+      ? opts.composerFrameworkProfile
+      : undefined,
+    hasAnyScannerRuntime: !!(opts.npmRuntimeVersion || opts.pipRuntimeVersion || opts.composerRuntimeVersion),
   });
 }
 

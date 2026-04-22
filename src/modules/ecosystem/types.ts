@@ -87,7 +87,7 @@ export interface EcosystemPlugin {
    * The orchestrator uses this to resolve an effective CommandRunner.
    * Undefined means no special runtime wrapping — use the base runner.
    */
-  readonly runtimeContainer?: 'npm-docker' | 'pip-docker';
+  readonly runtimeContainer?: 'npm-docker' | 'pip-docker' | 'composer-docker';
 
   /**
    * Declarative spec for the OSV in-place fix pre-phase.

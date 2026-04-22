@@ -142,6 +142,34 @@ describe('generateConfigYaml', () => {
     expect(parsed.scanners?.npm?.runtime_version).toBe('20');
     expect(parsed.scanners?.pip?.runtime_version).toBe('3.11');
   });
+
+  it('emits scanners.composer block when composerRuntimeVersion provided (without SonarQube)', () => {
+    const yaml = generateConfigYaml({
+      composerRuntimeVersion: '8.2',
+      ecosystemConfigs: [{ id: 'composer' }],
+    });
+    const parsed = parse(yaml) as { scanners?: { composer?: { runtime_version?: string } } };
+    expect(parsed.scanners?.composer?.runtime_version).toBe('8.2');
+  });
+
+  it('emits npm + pip + composer scanner runtime blocks together', () => {
+    const yaml = generateConfigYaml({
+      npmRuntimeVersion: '20',
+      pipRuntimeVersion: '3.11',
+      composerRuntimeVersion: '8.3',
+      ecosystemConfigs: [{ id: 'npm' }, { id: 'pip' }, { id: 'composer' }],
+    });
+    const parsed = parse(yaml) as {
+      scanners?: {
+        npm?: { runtime_version?: string };
+        pip?: { runtime_version?: string };
+        composer?: { runtime_version?: string };
+      };
+    };
+    expect(parsed.scanners?.npm?.runtime_version).toBe('20');
+    expect(parsed.scanners?.pip?.runtime_version).toBe('3.11');
+    expect(parsed.scanners?.composer?.runtime_version).toBe('8.3');
+  });
 });
 
 describe('normalizeSonarProjectKey', () => {

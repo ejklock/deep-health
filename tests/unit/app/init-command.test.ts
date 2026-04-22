@@ -95,6 +95,37 @@ describe('runInitCommand — non-interactive', () => {
     const npmEntry = call.ecosystemConfigs?.find((e) => e.id === 'npm');
     expect(npmEntry?.version).toBeUndefined();
   });
+
+  it('passes inferred composer PHP version to composerRuntimeVersion in non-interactive mode', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const mockReadFile = vi.mocked(readFile);
+
+    mockReadFile.mockImplementation(async (path: any) => {
+      const p = String(path);
+      if (p.endsWith('package.json')) {
+        return JSON.stringify({ engines: { node: '>=20' } }) as any;
+      }
+      if (p.endsWith('composer.json')) {
+        return JSON.stringify({ require: { php: '^8.2' } }) as any;
+      }
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    });
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      projectName: 'PHP Versioned Project',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    expect(generateConfigYaml).toHaveBeenCalledWith(
+      expect.objectContaining({
+        composerRuntimeVersion: '8.2',
+      }),
+    );
+  });
 });
 
 // ─── Interactive mode ─────────────────────────────────────────────────────────

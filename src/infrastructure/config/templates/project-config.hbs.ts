@@ -94,26 +94,37 @@ scanners:
     # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
     # image: 'python:{{pipRuntimeVersion}}-slim'  # optional — override resolved Python image
 {{/if}}
+{{#if composerRuntimeVersion}}
+  composer:
+    runtime_version: '{{composerRuntimeVersion}}'{{#if composerFrameworkProfile}}
+    framework_profile: '{{composerFrameworkProfile}}'{{/if}}
+    # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
+    # image: 'php:{{composerRuntimeVersion}}-cli'  # optional — override resolved PHP image
+    # image_strategy: 'pull'           # optional — 'pull' (default) | 'build' (Phase 2)
+{{/if}}
 {{else}}
-{{#if npmRuntimeVersion}}
+{{#if hasAnyScannerRuntime}}
 scanners:
+{{#if npmRuntimeVersion}}
   npm:
     runtime_version: '{{npmRuntimeVersion}}'
     # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
     # image: 'node:{{npmRuntimeVersion}}'  # optional — override resolved Node image
+{{/if}}
 {{#if pipRuntimeVersion}}
   pip:
     runtime_version: '{{pipRuntimeVersion}}'
     # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
     # image: 'python:{{pipRuntimeVersion}}-slim'  # optional — override resolved Python image
 {{/if}}
-{{else}}
-{{#if pipRuntimeVersion}}
-scanners:
-  pip:
-    runtime_version: '{{pipRuntimeVersion}}'
+{{#if composerRuntimeVersion}}
+  composer:
+    runtime_version: '{{composerRuntimeVersion}}'{{#if composerFrameworkProfile}}
+    framework_profile: '{{composerFrameworkProfile}}'{{/if}}
     # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
-    # image: 'python:{{pipRuntimeVersion}}-slim'  # optional — override resolved Python image
+    # image: 'php:{{composerRuntimeVersion}}-cli'  # optional — override resolved PHP image
+    # image_strategy: 'pull'           # optional — 'pull' (default) | 'build' (Phase 2)
+{{/if}}
 {{else}}
 # scanners:                              # optional — additional scanner engines
 #   sonarqube:
@@ -146,7 +157,17 @@ scanners:
 #     runtime_version: '3.11'           # optional — Python version for Docker image resolution
 #                                        #   Overrides inferVersion(); ignored when 'image' is set.
 #     image: 'python:3.11-slim'         # optional — override resolved Python image
-{{/if}}
+#   composer:
+#     mode: 'docker'                     # 'docker' (default) | 'local' | 'auto'
+#                                        #   docker — run composer inside an ephemeral PHP container (default)
+#                                        #   local  — use the locally installed composer/php binary ⚠ warns
+#                                        #   auto   — deprecated escape hatch ⚠ warns
+#     runtime_version: '8.2'           # optional — PHP version for Docker image resolution
+#                                        #   Overrides inferVersion(); ignored when 'image' is set.
+#     image: 'php:8.2-cli'              # optional — override resolved PHP image
+#     framework_profile: 'none'         # optional — 'none' (default) | 'laravel' | 'symfony' | 'wordpress'
+#                                        #   Phase 2: used with image_strategy='build' to install extensions.
+#     image_strategy: 'pull'            # optional — 'pull' (default) | 'build' (Phase 2 — not yet implemented)
 {{/if}}
 {{/if}}
 

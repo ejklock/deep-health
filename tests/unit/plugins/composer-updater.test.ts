@@ -228,8 +228,9 @@ describe('runComposerUpdater — update failure path', () => {
   });
 
   it('composer update failure => status is "error" and error message contains stderr', async () => {
-    // Sequence: composer outdated (ok), composer update (FAIL)
+    // Sequence: composer install (env-check ok), composer outdated (ok), composer update (FAIL)
     const runMock = vi.fn()
+      .mockResolvedValueOnce(ok()) // composer install --no-interaction --no-scripts (env-check)
       .mockResolvedValueOnce(ok()) // composer outdated --direct
       .mockResolvedValueOnce(fail('Your requirements could not be resolved'));
 
@@ -244,6 +245,7 @@ describe('runComposerUpdater — update failure path', () => {
 
   it('composer update failure => validation is not empty and has meaningful detail', async () => {
     const runMock = vi.fn()
+      .mockResolvedValueOnce(ok()) // composer install (env-check)
       .mockResolvedValueOnce(ok()) // composer outdated --direct
       .mockResolvedValueOnce(fail('conflict detected'));
 
@@ -262,6 +264,7 @@ describe('runComposerUpdater — update failure path', () => {
 
   it('composer update failure => validation name is "validation"', async () => {
     const runMock = vi.fn()
+      .mockResolvedValueOnce(ok()) // composer install (env-check)
       .mockResolvedValueOnce(ok()) // composer outdated --direct
       .mockResolvedValueOnce(fail('version conflict'));
 
@@ -278,6 +281,7 @@ describe('runComposerUpdater — update failure path', () => {
     restoreSpy.mockClear();
 
     const runMock = vi.fn()
+      .mockResolvedValueOnce(ok())                           // composer install (env-check)
       .mockResolvedValueOnce(ok())                           // composer outdated --direct
       .mockResolvedValueOnce(fail('post-autoload-dump hook failed')) // composer update
       .mockResolvedValueOnce(ok());                          // composer install (revert)
@@ -310,6 +314,7 @@ describe('runComposerUpdater — automation flags', () => {
 
   it('composer install (revert) uses --no-scripts to match update semantics', async () => {
     const runMock = vi.fn()
+      .mockResolvedValueOnce(ok())                          // composer install (env-check)
       .mockResolvedValueOnce(ok())                          // composer outdated
       .mockResolvedValueOnce(fail('hook failed'))           // composer update (fails)
       .mockResolvedValueOnce(ok());                         // composer install (revert)
@@ -332,6 +337,7 @@ describe('runComposerUpdater — validation commands', () => {
 
   it('runs validation command after successful update', async () => {
     const runMock = vi.fn()
+      .mockResolvedValueOnce(ok()) // composer install (env-check)
       .mockResolvedValueOnce(ok()) // composer outdated
       .mockResolvedValueOnce(ok()) // composer update
       .mockResolvedValueOnce(ok('Tests passed')); // php artisan test
@@ -358,6 +364,7 @@ describe('runComposerUpdater — validation commands', () => {
 
   it('validation failure => status is "error" and changes are reverted', async () => {
     const runMock = vi.fn()
+      .mockResolvedValueOnce(ok()) // composer install (env-check)
       .mockResolvedValueOnce(ok()) // composer outdated
       .mockResolvedValueOnce(ok()) // composer update
       .mockResolvedValueOnce({ stdout: '', stderr: 'test fail', exitCode: 1, command: '', dryRun: false }) // php artisan test (FAIL)

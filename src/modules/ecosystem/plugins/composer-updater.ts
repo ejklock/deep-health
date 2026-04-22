@@ -105,6 +105,7 @@ export async function runComposerUpdater(
   }
 
   if (runner.dryRun) {
+    logger.info(`[DRY-RUN] Would execute: composer install --no-interaction --no-scripts (env-check)`);
     logger.info(`[DRY-RUN] Would execute: composer update ${packageNamesToUpdate.join(' ')} --no-interaction`);
     if (validationCommands.length > 0) {
       for (const vc of validationCommands) {
@@ -127,6 +128,24 @@ export async function runComposerUpdater(
   }
 
   try {
+    // ── Environment check: verify PHP + composer are functional BEFORE any mutation ──
+    // Runs `composer install --no-interaction --no-scripts` to validate the environment.
+    // Returns a structured error result (not a thrown exception) so the caller can
+    // surface the diagnostic cleanly without aborting the pipeline unexpectedly.
+    logger.info('[composer env-check] Running composer install --no-interaction --no-scripts to verify environment...');
+    const envCheckResult = await runner.run(`composer install ${COMPOSER_AUTOMATION_FLAGS}`, { cwd });
+    if (envCheckResult.exitCode !== 0) {
+      const detail = envCheckResult.stderr || envCheckResult.stdout || '(no output)';
+      logger.error('[composer env-check] Environment check failed — aborting update.');
+      return {
+        ...base,
+        status: 'error',
+        validations: [{ name: 'validation', status: 'skipped', detail: 'Composer environment check failed — skipped' }],
+        error: `Composer environment mismatch: composer install exited with code ${envCheckResult.exitCode}.\n${detail}`,
+      };
+    }
+    logger.info('[composer env-check] Environment check passed.');
+
     const backups = await backupFiles(COMPOSER_FILES, cwd);
 
     await checkCurrentState(runner, cwd);

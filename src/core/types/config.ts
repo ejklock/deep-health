@@ -201,6 +201,64 @@ export interface SonarQubeConfig {
   ce_task_timeout_seconds?: number;
 }
 
+/** Runner selection for composer commands */
+export type ComposerRunnerMode = 'auto' | 'docker' | 'local';
+
+/**
+ * Image provisioning strategy for composer Docker mode.
+ * - 'pull' (default): pull a pre-built php-cli or composer:2 image as-is.
+ * - 'build' (Phase 2 — not yet implemented): build a custom image with framework
+ *   extensions from PHP_FRAMEWORK_PROFILES[framework_profile] installed on top of
+ *   the resolved base image. Enabling this in Phase 1 has no effect.
+ */
+export type ComposerImageStrategy = 'pull' | 'build';
+
+/** Composer runner configuration */
+export interface ComposerRunnerConfig {
+  /**
+   * Runner selection strategy (default: 'docker').
+   * - 'docker': run composer via an ephemeral PHP Docker container. ← DEFAULT
+   * - 'local':  use the locally installed composer binary. ⚠ emits a warning.
+   * - 'auto':   try local composer first; fall back to Docker. ⚠ DEPRECATED escape hatch — emits a warning.
+   */
+  mode?: ComposerRunnerMode;
+  /**
+   * Docker image to use when mode is 'docker'.
+   * When absent, the image is resolved from the inferred/configured PHP version
+   * (e.g. PHP 8.2 → 'php:8.2-cli').  Falls back to 'composer:2'.
+   * Takes precedence over `runtime_version`.
+   */
+  image?: string;
+  /**
+   * PHP runtime version to use when resolving the Docker image.
+   * Example: '8.2', '8.2.1'.
+   * When set, the image is resolved as `php:<major>.<minor>-cli` (e.g. '8.2' → 'php:8.2-cli').
+   * Overrides the version inferred from project files.
+   * Only used when `image` is not set.
+   * Set by `deep-health init` when a PHP version can be inferred from .php-version / composer.json.
+   */
+  runtime_version?: string;
+  /**
+   * Image provisioning strategy when mode is 'docker'.
+   * - 'pull' (default): use the resolved base image as-is.
+   * - 'build' (Phase 2 — NOT YET IMPLEMENTED): build a custom image with
+   *   framework-specific PHP extensions installed on top of the base image.
+   *   Setting this to 'build' in Phase 1 is accepted by the schema but has
+   *   no effect — a Phase-2 TODO marker will emit a warning when it is reached.
+   */
+  image_strategy?: ComposerImageStrategy;
+  /**
+   * PHP framework profile used for extension selection when image_strategy='build'.
+   * - 'none' (default): no framework-specific extensions.
+   * - 'laravel' | 'symfony' | 'wordpress': installs the extension list from
+   *   PHP_FRAMEWORK_PROFILES for the given framework.
+   *
+   * Phase 1: persisted to config and exposed via `deep-health init` prompt.
+   * Phase 2: consumed by the image builder when image_strategy='build'.
+   */
+  framework_profile?: 'none' | 'laravel' | 'symfony' | 'wordpress';
+}
+
 /** Runner selection for pip commands */
 export type PipRunnerMode = 'auto' | 'docker' | 'local';
 
@@ -235,6 +293,7 @@ export interface ScannersConfig {
   osv?: OsvScannerConfig;
   npm?: NpmRunnerConfig;
   pip?: PipRunnerConfig;
+  composer?: ComposerRunnerConfig;
 }
 
 export interface SafeUpdatePolicy {
