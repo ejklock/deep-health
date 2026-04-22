@@ -61,6 +61,32 @@ function makeInput(overrides: Partial<Parameters<typeof applyOsvFixViaStaging>[0
   };
 }
 
+/**
+ * Build a syntactically valid package-lock.json content string whose tree
+ * contains the given `{ name, version }` pairs. Used so the applier's lockfile
+ * inspector can verify claims against a realistic shape.
+ */
+function buildLockfile(pairs: Array<{ name: string; version: string }>, lockfileVersion = 2): string {
+  const dependencies: Record<string, { version: string }> = {};
+  const packages: Record<string, { name?: string; version: string }> = {
+    '': { name: 'sample', version: '1.0.0' },
+  };
+  for (const { name, version } of pairs) {
+    dependencies[name] = { version };
+    packages[`node_modules/${name}`] = { version };
+  }
+  return JSON.stringify({ name: 'sample', lockfileVersion, dependencies, packages });
+}
+
+function osvFixJsonFor(updates: Array<{ name: string; versionFrom: string; versionTo: string }>): string {
+  return JSON.stringify({ patches: [{ packageUpdates: updates }] });
+}
+
+function hostWriteCall(): [string, string, string] | undefined {
+  const allCalls = mockWriteFile.mock.calls as [string, string, string][];
+  return allCalls.find(([p]) => p === '/project/package-lock.json');
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('applyOsvFixViaStaging — dryRun=true', () => {
@@ -72,20 +98,23 @@ describe('applyOsvFixViaStaging — dryRun=true', () => {
     expect(result.backups.size).toBe(0);
     expect(result.rawFixStdout).toBe('');
     expect(result.rawFixStderr).toBe('');
-    // No fs operations should have been called
     expect(mockMkdtemp).not.toHaveBeenCalled();
     expect(mockOsvDockerRunnerRun).not.toHaveBeenCalled();
   });
 });
 
-describe('applyOsvFixViaStaging — parseOsvFixJson', () => {
+describe('applyOsvFixViaStaging — happy path with verification', () => {
+  const originalLockfile = buildLockfile([
+    { name: 'lodash', version: '4.17.20' },
+    { name: 'axios', version: '1.6.0' },
+  ]);
+
   beforeEach(() => {
     vi.clearAllMocks();
-    // Setup standard mocks for non-dry-run path
     (gitUtils.backupFiles as ReturnType<typeof vi.fn>).mockResolvedValue(
       new Map([
         ['package.json', '{"name":"test"}'],
-        ['package-lock.json', 'original-lockfile-content'],
+        ['package-lock.json', originalLockfile],
       ]),
     );
     mockMkdtemp.mockResolvedValue('/tmp/deep-health-osv-fix-abc123');
@@ -93,24 +122,24 @@ describe('applyOsvFixViaStaging — parseOsvFixJson', () => {
     mockRm.mockResolvedValue(undefined);
   });
 
-  it('valid JSON with patches → returns correct packagesUpdated', async () => {
-    const fixOutput = JSON.stringify({
-      patches: [
-        {
-          packageUpdates: [
-            { name: 'lodash', versionFrom: '4.17.20', versionTo: '4.17.21' },
-            { name: 'axios', versionFrom: '1.6.0', versionTo: '1.7.0' },
-          ],
-        },
-      ],
+  it('JSON patches match staging lockfile exactly → all verified, host write performed', async () => {
+    const fixedContent = buildLockfile([
+      { name: 'lodash', version: '4.17.21' },
+      { name: 'axios', version: '1.7.0' },
+    ]);
+    mockOsvDockerRunnerRun.mockResolvedValue({
+      exitCode: 0,
+      stdout: osvFixJsonFor([
+        { name: 'lodash', versionFrom: '4.17.20', versionTo: '4.17.21' },
+        { name: 'axios', versionFrom: '1.6.0', versionTo: '1.7.0' },
+      ]),
+      stderr: '',
     });
-
-    mockOsvDockerRunnerRun.mockResolvedValue({ exitCode: 0, stdout: fixOutput, stderr: '' });
-    // staging lockfile differs from backup → applied=true
-    mockReadFile.mockResolvedValue('updated-lockfile-content');
+    mockReadFile.mockResolvedValue(fixedContent);
 
     const result = await applyOsvFixViaStaging(makeInput());
 
+    expect(result.applied).toBe(true);
     expect(result.packagesUpdated).toHaveLength(2);
     expect(result.packagesUpdated).toContainEqual({
       name: 'lodash',
@@ -122,71 +151,58 @@ describe('applyOsvFixViaStaging — parseOsvFixJson', () => {
       versionFrom: '1.6.0',
       versionTo: '1.7.0',
     });
+    const host = hostWriteCall();
+    expect(host).toBeDefined();
+    expect(host![1]).toBe(fixedContent);
+    expect(host![2]).toBe('utf-8');
   });
 
-  it('malformed JSON → returns [] (defensive)', async () => {
+  it('disk has strictly newer version than claim (semver gte) → still counts as verified', async () => {
+    const fixedContent = buildLockfile([{ name: 'lodash', version: '4.17.22' }]);
     mockOsvDockerRunnerRun.mockResolvedValue({
       exitCode: 0,
-      stdout: 'NOT_VALID_JSON',
+      stdout: osvFixJsonFor([
+        { name: 'lodash', versionFrom: '4.17.20', versionTo: '4.17.21' },
+      ]),
       stderr: '',
     });
-    mockReadFile.mockResolvedValue('updated-lockfile-content');
+    mockReadFile.mockResolvedValue(fixedContent);
 
     const result = await applyOsvFixViaStaging(makeInput());
 
-    expect(result.packagesUpdated).toHaveLength(0);
-    expect((logger.warn as ReturnType<typeof vi.fn>).mock.calls.some(
-      (c) => String(c[0]).includes('Could not parse osv-scanner fix JSON output'),
-    )).toBe(true);
+    expect(result.applied).toBe(true);
+    expect(result.packagesUpdated).toHaveLength(1);
+    expect(result.packagesUpdated[0]!.name).toBe('lodash');
   });
 
-  it('valid JSON but empty patches array → returns []', async () => {
+  it('JSON dedupes duplicate package names (last-wins) and still verifies', async () => {
+    const fixedContent = buildLockfile([{ name: 'lodash', version: '4.17.21' }]);
     mockOsvDockerRunnerRun.mockResolvedValue({
       exitCode: 0,
-      stdout: JSON.stringify({ patches: [] }),
+      stdout: JSON.stringify({
+        patches: [
+          { packageUpdates: [{ name: 'lodash', versionFrom: '4.17.18', versionTo: '4.17.20' }] },
+          { packageUpdates: [{ name: 'lodash', versionFrom: '4.17.20', versionTo: '4.17.21' }] },
+        ],
+      }),
       stderr: '',
     });
-    mockReadFile.mockResolvedValue('updated-lockfile-content');
+    mockReadFile.mockResolvedValue(fixedContent);
 
     const result = await applyOsvFixViaStaging(makeInput());
 
-    expect(result.packagesUpdated).toHaveLength(0);
-  });
-
-  it('multiple patches with same package name → dedupes, keeps last', async () => {
-    const fixOutput = JSON.stringify({
-      patches: [
-        {
-          packageUpdates: [
-            { name: 'lodash', versionFrom: '4.17.18', versionTo: '4.17.20' },
-          ],
-        },
-        {
-          packageUpdates: [
-            { name: 'lodash', versionFrom: '4.17.20', versionTo: '4.17.21' },
-          ],
-        },
-      ],
-    });
-
-    mockOsvDockerRunnerRun.mockResolvedValue({ exitCode: 0, stdout: fixOutput, stderr: '' });
-    mockReadFile.mockResolvedValue('updated-lockfile-content');
-
-    const result = await applyOsvFixViaStaging(makeInput());
-
-    const lodashEntries = result.packagesUpdated.filter((p) => p.name === 'lodash');
-    expect(lodashEntries).toHaveLength(1);
-    expect(lodashEntries[0]!.versionTo).toBe('4.17.21');
+    expect(result.packagesUpdated).toHaveLength(1);
+    expect(result.packagesUpdated[0]!.versionTo).toBe('4.17.21');
   });
 });
 
-describe('applyOsvFixViaStaging — container exit codes', () => {
+describe('applyOsvFixViaStaging — container failure modes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (gitUtils.backupFiles as ReturnType<typeof vi.fn>).mockResolvedValue(
       new Map([
         ['package.json', '{"name":"test"}'],
-        ['package-lock.json', 'original-lockfile-content'],
+        ['package-lock.json', buildLockfile([{ name: 'lodash', version: '4.17.20' }])],
       ]),
     );
     mockMkdtemp.mockResolvedValue('/tmp/deep-health-osv-fix-abc123');
@@ -194,7 +210,7 @@ describe('applyOsvFixViaStaging — container exit codes', () => {
     mockRm.mockResolvedValue(undefined);
   });
 
-  it('OSV container exits non-zero → applied=false, no host write', async () => {
+  it('non-zero exit → applied=false, packagesUpdated=[], no host write', async () => {
     mockOsvDockerRunnerRun.mockResolvedValue({
       exitCode: 1,
       stdout: '',
@@ -205,38 +221,135 @@ describe('applyOsvFixViaStaging — container exit codes', () => {
 
     expect(result.applied).toBe(false);
     expect(result.packagesUpdated).toHaveLength(0);
-    // writeFile should only have been called for staging (not for host) — verify no second call
-    // writeFile called twice (one per backup file), then NOT for the host lockfile
-    const writeFileCalls = (mockWriteFile.mock.calls as string[][]).map((c) => c[0]);
-    expect(writeFileCalls.every((p) => p.startsWith('/tmp/'))).toBe(true);
+    expect(hostWriteCall()).toBeUndefined();
   });
 
-  it('OSV exits 0, staging lockfile = backup content → applied=false, no host write', async () => {
+  it('malformed JSON stdout → claims list empty, no host write even if bytes changed', async () => {
     mockOsvDockerRunnerRun.mockResolvedValue({
       exitCode: 0,
-      stdout: JSON.stringify({ patches: [] }),
+      stdout: 'NOT_VALID_JSON',
       stderr: '',
     });
-    // readFile returns same content as backup
-    mockReadFile.mockResolvedValue('original-lockfile-content');
+    mockReadFile.mockResolvedValue(buildLockfile([{ name: 'lodash', version: '4.17.21' }]));
 
     const result = await applyOsvFixViaStaging(makeInput());
 
     expect(result.applied).toBe(false);
-    // writeFile not called for host lockfile
-    const writeFileCalls = (mockWriteFile.mock.calls as string[][]).map((c) => c[0]);
-    expect(writeFileCalls.every((p) => p.startsWith('/tmp/'))).toBe(true);
+    expect(result.packagesUpdated).toHaveLength(0);
+    expect(hostWriteCall()).toBeUndefined();
+    expect((logger.warn as ReturnType<typeof vi.fn>).mock.calls.some((c) =>
+      String(c[0]).includes('Could not parse osv-scanner fix JSON output'),
+    )).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Regression guards — these cases triggered incorrect "corrigido" entries in
+// the executive report because packagesUpdated was trusted from the JSON even
+// when the lockfile on disk did not reflect the claim.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('applyOsvFixViaStaging — regression: unverifiable JSON claims must never reach report', () => {
+  const originalLockfile = buildLockfile([
+    { name: 'lodash', version: '4.17.20' },
+    { name: '@babel/runtime', version: '7.14.8' },
+  ]);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (gitUtils.backupFiles as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Map([
+        ['package.json', '{"name":"test"}'],
+        ['package-lock.json', originalLockfile],
+      ]),
+    );
+    mockMkdtemp.mockResolvedValue('/tmp/deep-health-osv-fix-abc123');
+    mockWriteFile.mockResolvedValue(undefined);
+    mockRm.mockResolvedValue(undefined);
   });
 
-  it('OSV exits 0, staging lockfile ≠ backup content → applied=true, fs.writeFile called once with correct path', async () => {
-    const fixedContent = 'updated-lockfile-content-v2';
+  it('osv-scanner claims patches in JSON but staging lockfile is byte-identical → applied=false, packagesUpdated=[]', async () => {
     mockOsvDockerRunnerRun.mockResolvedValue({
       exitCode: 0,
-      stdout: JSON.stringify({
-        patches: [
-          { packageUpdates: [{ name: 'lodash', versionFrom: '4.17.20', versionTo: '4.17.21' }] },
-        ],
-      }),
+      stdout: osvFixJsonFor([
+        { name: 'lodash', versionFrom: '4.17.20', versionTo: '4.17.21' },
+        { name: '@babel/runtime', versionFrom: '7.14.8', versionTo: '7.26.10' },
+      ]),
+      stderr: '',
+    });
+    // Staging content equals backup — simulates the npm 6 / lockfileVersion 1 quirk
+    mockReadFile.mockResolvedValue(originalLockfile);
+
+    const result = await applyOsvFixViaStaging(makeInput());
+
+    expect(result.applied).toBe(false);
+    expect(result.packagesUpdated).toHaveLength(0);
+    expect(hostWriteCall()).toBeUndefined();
+    expect((logger.warn as ReturnType<typeof vi.fn>).mock.calls.some((c) =>
+      String(c[0]).includes('2 patch(es) in JSON but the staging lockfile is byte-identical'),
+    )).toBe(true);
+  });
+
+  it('bytes changed and parser returns nothing (unparseable staging) → applied=false, packagesUpdated=[]', async () => {
+    mockOsvDockerRunnerRun.mockResolvedValue({
+      exitCode: 0,
+      stdout: osvFixJsonFor([
+        { name: 'lodash', versionFrom: '4.17.20', versionTo: '4.17.21' },
+      ]),
+      stderr: '',
+    });
+    // Bytes differ but content is not a valid lockfile the inspector understands
+    mockReadFile.mockResolvedValue('garbage that differs from backup');
+
+    const result = await applyOsvFixViaStaging(makeInput());
+
+    expect(result.applied).toBe(false);
+    expect(result.packagesUpdated).toHaveLength(0);
+    expect(hostWriteCall()).toBeUndefined();
+  });
+
+  it('bytes changed but no claim is verifiable in the new lockfile → applied=false, no host write', async () => {
+    // osv-scanner rewrites some unrelated field but doesn't actually upgrade
+    const fixedContent = buildLockfile([
+      { name: 'lodash', version: '4.17.20' }, // unchanged
+      { name: '@babel/runtime', version: '7.14.8' }, // unchanged
+      { name: '_unrelated', version: '0.0.1' }, // added, but not in claims
+    ]);
+    mockOsvDockerRunnerRun.mockResolvedValue({
+      exitCode: 0,
+      stdout: osvFixJsonFor([
+        { name: 'lodash', versionFrom: '4.17.20', versionTo: '4.17.21' },
+        { name: '@babel/runtime', versionFrom: '7.14.8', versionTo: '7.26.10' },
+      ]),
+      stderr: '',
+    });
+    mockReadFile.mockResolvedValue(fixedContent);
+
+    const result = await applyOsvFixViaStaging(makeInput());
+
+    expect(result.applied).toBe(false);
+    expect(result.packagesUpdated).toHaveLength(0);
+    expect(hostWriteCall()).toBeUndefined();
+    expect((logger.warn as ReturnType<typeof vi.fn>).mock.calls.some((c) =>
+      String(c[0]).includes('none of the 2 claimed upgrade(s) were verifiable'),
+    )).toBe(true);
+  });
+
+  it('partial verification (3 of 5 claims on disk) → applied=true, only verified claims returned, dropped claims logged', async () => {
+    const fixedContent = buildLockfile([
+      { name: 'lodash', version: '4.17.21' }, // verified
+      { name: '@babel/runtime', version: '7.26.10' }, // verified
+      { name: 'cipher-base', version: '1.0.5' }, // verified
+      // 'bn.js' and 'cross-spawn' below are claimed but not in the lockfile
+    ]);
+    mockOsvDockerRunnerRun.mockResolvedValue({
+      exitCode: 0,
+      stdout: osvFixJsonFor([
+        { name: 'lodash', versionFrom: '4.17.20', versionTo: '4.17.21' },
+        { name: '@babel/runtime', versionFrom: '7.14.8', versionTo: '7.26.10' },
+        { name: 'cipher-base', versionFrom: '1.0.4', versionTo: '1.0.5' },
+        { name: 'bn.js', versionFrom: '4.12.0', versionTo: '4.12.3' },
+        { name: 'cross-spawn', versionFrom: '7.0.1', versionTo: '7.0.5' },
+      ]),
       stderr: '',
     });
     mockReadFile.mockResolvedValue(fixedContent);
@@ -244,12 +357,58 @@ describe('applyOsvFixViaStaging — container exit codes', () => {
     const result = await applyOsvFixViaStaging(makeInput());
 
     expect(result.applied).toBe(true);
-    // The last writeFile call should be the host write
-    const allCalls = mockWriteFile.mock.calls as [string, string, string][];
-    const hostWrite = allCalls.find(([p]) => p === '/project/package-lock.json');
-    expect(hostWrite).toBeDefined();
-    expect(hostWrite![1]).toBe(fixedContent);
-    expect(hostWrite![2]).toBe('utf-8');
+    expect(result.packagesUpdated.map((p) => p.name).sort()).toEqual(
+      ['@babel/runtime', 'cipher-base', 'lodash'],
+    );
+    expect(result.packagesUpdated.find((p) => p.name === 'bn.js')).toBeUndefined();
+    expect(result.packagesUpdated.find((p) => p.name === 'cross-spawn')).toBeUndefined();
+
+    const host = hostWriteCall();
+    expect(host).toBeDefined();
+    expect(host![1]).toBe(fixedContent);
+
+    expect((logger.warn as ReturnType<typeof vi.fn>).mock.calls.some((c) =>
+      String(c[0]).includes('2 of 5 osv-scanner patch(es) could not be verified'),
+    )).toBe(true);
+  });
+
+  it('disk has older version than claim (claim unsatisfied) → claim dropped', async () => {
+    // osv-scanner claims 4.17.21, but the disk only has 4.17.19 — NOT enough.
+    const fixedContent = buildLockfile([{ name: 'lodash', version: '4.17.19' }]);
+    mockOsvDockerRunnerRun.mockResolvedValue({
+      exitCode: 0,
+      stdout: osvFixJsonFor([
+        { name: 'lodash', versionFrom: '4.17.20', versionTo: '4.17.21' },
+      ]),
+      stderr: '',
+    });
+    mockReadFile.mockResolvedValue(fixedContent);
+
+    const result = await applyOsvFixViaStaging(makeInput());
+
+    // Bytes differ (4.17.20 → 4.17.19 is a change) but lodash@4.17.21 is NOT on disk.
+    expect(result.applied).toBe(false);
+    expect(result.packagesUpdated).toHaveLength(0);
+    expect(hostWriteCall()).toBeUndefined();
+  });
+
+  it('non-semver versionTo matches only by exact string equality', async () => {
+    // Non-semver (e.g. git URL, tag, tarball) — we refuse to speculate; must match exactly.
+    const fixedContent = buildLockfile([{ name: 'odd-pkg', version: 'git://ref#abc' }]);
+    mockOsvDockerRunnerRun.mockResolvedValue({
+      exitCode: 0,
+      stdout: osvFixJsonFor([
+        { name: 'odd-pkg', versionFrom: 'git://ref#000', versionTo: 'git://ref#abc' },
+      ]),
+      stderr: '',
+    });
+    mockReadFile.mockResolvedValue(fixedContent);
+
+    const result = await applyOsvFixViaStaging(makeInput());
+
+    expect(result.applied).toBe(true);
+    expect(result.packagesUpdated).toHaveLength(1);
+    expect(result.packagesUpdated[0]!.name).toBe('odd-pkg');
   });
 });
 
@@ -257,7 +416,7 @@ describe('applyOsvFixViaStaging — staging dir cleanup', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (gitUtils.backupFiles as ReturnType<typeof vi.fn>).mockResolvedValue(
-      new Map([['package-lock.json', 'original']]),
+      new Map([['package-lock.json', buildLockfile([{ name: 'x', version: '1.0.0' }])]]),
     );
     mockMkdtemp.mockResolvedValue('/tmp/deep-health-osv-fix-cleanup-test');
     mockWriteFile.mockResolvedValue(undefined);
@@ -270,7 +429,7 @@ describe('applyOsvFixViaStaging — staging dir cleanup', () => {
       stdout: JSON.stringify({ patches: [] }),
       stderr: '',
     });
-    mockReadFile.mockResolvedValue('original');
+    mockReadFile.mockResolvedValue(buildLockfile([{ name: 'x', version: '1.0.0' }]));
 
     await applyOsvFixViaStaging(makeInput());
 
