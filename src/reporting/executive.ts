@@ -23,6 +23,11 @@ function parsePackageName(ref: string): string {
   return at > 0 ? ref.slice(0, at) : ref;
 }
 
+function parsePackageVersion(ref: string): string | undefined {
+  const at = ref.lastIndexOf('@');
+  return at > 0 ? ref.slice(at + 1) : undefined;
+}
+
 function uniqueCount(vulns: VulnerabilityEntry[]): number {
   return new Set(vulns.map((v) => v.package)).size;
 }
@@ -317,6 +322,19 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
     updatedNamesByEco.set(plugin.id, new Set(updatedPackages.map(parsePackageName)));
   }
 
+  // Map: ecosystemId -> Map<packageName, actualInstalledVersion>
+  const installedVersionsByEco = new Map<string, Map<string, string>>();
+  for (const plugin of plugins) {
+    const updatedPackages = opts.updates[plugin.id]?.packages_updated ?? [];
+    const versionMap = new Map<string, string>();
+    for (const ref of updatedPackages) {
+      const name = parsePackageName(ref);
+      const version = parsePackageVersion(ref);
+      if (version) versionMap.set(name, version);
+    }
+    installedVersionsByEco.set(plugin.id, versionMap);
+  }
+
   const allVulnsBefore = [
     ...Object.values(opts.scanBefore.ecosystems).flatMap((e) => e.vulnerabilities),
   ];
@@ -336,7 +354,7 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
         cvss: v.cvss,
         package: v.package,
         currentVersion: v.currentVersion,
-        safeVersion: v.safeVersion ?? '—',
+        safeVersion: installedVersionsByEco.get(v.ecosystem)?.get(v.package) ?? v.safeVersion ?? '—',
         risk: v.risk,
       };
     });
@@ -365,13 +383,14 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
     const update = opts.updates[plugin.id] ?? null;
     const updatedNames = updatedNamesByEco.get(plugin.id) ?? new Set();
 
+    const installedVersions = installedVersionsByEco.get(plugin.id) ?? new Map<string, string>();
     const vulnsAfter = (ecoScan?.vulnerabilities ?? []).map((v) => {
       const fixed = updatedNames.has(v.package) && v.classification === 'auto_safe';
       return {
         ghsaId: v.ghsaId,
         cvss: v.cvss,
         package: v.package,
-        statusPt: fixed ? locale.exec.fixed_version(v.safeVersion ?? '—') : pendingStatus(v, locale),
+        statusPt: fixed ? locale.exec.fixed_version(installedVersions.get(v.package) ?? v.safeVersion ?? '—') : pendingStatus(v, locale),
         risk: v.risk,
       };
     });

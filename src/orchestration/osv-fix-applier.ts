@@ -33,6 +33,22 @@ export interface OsvFixApplyResult {
 
 type PackageUpdate = OsvFixApplyResult['packagesUpdated'][number];
 
+function semverMax(versions: Set<string>): string | undefined {
+  if (versions.size === 0) return undefined;
+  let best: string | undefined;
+  for (const v of versions) {
+    if (!best) { best = v; continue; }
+    const vValid = semver.valid(v);
+    const bestValid = semver.valid(best);
+    if (vValid && bestValid) {
+      if (semver.gt(vValid, bestValid)) best = v;
+    } else if (vValid && !bestValid) {
+      best = v;
+    }
+  }
+  return best;
+}
+
 /**
  * Parse the JSON output from `osv-scanner fix --format=json`.
  *
@@ -221,8 +237,10 @@ export async function applyOsvFixViaStaging(
     const verified: PackageUpdate[] = [];
     const dropped: PackageUpdate[] = [];
     for (const claim of claimedUpdates) {
-      if (claimIsSatisfiedOnDisk(claim, versionsInStaging.get(claim.name))) {
-        verified.push(claim);
+      const diskVersions = versionsInStaging.get(claim.name);
+      if (claimIsSatisfiedOnDisk(claim, diskVersions)) {
+        const diskMax = semverMax(diskVersions!);
+        verified.push({ ...claim, versionTo: diskMax ?? claim.versionTo });
       } else {
         dropped.push(claim);
       }
