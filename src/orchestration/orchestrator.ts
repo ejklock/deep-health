@@ -28,6 +28,7 @@ import { PipContainerCommandRunner } from "@infra/executor/pip-container-runner"
 import { ComposerContainerCommandRunner } from "@infra/executor/composer-container-runner";
 // Ecosystem registry — plugins are registered via modules/ecosystem/index.ts side-effects
 import { EcosystemRegistry, defaultRegistry } from "@modules/ecosystem/index";
+import { logDryRunPreview } from './dry-run-preview';
 // Scanner registry — engines are bootstrapped lazily via bootstrapDefaultEngines()
 import {
   defaultScannerRegistry,
@@ -755,6 +756,11 @@ export async function runOrchestrator(
         applied: fixResult.applied,
         packagesUpdated: fixResult.packagesUpdated,
       };
+    }
+
+    // Fase 5: dry-run planned-changes preview
+    if (options.dryRun) {
+      logDryRunPreview(plugin.id, ecosystemResult, authorizeBreaking);
     }
 
     const updateResult = await plugin.runUpdater({
