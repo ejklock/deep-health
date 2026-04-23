@@ -628,6 +628,19 @@ export async function runOrchestrator(
     .getAll()
     .filter((p) => config.ecosystems.some((e) => e.id === p.id));
 
+  // Kill-switch: skip all automated fixes when DEEP_HEALTH_NO_AUTO_FIX is set
+  if (process.env['DEEP_HEALTH_NO_AUTO_FIX']) {
+    logger.warn(
+      '[deep-health] DEEP_HEALTH_NO_AUTO_FIX is set — skipping all automated fixes. ' +
+      'Scan results are available but no files have been modified. ' +
+      'Unset DEEP_HEALTH_NO_AUTO_FIX to re-enable automated remediation.',
+    );
+    result.hasPendingVulns = Object.values(scanResult.ecosystems).some(
+      (e) => e.breaking > 0 || e.manual > 0,
+    );
+    return result;
+  }
+
   // Iterate over active plugins in registration order (npm → composer)
   for (const plugin of activePlugins) {
     if (!shouldRunPhase(plugin.id, options)) {

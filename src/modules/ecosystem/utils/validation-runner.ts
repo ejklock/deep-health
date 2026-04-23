@@ -1,7 +1,7 @@
-import type { CommandRunner } from '@core/types/common';
-import type { ValidationCommandConfig } from '@core/types/config';
-import type { ValidationEntry } from '@core/types/update';
-import { logger } from '@infra/utils/logger';
+import type { CommandRunner } from "@core/types/common";
+import type { ValidationCommandConfig } from "@core/types/config";
+import type { ValidationEntry } from "@core/types/update";
+import { logger } from "@infra/utils/logger";
 
 export interface RunValidationsOptions {
   runner: CommandRunner;
@@ -32,12 +32,20 @@ export interface RunValidationsResult {
  * - Success is determined by exit code membership in successExitCodes (default [0]).
  * - Never throws on command failure — failure is represented as ValidationEntry with status 'fail'.
  */
-export async function runValidations(opts: RunValidationsOptions): Promise<RunValidationsResult> {
+export async function runValidations(
+  opts: RunValidationsOptions,
+): Promise<RunValidationsResult> {
   const { runner, cwd, commands, successExitCodes = [0] } = opts;
 
   if (commands.length === 0) {
     return {
-      entries: [{ name: 'validation', status: 'skipped', detail: 'No validation commands configured' }],
+      entries: [
+        {
+          name: "validation",
+          status: "skipped",
+          detail: "No validation commands configured",
+        },
+      ],
       allPassed: true,
     };
   }
@@ -46,25 +54,41 @@ export async function runValidations(opts: RunValidationsOptions): Promise<RunVa
 
   for (const cmd of commands) {
     logger.info(`Running validation: ${cmd.name} — ${cmd.command}`);
-    const result = await runner.run(cmd.command, { cwd, stream: true });
+    const result = await runner.run(cmd.command, {
+      cwd,
+      stream: true,
+      ...(cmd.timeout_seconds !== undefined
+        ? { timeout: cmd.timeout_seconds * 1000 }
+        : {}),
+    });
 
     const passed = successExitCodes.includes(result.exitCode);
 
     if (passed) {
-      const detail = result.stdout.trim().split('\n').slice(-2).join(' ') || 'Passed';
-      entries.push({ name: cmd.name, status: 'pass', detail });
+      const detail =
+        result.stdout.trim().split("\n").slice(-2).join(" ") || "Passed";
+      entries.push({ name: cmd.name, status: "pass", detail });
     } else {
-      const detail = result.stdout || result.stderr || `Exited with code ${result.exitCode}`;
-      entries.push({ name: cmd.name, status: 'fail', detail });
+      const detail =
+        result.stdout || result.stderr || `Exited with code ${result.exitCode}`;
+      entries.push({ name: cmd.name, status: "fail", detail });
       // Stop on first failure — emit detailed diagnostics before caller reverts
       logger.error(`Validation "${cmd.name}" failed (exit ${result.exitCode})`);
       logger.error(`  Command : ${cmd.command}`);
       if (result.stdout.trim()) {
-        const truncated = result.stdout.trim().split('\n').slice(-50).join('\n');
+        const truncated = result.stdout
+          .trim()
+          .split("\n")
+          .slice(-50)
+          .join("\n");
         logger.error(`  stdout  :\n${truncated}`);
       }
       if (result.stderr.trim()) {
-        const truncated = result.stderr.trim().split('\n').slice(-50).join('\n');
+        const truncated = result.stderr
+          .trim()
+          .split("\n")
+          .slice(-50)
+          .join("\n");
         logger.error(`  stderr  :\n${truncated}`);
       }
       logger.error(`  exit    : ${result.exitCode}`);

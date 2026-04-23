@@ -1,4 +1,4 @@
-import type { SupportedLocale } from './locale';
+import type { SupportedLocale } from "./locale";
 
 export interface ProtectedPackage {
   package: string;
@@ -12,10 +12,10 @@ export interface ProtectedPackage {
  *   Breaking changes authorized by the user are applied separately via npm at orchestration level.
  * - 'npm-audit': use `npm audit fix`; OSV fix is NOT run in this path.
  */
-export type FixerStrategyId = 'osv' | 'npm-audit';
+export type FixerStrategyId = "osv" | "npm-audit";
 
 /** Output format for generated reports */
-export type OutputFormat = 'markdown';
+export type OutputFormat = "markdown";
 
 /** Per-ecosystem advisor configuration */
 export interface AdvisorConfig {
@@ -26,20 +26,26 @@ export interface AdvisorConfig {
    * - 'json': parse structured JSON output (e.g. `npm audit --json`).
    * - 'text': treat output as plain text (default).
    */
-  format?: 'json' | 'text';
+  format?: "json" | "text";
 }
 
 /** Per-ecosystem validation command configuration */
 export interface ValidationCommandConfig {
   name: string;
   command: string;
+  /**
+   * Maximum seconds to wait for this validation command to complete.
+   * When exceeded, the command is killed and the validation step is failed.
+   * Defaults to the runner's global timeout when not set.
+   */
+  timeout_seconds?: number;
 }
 
 /** Runner selection for OSV scanner */
-export type OsvRunnerMode = 'auto' | 'docker' | 'local';
+export type OsvRunnerMode = "auto" | "docker" | "local";
 
 /** Runner selection for npm commands */
-export type NpmRunnerMode = 'auto' | 'docker' | 'local';
+export type NpmRunnerMode = "auto" | "docker" | "local";
 
 /** OSV scanner engine configuration */
 export interface OsvScannerConfig {
@@ -116,7 +122,7 @@ export interface EcosystemConfig {
 }
 
 export interface CloudStorageConfig {
-  provider: 'google_drive';
+  provider: "google_drive";
   folder_id: string;
 }
 
@@ -167,9 +173,9 @@ export interface SonarQubeConfig {
    *   Docker, generates a token via the admin API, overrides host.url+token
    *   at the CLI arg layer, runs the scan, tears the container down.
    */
-  mode: 'external' | 'managed';
+  mode: "external" | "managed";
   /** What to do when SonarQube scan fails: 'warn' (default) or 'fail'. */
-  on_failure: 'warn' | 'fail';
+  on_failure: "warn" | "fail";
   /**
    * Docker image tag for the sonar-scanner-cli container used in the container fallback path.
    * Only relevant when `mode` is 'managed' and local sonar-scanner is unavailable.
@@ -202,7 +208,7 @@ export interface SonarQubeConfig {
 }
 
 /** Runner selection for composer commands */
-export type ComposerRunnerMode = 'auto' | 'docker' | 'local';
+export type ComposerRunnerMode = "auto" | "docker" | "local";
 
 /**
  * Image provisioning strategy for composer Docker mode.
@@ -211,7 +217,7 @@ export type ComposerRunnerMode = 'auto' | 'docker' | 'local';
  *   extensions from PHP_FRAMEWORK_PROFILES[framework_profile] installed on top of
  *   the resolved base image. Enabling this in Phase 1 has no effect.
  */
-export type ComposerImageStrategy = 'pull' | 'build';
+export type ComposerImageStrategy = "pull" | "build";
 
 /** Composer runner configuration */
 export interface ComposerRunnerConfig {
@@ -256,11 +262,11 @@ export interface ComposerRunnerConfig {
    * Phase 1: persisted to config and exposed via `deep-health init` prompt.
    * Phase 2: consumed by the image builder when image_strategy='build'.
    */
-  framework_profile?: 'none' | 'laravel' | 'symfony' | 'wordpress';
+  framework_profile?: "none" | "laravel" | "symfony" | "wordpress";
 }
 
 /** Runner selection for pip commands */
-export type PipRunnerMode = 'auto' | 'docker' | 'local';
+export type PipRunnerMode = "auto" | "docker" | "local";
 
 /** pip runner configuration */
 export interface PipRunnerConfig {
