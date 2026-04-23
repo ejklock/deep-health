@@ -53,6 +53,16 @@ export function classifyPackage(
     return { ...pkg, classification: 'manual', reason: 'Cannot parse version strings' };
   }
 
+  // Safe version is older than current — would be a downgrade.
+  // This happens when a fix is only available for an older major branch.
+  if (semver.lt(safe, current)) {
+    return {
+      ...pkg,
+      classification: 'manual',
+      reason: `Safe version ${pkg.safeVersion} is older than current ${pkg.currentVersion} — fix may not be available for this major version`,
+    };
+  }
+
   if (safe.major > current.major) {
     return {
       ...pkg,

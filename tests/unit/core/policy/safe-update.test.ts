@@ -190,6 +190,26 @@ describe('classifyPackage — protected list accepts Map or Array', () => {
 // Group 8: Regression — protected constraint check precedes major bump check
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Group 9: Downgrade detection
+// ---------------------------------------------------------------------------
+
+describe('classifyPackage — downgrade detection', () => {
+  it('safeVersion older than currentVersion → manual with "older than current" reason', () => {
+    // Mirrors the real rollup case: currentVersion=4.57.1, safeVersion=2.80.0
+    const result = classifyPackage(pkg('rollup', '4.57.1', '2.80.0'), []);
+    expect(result.classification).toBe('manual');
+    expect(result.reason).toContain('older than current');
+  });
+
+  it('safeVersion equal to currentVersion → auto_safe (not treated as downgrade)', () => {
+    // semver.lt("2.80.0", "2.80.0") is false, so this falls through to auto_safe.
+    // Documents the boundary: equal versions are not a downgrade.
+    const result = classifyPackage(pkg('rollup', '2.80.0', '2.80.0'), []);
+    expect(result.classification).toBe('auto_safe');
+  });
+});
+
 describe('regression: protected constraint check precedes major bump check', () => {
   it(
     // This test documents the INVARIANT: a protected package whose safe version violates

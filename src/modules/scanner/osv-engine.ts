@@ -13,6 +13,7 @@ import {
 import { classifyPackage } from '@core/policy/safe-update';
 import { getPlatformInstallHint } from '@infra/utils/platform';
 import { OsvDockerRunner } from '@infra/provisioner/osv-runner';
+import semver from 'semver';
 
 // ─── Internal types ────────────────────────────────────────────────────────────
 
@@ -20,7 +21,15 @@ type OsvVulnerability = {
   id?: string;
   summary?: string;
   severity?: Array<{ type?: string; score?: string }>;
-  affected?: Array<{ ranges?: Array<{ events?: Array<{ fixed?: string }> }> }>;
+  affected?: Array<{
+    ranges?: Array<{
+      events?: Array<{
+        fixed?: string;
+        introduced?: string;
+        last_affected?: string;
+      }>;
+    }>;
+  }>;
 };
 
 type OsvJsonOutput = {
@@ -92,16 +101,50 @@ function extractCvss(vuln: { severity?: Array<{ type?: string; score?: string }>
   return '—';
 }
 
-function extractSafeVersionFromVuln(vuln: {
-  affected?: Array<{ ranges?: Array<{ events?: Array<{ fixed?: string }> }> }>;
-}): string | null {
+function extractSafeVersionFromVuln(
+  vuln: OsvVulnerability,
+  currentVersion: string,
+): string | null {
+  const coercedCurrent = semver.coerce(currentVersion);
+  if (!coercedCurrent) {
+    // Fallback for non-semver versions: return the first fixed found (original behavior)
+    for (const affected of vuln.affected ?? []) {
+      for (const range of affected.ranges ?? []) {
+        for (const event of range.events ?? []) {
+          if (event.fixed) return event.fixed;
+        }
+      }
+    }
+    return null;
+  }
+
   for (const affected of vuln.affected ?? []) {
     for (const range of affected.ranges ?? []) {
+      let introduced: string | undefined;
+      let fixed: string | undefined;
+
       for (const event of range.events ?? []) {
-        if (event.fixed) return event.fixed;
+        if (event.introduced !== undefined) introduced = event.introduced;
+        if (event.fixed !== undefined) fixed = event.fixed;
+      }
+
+      if (!fixed) continue; // range without fixed (e.g. last_affected only) — skip
+
+      const coercedIntroduced = introduced ? semver.coerce(introduced) : null;
+      const coercedFixed = semver.coerce(fixed);
+
+      if (!coercedFixed) continue;
+
+      // Current version must be >= introduced (or no introduced = since 0) AND < fixed
+      const afterIntroduced = !coercedIntroduced || semver.gte(coercedCurrent, coercedIntroduced);
+      const beforeFixed = semver.lt(coercedCurrent, coercedFixed);
+
+      if (afterIntroduced && beforeFixed) {
+        return fixed;
       }
     }
   }
+
   return null;
 }
 
@@ -156,7 +199,7 @@ function parseOsvJsonOutput(
         const ghsaId = vuln.id ?? '';
         const risk = vuln.summary ?? '';
         const cvss = extractCvss(vuln);
-        const safeVersion = extractSafeVersionFromVuln(vuln);
+        const safeVersion = extractSafeVersionFromVuln(vuln, pkgVersion);
 
         const classified = classifyPackage(
           { name: pkgName, currentVersion: pkgVersion, safeVersion },

@@ -339,6 +339,160 @@ describe('OsvScannerEngine.scan() — dry run', () => {
   });
 });
 
+// ─── scan() — parseOsvJsonOutput / extractSafeVersionFromVuln ────────────────
+
+/**
+ * Builds a minimal OSV JSON payload with a single vulnerable package entry.
+ * Each range in `vulnRanges` is one OSV affected[].ranges[] entry containing
+ * the events provided.
+ */
+function makeOsvJson(options: {
+  pkgName: string;
+  pkgVersion: string;
+  ecosystem?: string;
+  vulnRanges: Array<Array<{ introduced?: string; fixed?: string; last_affected?: string }>>;
+}): string {
+  const { pkgName, pkgVersion, ecosystem = 'npm', vulnRanges } = options;
+  return JSON.stringify({
+    results: [
+      {
+        packages: [
+          {
+            package: { name: pkgName, version: pkgVersion, ecosystem },
+            vulnerabilities: [
+              {
+                id: 'GHSA-test-0001',
+                summary: 'test vulnerability',
+                affected: [
+                  {
+                    ranges: vulnRanges.map((events) => ({ events })),
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+}
+
+/**
+ * Registry whose findByOsvEcosystem returns the npm plugin for 'npm' input.
+ * Used for parse-path tests that need actual JSON parsing to work end-to-end.
+ */
+function makeParseRegistry(): EcosystemRegistry {
+  const npmPlugin = {
+    id: 'npm',
+    osvEcosystems: ['npm'],
+    buildScanArgs: () => [],
+    getProtectedPackages: () => [],
+  } as unknown as ReturnType<EcosystemRegistry['getAll']>[0];
+
+  return {
+    getAll: () => [npmPlugin],
+    register: vi.fn(),
+    get: vi.fn(),
+    findByOsvEcosystem: (eco: string) => (eco.toLowerCase() === 'npm' ? npmPlugin : undefined),
+  } as unknown as EcosystemRegistry;
+}
+
+describe('OsvScannerEngine.scan() — multi-range safeVersion selection', () => {
+  const engine = new OsvScannerEngine();
+
+  const ROLLUP_RANGES = [
+    [{ introduced: '0' }, { fixed: '2.80.0' }],
+    [{ introduced: '3.0.0' }, { fixed: '3.30.0' }],
+    [{ introduced: '4.0.0' }, { fixed: '4.59.0' }],
+  ];
+
+  beforeEach(() => {
+    vi.mocked(OsvDockerRunner).mockClear();
+    mockDockerRun.mockClear();
+  });
+
+  afterEach(() => vi.clearAllMocks());
+
+  it('selects the range that contains v4 (4.57.1) → safeVersion 4.59.0', async () => {
+    const stdout = makeOsvJson({ pkgName: 'rollup', pkgVersion: '4.57.1', vulnRanges: ROLLUP_RANGES });
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout, stderr: '' });
+
+    const runner = new MockRunner({ docker: { exitCode: 0 } });
+    const ctx: ScannerEngineContext = {
+      runner,
+      config: makeConfig({ osv: { runner: 'docker' } }),
+      cwd: '/project',
+      ecosystemRegistry: makeParseRegistry(),
+      branch: null,
+    };
+
+    const result = await engine.scan(ctx);
+    const vuln = result.ecosystems['npm']?.vulnerabilities[0];
+    expect(vuln?.safeVersion).toBe('4.59.0');
+  });
+
+  it('selects the range that contains v3 (3.25.0) → safeVersion 3.30.0', async () => {
+    const stdout = makeOsvJson({ pkgName: 'rollup', pkgVersion: '3.25.0', vulnRanges: ROLLUP_RANGES });
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout, stderr: '' });
+
+    const runner = new MockRunner({ docker: { exitCode: 0 } });
+    const ctx: ScannerEngineContext = {
+      runner,
+      config: makeConfig({ osv: { runner: 'docker' } }),
+      cwd: '/project',
+      ecosystemRegistry: makeParseRegistry(),
+      branch: null,
+    };
+
+    const result = await engine.scan(ctx);
+    const vuln = result.ecosystems['npm']?.vulnerabilities[0];
+    expect(vuln?.safeVersion).toBe('3.30.0');
+  });
+
+  it('returns safeVersion null when only a last_affected range exists for the current version (no fix)', async () => {
+    // pkg@2.5.0: v2 range has last_affected only (no patch available); v3 has a fix but is out of range
+    const ranges = [
+      [{ introduced: '0' }, { last_affected: '2.99.0' }],
+      [{ introduced: '3.0.0' }, { fixed: '3.5.0' }],
+    ];
+    const stdout = makeOsvJson({ pkgName: 'pkg', pkgVersion: '2.5.0', vulnRanges: ranges });
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout, stderr: '' });
+
+    const runner = new MockRunner({ docker: { exitCode: 0 } });
+    const ctx: ScannerEngineContext = {
+      runner,
+      config: makeConfig({ osv: { runner: 'docker' } }),
+      cwd: '/project',
+      ecosystemRegistry: makeParseRegistry(),
+      branch: null,
+    };
+
+    const result = await engine.scan(ctx);
+    const vuln = result.ecosystems['npm']?.vulnerabilities[0];
+    expect(vuln?.safeVersion).toBeNull();
+  });
+
+  it('falls back to first fixed when currentVersion is non-semver', async () => {
+    // Non-semver currentVersion (e.g. "dev") → coerce returns null → fallback path
+    const stdout = makeOsvJson({ pkgName: 'pkg', pkgVersion: 'dev', vulnRanges: ROLLUP_RANGES });
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout, stderr: '' });
+
+    const runner = new MockRunner({ docker: { exitCode: 0 } });
+    const ctx: ScannerEngineContext = {
+      runner,
+      config: makeConfig({ osv: { runner: 'docker' } }),
+      cwd: '/project',
+      ecosystemRegistry: makeParseRegistry(),
+      branch: null,
+    };
+
+    const result = await engine.scan(ctx);
+    const vuln = result.ecosystems['npm']?.vulnerabilities[0];
+    // Fallback: returns the first fixed event encountered across all ranges
+    expect(vuln?.safeVersion).toBe('2.80.0');
+  });
+});
+
 // ─── id / name contract ───────────────────────────────────────────────────────
 
 describe('OsvScannerEngine — identity', () => {
