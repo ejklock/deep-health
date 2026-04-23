@@ -16,6 +16,7 @@ import {
   sonarqubeHtmlReportFilename,
 } from "@reporting/sonarqube-report";
 import type { RunContext } from "@app/run-context";
+import { writeAuditTrail, resolveCliVersion } from "@app/audit-trail";
 
 export interface FixCommandOptions {
   config: string;
@@ -155,6 +156,19 @@ export async function runFixCommand(
       );
     }
   }
+
+  // Fase 6: write audit trail
+  const auditTimestamp = new Date().toISOString();
+  const cliVersion = await resolveCliVersion();
+  await writeAuditTrail(opts.cwd, {
+    timestamp: auditTimestamp,
+    cli_version: cliVersion,
+    dry_run: opts.dryRun,
+    scan: result.scan,
+    updates: result.updates,
+    overall_status: result.overallStatus,
+    has_pending_vulns: result.hasPendingVulns,
+  });
 
   if (result.overallStatus === "error") return 1; // real crash/failure
   if (result.hasPendingVulns) return 1;           // scan clean-exit, vulns remain

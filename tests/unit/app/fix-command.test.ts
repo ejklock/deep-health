@@ -30,12 +30,18 @@ vi.mock('@app/report-saver', () => ({
   resolveEngineReportsDir: vi.fn(() => '/abs/reports'),
 }));
 
+vi.mock('@app/audit-trail', () => ({
+  writeAuditTrail: vi.fn().mockResolvedValue(undefined),
+  resolveCliVersion: vi.fn().mockResolvedValue('1.0.0'),
+}));
+
 import { runScanner } from '@modules/scanner/index';
 import { runOrchestrator } from '@orchestration/orchestrator';
 import { writeOutput } from '@app/output-writer';
 import { runFixCommand } from '@app/commands/fix';
 import { saveReport } from '@app/report-saver';
 import { generateSonarQubeHtmlReport } from '@reporting/sonarqube-report';
+import { writeAuditTrail } from '@app/audit-trail';
 
 const configWithOutputs: ProjectConfig = {
   project: { name: 'Demo App', client: 'Client' },
@@ -362,5 +368,36 @@ describe('runFixCommand', () => {
     expect(runScanner).not.toHaveBeenCalled();
 
     stderrSpy.mockRestore();
+  });
+
+  it('calls writeAuditTrail once with cwd and matching dry_run flag', async () => {
+    vi.mocked(runOrchestrator).mockResolvedValue({
+      scan: scanResult,
+      updates: {},
+      overallStatus: 'success',
+      warnings: [],
+      aggregated: undefined,
+      advisorResults: {},
+    });
+
+    const ctx: RunContext = {
+      config: configWithOutputs,
+      runner: { environment: 'local', run: vi.fn() },
+    };
+
+    await runFixCommand(ctx, {
+      config: 'project-config.yml',
+      cwd: '/repo',
+      dryRun: true,
+      verbose: false,
+      quiet: false,
+      json: false,
+      noReport: true,
+    });
+
+    expect(writeAuditTrail).toHaveBeenCalledTimes(1);
+    const [calledCwd, calledRecord] = vi.mocked(writeAuditTrail).mock.calls[0];
+    expect(calledCwd).toBe('/repo');
+    expect(calledRecord.dry_run).toBe(true);
   });
 });
