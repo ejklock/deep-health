@@ -8,6 +8,9 @@
  * behavior where the JSON output lists patches that never get written).
  */
 
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
 /**
  * Collect all (packageName, version) pairs from an npm package-lock.json string.
  *
@@ -77,4 +80,31 @@ export function collectNpmLockfileVersions(content: string): Map<string, Set<str
   }
 
   return out;
+}
+
+/**
+ * Read `lockfileVersion` from `<cwd>/package-lock.json`.
+ *
+ * Returns:
+ * - The numeric lockfileVersion (1, 2, or 3) if the file exists and is valid JSON with that field.
+ * - `null` if the file is missing, unreadable, not valid JSON, or has no numeric lockfileVersion.
+ *
+ * Never throws.
+ */
+export async function readNpmLockfileVersion(cwd: string): Promise<number | null> {
+  let content: string;
+  try {
+    content = await readFile(join(cwd, 'package-lock.json'), 'utf-8');
+  } catch {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const v = (parsed as Record<string, unknown>)['lockfileVersion'];
+  return typeof v === 'number' ? v : null;
 }

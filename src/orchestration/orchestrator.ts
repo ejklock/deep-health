@@ -30,6 +30,7 @@ import {
 import type { AggregatedScanResult } from '@modules/scanner/index';
 import { runAdvisors } from '@modules/advisor/index';
 import { applyOsvFixViaStaging } from './osv-fix-applier';
+import { readNpmLockfileVersion } from './lockfile-inspect';
 
 export interface OrchestratorOptions {
   configPath: string;
@@ -623,6 +624,19 @@ export async function runOrchestrator(
     // OSV staging-apply (generic, driven by plugin.osvFixSpec)
     let preFixBackups: Map<string, string> | undefined;
     let osvFixOutcome: { applied: boolean; packagesUpdated: Array<{ name: string; versionFrom: string; versionTo: string }> } | undefined;
+
+    // Fase 3: warn when lockfileVersion=1 + osv strategy (osv-scanner cannot patch v1 lockfiles)
+    if (fixerStrategy === 'osv' && plugin.id === 'npm') {
+      const lockVer = await readNpmLockfileVersion(options.cwd);
+      if (lockVer === 1) {
+        logger.warn(
+          `[OSV fix] package-lock.json has lockfileVersion: 1 (npm 6 / Node ≤12). ` +
+          `osv-scanner cannot patch lockfileVersion 1 lockfiles in-place. ` +
+          `No lockfile changes will be written for this project. ` +
+          `To fix vulnerabilities automatically, set fixer: "npm-audit" in your deep-health config for the npm ecosystem.`,
+        );
+      }
+    }
 
     if (fixerStrategy === 'osv' && plugin.osvFixSpec) {
       const fixResult = await applyOsvFixViaStaging({

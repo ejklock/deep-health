@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { collectNpmLockfileVersions } from '@orchestration/lockfile-inspect';
+import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { readFile } from 'node:fs/promises';
+import { collectNpmLockfileVersions, readNpmLockfileVersion } from '@orchestration/lockfile-inspect';
+
+vi.mock('node:fs/promises', () => ({ readFile: vi.fn() }));
 
 describe('collectNpmLockfileVersions — lockfileVersion 1 (npm 6)', () => {
   it('extracts top-level dependency versions', () => {
@@ -202,5 +205,49 @@ describe('collectNpmLockfileVersions — defensive edge cases', () => {
 
     expect(map.get('good')).toEqual(new Set(['2.0.0']));
     expect(map.has('not-a-node-modules-path')).toBe(false);
+  });
+});
+
+describe('readNpmLockfileVersion', () => {
+  const mockedReadFile = readFile as ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    mockedReadFile.mockReset();
+  });
+
+  it('returns 1 for a lockfile with lockfileVersion: 1', async () => {
+    mockedReadFile.mockResolvedValue(JSON.stringify({ lockfileVersion: 1, name: 'sample' }));
+    await expect(readNpmLockfileVersion('/some/path')).resolves.toBe(1);
+  });
+
+  it('returns 2 for a lockfile with lockfileVersion: 2', async () => {
+    mockedReadFile.mockResolvedValue(JSON.stringify({ lockfileVersion: 2, name: 'sample' }));
+    await expect(readNpmLockfileVersion('/some/path')).resolves.toBe(2);
+  });
+
+  it('returns 3 for a lockfile with lockfileVersion: 3', async () => {
+    mockedReadFile.mockResolvedValue(JSON.stringify({ lockfileVersion: 3, name: 'sample' }));
+    await expect(readNpmLockfileVersion('/some/path')).resolves.toBe(3);
+  });
+
+  it('returns null when file read throws (ENOENT)', async () => {
+    const err = Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' });
+    mockedReadFile.mockRejectedValue(err);
+    await expect(readNpmLockfileVersion('/missing/path')).resolves.toBeNull();
+  });
+
+  it('returns null when file is not valid JSON', async () => {
+    mockedReadFile.mockResolvedValue('NOT JSON {{{');
+    await expect(readNpmLockfileVersion('/some/path')).resolves.toBeNull();
+  });
+
+  it('returns null when lockfileVersion field is missing', async () => {
+    mockedReadFile.mockResolvedValue(JSON.stringify({ name: 'sample' }));
+    await expect(readNpmLockfileVersion('/some/path')).resolves.toBeNull();
+  });
+
+  it('returns null when lockfileVersion is a string instead of a number', async () => {
+    mockedReadFile.mockResolvedValue(JSON.stringify({ lockfileVersion: '1', name: 'sample' }));
+    await expect(readNpmLockfileVersion('/some/path')).resolves.toBeNull();
   });
 });
