@@ -13,6 +13,8 @@ export interface VulnerabilityEntry {
   risk: string;
   classification: VulnerabilityClass;
   reason: string;
+  /** Discriminator for breaking-classified packages. Only set when classification === 'breaking'. */
+  breakingReason?: 'major-bump' | 'protected-constraint';
 }
 
 export interface EcosystemScanResult {

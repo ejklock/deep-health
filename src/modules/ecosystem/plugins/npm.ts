@@ -146,8 +146,16 @@ export const npmPlugin: EcosystemPlugin = {
     if (args.fixerStrategy !== 'osv') return null;
 
     const ecosystemResult = args.scanResult.ecosystems['npm'] ?? emptyEcosystem();
+    const skippedProtected = ecosystemResult.vulnerabilities
+      .filter((v) => v.classification === 'breaking' && v.breakingReason === 'protected-constraint');
+    if (skippedProtected.length > 0) {
+      logger.warn(
+        `[OSV strategy] Skipping ${skippedProtected.length} protected-constraint package(s) — cannot be installed automatically: ` +
+        skippedProtected.map((v) => v.package).join(', '),
+      );
+    }
     const breakingPkgs = ecosystemResult.vulnerabilities
-      .filter((v) => v.classification === 'breaking' && v.safeVersion)
+      .filter((v) => v.classification === 'breaking' && v.safeVersion && v.breakingReason !== 'protected-constraint')
       .reduce<Map<string, string>>((map, v) => {
         if (!map.has(v.package)) map.set(v.package, v.safeVersion!);
         return map;

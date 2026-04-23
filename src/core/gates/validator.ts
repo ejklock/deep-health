@@ -11,6 +11,7 @@ const VulnerabilityEntrySchema = z.object({
   risk: z.string(),
   classification: z.enum(['auto_safe', 'breaking', 'manual']),
   reason: z.string(),
+  breakingReason: z.enum(['major-bump', 'protected-constraint']).optional(),
 });
 
 const EcosystemScanResultSchema = z.object({

@@ -1,24 +1,33 @@
-import type { CommandRunner, PhaseStatus } from '@core/types/common';
-import type { ProjectConfig, FixerStrategyId } from '@core/types/config';
-import type { ScanResultJson } from '@core/types/scan';
-import type { UpdateResultJson } from '@core/types/update';
-import type { AdvisorResult } from '@core/types/report';
-import type { EngineWarning, ScannerEngineContext } from '@modules/scanner/types';
-import { validateGateA, validateEcosystemGate } from '@core/gates/validator';
-import { GateValidationError } from '@core/errors';
-import { logger } from '@infra/utils/logger';
-import { detectGitBranch } from '@infra/utils/git-branch';
-import { NpmDockerRunner, resolveNpmDockerImage } from '@infra/provisioner/npm-runner';
-import { OsvDockerRunner } from '@infra/provisioner/osv-runner';
-import { PipDockerRunner, resolvePipDockerImage } from '@infra/provisioner/pip-runner';
-import { ComposerDockerRunner } from '@infra/provisioner/composer-runner';
-import { resolveComposerDockerImage } from '@infra/provisioner/php-image-resolver';
-import { NpmContainerCommandRunner } from '@infra/executor/npm-container-runner';
-import { OsvContainerCommandRunner } from '@infra/executor/osv-container-runner';
-import { PipContainerCommandRunner } from '@infra/executor/pip-container-runner';
-import { ComposerContainerCommandRunner } from '@infra/executor/composer-container-runner';
+import type { CommandRunner, PhaseStatus } from "@core/types/common";
+import type { ProjectConfig, FixerStrategyId } from "@core/types/config";
+import type { ScanResultJson } from "@core/types/scan";
+import type { UpdateResultJson } from "@core/types/update";
+import type { AdvisorResult } from "@core/types/report";
+import type {
+  EngineWarning,
+  ScannerEngineContext,
+} from "@modules/scanner/types";
+import { validateGateA, validateEcosystemGate } from "@core/gates/validator";
+import { GateValidationError } from "@core/errors";
+import { logger } from "@infra/utils/logger";
+import { detectGitBranch } from "@infra/utils/git-branch";
+import {
+  NpmDockerRunner,
+  resolveNpmDockerImage,
+} from "@infra/provisioner/npm-runner";
+import { OsvDockerRunner } from "@infra/provisioner/osv-runner";
+import {
+  PipDockerRunner,
+  resolvePipDockerImage,
+} from "@infra/provisioner/pip-runner";
+import { ComposerDockerRunner } from "@infra/provisioner/composer-runner";
+import { resolveComposerDockerImage } from "@infra/provisioner/php-image-resolver";
+import { NpmContainerCommandRunner } from "@infra/executor/npm-container-runner";
+import { OsvContainerCommandRunner } from "@infra/executor/osv-container-runner";
+import { PipContainerCommandRunner } from "@infra/executor/pip-container-runner";
+import { ComposerContainerCommandRunner } from "@infra/executor/composer-container-runner";
 // Ecosystem registry — plugins are registered via modules/ecosystem/index.ts side-effects
-import { EcosystemRegistry, defaultRegistry } from '@modules/ecosystem/index';
+import { EcosystemRegistry, defaultRegistry } from "@modules/ecosystem/index";
 // Scanner registry — engines are bootstrapped lazily via bootstrapDefaultEngines()
 import {
   defaultScannerRegistry,
@@ -26,11 +35,11 @@ import {
   aggregateScanResults,
   OSV_ENGINE_ID,
   bootstrapDefaultEngines,
-} from '@modules/scanner/index';
-import type { AggregatedScanResult } from '@modules/scanner/index';
-import { runAdvisors } from '@modules/advisor/index';
-import { applyOsvFixViaStaging } from './osv-fix-applier';
-import { readNpmLockfileVersion } from './lockfile-inspect';
+} from "@modules/scanner/index";
+import type { AggregatedScanResult } from "@modules/scanner/index";
+import { runAdvisors } from "@modules/advisor/index";
+import { applyOsvFixViaStaging } from "./osv-fix-applier";
+import { readNpmLockfileVersion } from "./lockfile-inspect";
 
 export interface OrchestratorOptions {
   configPath: string;
@@ -106,30 +115,39 @@ function shouldRunPhase(phase: string, options: OrchestratorOptions): boolean {
  * config key, so silently swallowing its failure could mask integration bugs or
  * misconfiguration. Failing loudly is the safe choice.
  */
-function resolveOnFailure(engineId: string, config: ProjectConfig): 'warn' | 'fail' {
+function resolveOnFailure(
+  engineId: string,
+  config: ProjectConfig,
+): "warn" | "fail" {
   const scanners = config.scanners;
   if (!scanners) {
     logger.debug(
       `Engine "${engineId}": no scanners config found — defaulting on_failure to "fail".`,
     );
-    return 'fail';
+    return "fail";
   }
 
   // Generic lookup: find the engine config block by id and read on_failure if present
   for (const [key, engineConfig] of Object.entries(scanners)) {
-    if (key === engineId && engineConfig && typeof engineConfig === 'object' && 'on_failure' in engineConfig) {
-      const onFailure = (engineConfig as { on_failure?: 'warn' | 'fail' }).on_failure;
-      return onFailure ?? 'fail';
+    if (
+      key === engineId &&
+      engineConfig &&
+      typeof engineConfig === "object" &&
+      "on_failure" in engineConfig
+    ) {
+      const onFailure = (engineConfig as { on_failure?: "warn" | "fail" })
+        .on_failure;
+      return onFailure ?? "fail";
     }
   }
 
   // Unknown secondary engine or engine config has no on_failure — fail by default (safe hardening)
   logger.warn(
     `Engine "${engineId}" is not a recognised secondary engine or has no on_failure config. ` +
-    `Defaulting on_failure to "fail" for safety. ` +
-    `Add explicit config for this engine to override.`,
+      `Defaulting on_failure to "fail" for safety. ` +
+      `Add explicit config for this engine to override.`,
   );
-  return 'fail';
+  return "fail";
 }
 
 /**
@@ -148,7 +166,10 @@ async function runAllEngines(
   engineRegistry: ScannerEngineRegistry,
   ctx: ScannerEngineContext,
   config: ProjectConfig,
-): Promise<{ engineEntries: Array<{ engineId: string; result: ScanResultJson }>; warnings: EngineWarning[] }> {
+): Promise<{
+  engineEntries: Array<{ engineId: string; result: ScanResultJson }>;
+  warnings: EngineWarning[];
+}> {
   const engines = engineRegistry.getAll();
   const engineEntries: Array<{ engineId: string; result: ScanResultJson }> = [];
   const warnings: EngineWarning[] = [];
@@ -170,8 +191,10 @@ async function runAllEngines(
       const onFailure = resolveOnFailure(engine.id, config);
       const message = err instanceof Error ? err.message : String(err);
 
-      if (onFailure === 'fail') {
-        logger.error(`${engine.name}: scan failed (on_failure=fail) — ${message}`);
+      if (onFailure === "fail") {
+        logger.error(
+          `${engine.name}: scan failed (on_failure=fail) — ${message}`,
+        );
         throw err;
       }
 
@@ -182,17 +205,22 @@ async function runAllEngines(
     }
 
     // Engine returned a result — check if it encoded a failure via status='error'
-    if (result.status === 'error' && !isPrimary) {
+    if (result.status === "error" && !isPrimary) {
       const onFailure = resolveOnFailure(engine.id, config);
-      const message = result.error ?? `${engine.name} scan returned status 'error'`;
+      const message =
+        result.error ?? `${engine.name} scan returned status 'error'`;
 
-      if (onFailure === 'fail') {
-        logger.error(`${engine.name}: scan result is error (on_failure=fail) — ${message}`);
+      if (onFailure === "fail") {
+        logger.error(
+          `${engine.name}: scan result is error (on_failure=fail) — ${message}`,
+        );
         throw new Error(message);
       }
 
       // on_failure='warn' — record warning and continue (do not include errored result)
-      logger.warn(`${engine.name}: scan result is error (on_failure=warn) — ${message}`);
+      logger.warn(
+        `${engine.name}: scan result is error (on_failure=warn) — ${message}`,
+      );
       warnings.push({ engineId: engine.id, message });
       continue;
     }
@@ -221,22 +249,22 @@ async function resolveNpmContainerRunner(
   inferVersion?: (cwd: string) => Promise<string | undefined>,
 ): Promise<CommandRunner> {
   const npmRunnerConfig = config.scanners?.npm;
-  const mode = npmRunnerConfig?.mode ?? 'docker';
+  const mode = npmRunnerConfig?.mode ?? "docker";
 
-  if (mode === 'local') {
+  if (mode === "local") {
     logger.warn(
-      '[npm runner] mode=local: using local npm binary. ' +
-      'Docker (mode: docker) is the recommended default for reproducible, ' +
-      'platform-independent npm updates. Set scanners.npm.mode to "docker" in your config.',
+      "[npm runner] mode=local: using local npm binary. " +
+        "Docker (mode: docker) is the recommended default for reproducible, " +
+        'platform-independent npm updates. Set scanners.npm.mode to "docker" in your config.',
     );
     return runner;
   }
 
-  if (mode === 'auto') {
+  if (mode === "auto") {
     logger.warn(
-      '[npm runner] mode=auto is a deprecated escape hatch. ' +
-      'Docker (mode: docker) is now the default for npm. ' +
-      'Set scanners.npm.mode explicitly to "docker" or "local" in your config.',
+      "[npm runner] mode=auto is a deprecated escape hatch. " +
+        "Docker (mode: docker) is now the default for npm. " +
+        'Set scanners.npm.mode explicitly to "docker" or "local" in your config.',
     );
     // auto: fall through to docker (docker is the preferred path)
   }
@@ -254,13 +282,17 @@ async function resolveNpmContainerRunner(
       try {
         nodeVersion = await inferVersion(cwd);
         if (nodeVersion) {
-          logger.info(`[npm runner] Inferred Node version: ${nodeVersion} → resolving Docker image`);
+          logger.info(
+            `[npm runner] Inferred Node version: ${nodeVersion} → resolving Docker image`,
+          );
         }
       } catch {
         // inferVersion must never throw — defensive guard
       }
     } else if (nodeVersion) {
-      logger.info(`[npm runner] Using configured runtime_version: ${nodeVersion} → resolving Docker image`);
+      logger.info(
+        `[npm runner] Using configured runtime_version: ${nodeVersion} → resolving Docker image`,
+      );
     }
 
     image = resolveNpmDockerImage(nodeVersion);
@@ -293,22 +325,22 @@ async function resolvePipContainerRunner(
   inferVersion?: (cwd: string) => Promise<string | undefined>,
 ): Promise<CommandRunner> {
   const pipRunnerConfig = config.scanners?.pip;
-  const mode = pipRunnerConfig?.mode ?? 'docker';
+  const mode = pipRunnerConfig?.mode ?? "docker";
 
-  if (mode === 'local') {
+  if (mode === "local") {
     logger.warn(
-      '[pip runner] mode=local: using local pip binary. ' +
-      'Docker (mode: docker) is the recommended default for reproducible, ' +
-      'platform-independent pip updates. Set scanners.pip.mode to "docker" in your config.',
+      "[pip runner] mode=local: using local pip binary. " +
+        "Docker (mode: docker) is the recommended default for reproducible, " +
+        'platform-independent pip updates. Set scanners.pip.mode to "docker" in your config.',
     );
     return runner;
   }
 
-  if (mode === 'auto') {
+  if (mode === "auto") {
     logger.warn(
-      '[pip runner] mode=auto is a deprecated escape hatch. ' +
-      'Docker (mode: docker) is now the default for pip. ' +
-      'Set scanners.pip.mode explicitly to "docker" or "local" in your config.',
+      "[pip runner] mode=auto is a deprecated escape hatch. " +
+        "Docker (mode: docker) is now the default for pip. " +
+        'Set scanners.pip.mode explicitly to "docker" or "local" in your config.',
     );
     // auto: fall through to docker (docker is the preferred path)
   }
@@ -326,13 +358,17 @@ async function resolvePipContainerRunner(
       try {
         pythonVersion = await inferVersion(cwd);
         if (pythonVersion) {
-          logger.info(`[pip runner] Inferred Python version: ${pythonVersion} → resolving Docker image`);
+          logger.info(
+            `[pip runner] Inferred Python version: ${pythonVersion} → resolving Docker image`,
+          );
         }
       } catch {
         // inferVersion must never throw — defensive guard
       }
     } else if (pythonVersion) {
-      logger.info(`[pip runner] Using configured runtime_version: ${pythonVersion} → resolving Docker image`);
+      logger.info(
+        `[pip runner] Using configured runtime_version: ${pythonVersion} → resolving Docker image`,
+      );
     }
 
     image = resolvePipDockerImage(pythonVersion);
@@ -365,22 +401,22 @@ async function resolveComposerContainerRunner(
   inferVersion?: (cwd: string) => Promise<string | undefined>,
 ): Promise<CommandRunner> {
   const composerRunnerConfig = config.scanners?.composer;
-  const mode = composerRunnerConfig?.mode ?? 'docker';
+  const mode = composerRunnerConfig?.mode ?? "docker";
 
-  if (mode === 'local') {
+  if (mode === "local") {
     logger.warn(
-      '[composer runner] mode=local: using local composer/php binary. ' +
-      'Docker (mode: docker) is the recommended default for reproducible, ' +
-      'platform-independent composer updates. Set scanners.composer.mode to "docker" in your config.',
+      "[composer runner] mode=local: using local composer/php binary. " +
+        "Docker (mode: docker) is the recommended default for reproducible, " +
+        'platform-independent composer updates. Set scanners.composer.mode to "docker" in your config.',
     );
     return runner;
   }
 
-  if (mode === 'auto') {
+  if (mode === "auto") {
     logger.warn(
-      '[composer runner] mode=auto is a deprecated escape hatch. ' +
-      'Docker (mode: docker) is now the default for composer. ' +
-      'Set scanners.composer.mode explicitly to "docker" or "local" in your config.',
+      "[composer runner] mode=auto is a deprecated escape hatch. " +
+        "Docker (mode: docker) is now the default for composer. " +
+        'Set scanners.composer.mode explicitly to "docker" or "local" in your config.',
     );
     // auto: fall through to docker (docker is the preferred path)
   }
@@ -398,20 +434,27 @@ async function resolveComposerContainerRunner(
       try {
         phpVersion = await inferVersion(cwd);
         if (phpVersion) {
-          logger.info(`[composer runner] Inferred PHP version: ${phpVersion} → resolving Docker image`);
+          logger.info(
+            `[composer runner] Inferred PHP version: ${phpVersion} → resolving Docker image`,
+          );
         }
       } catch {
         // inferVersion must never throw — defensive guard
       }
     } else if (phpVersion) {
-      logger.info(`[composer runner] Using configured runtime_version: ${phpVersion} → resolving Docker image`);
+      logger.info(
+        `[composer runner] Using configured runtime_version: ${phpVersion} → resolving Docker image`,
+      );
     }
 
     image = resolveComposerDockerImage(phpVersion);
   }
 
   logger.info(`[composer runner] Using Docker image: ${image}`);
-  const composerDockerRunner = new ComposerDockerRunner({ projectDir: cwd, image });
+  const composerDockerRunner = new ComposerDockerRunner({
+    projectDir: cwd,
+    image,
+  });
   return new ComposerContainerCommandRunner({
     container: composerDockerRunner,
     fallback: runner,
@@ -434,20 +477,26 @@ function resolveOsvCommandRunner(
   dryRun: boolean,
 ): CommandRunner {
   const osvConfig = config.scanners?.osv;
-  const mode = osvConfig?.runner ?? 'docker';
+  const mode = osvConfig?.runner ?? "docker";
 
-  if (mode === 'local') {
+  if (mode === "local") {
     // Local mode: use fallback (local runner) directly for OSV commands
-    logger.debug('[OSV runner] mode=local: using local runner for OSV commands');
+    logger.debug(
+      "[OSV runner] mode=local: using local runner for OSV commands",
+    );
     return fallback;
   }
 
   // docker or auto: use OsvDockerRunner-backed OsvContainerCommandRunner
   const image = osvConfig?.image;
-  const osvDockerRunner = new OsvDockerRunner({ projectDir: cwd, image, readonly: true });
+  const osvDockerRunner = new OsvDockerRunner({
+    projectDir: cwd,
+    image,
+    readonly: true,
+  });
 
   logger.info(
-    `[OSV runner] Dedicated OSV container runner (mode: ${mode}, mount: read-only${image ? `, image: ${image}` : ''})`,
+    `[OSV runner] Dedicated OSV container runner (mode: ${mode}, mount: read-only${image ? `, image: ${image}` : ""})`,
   );
 
   return new OsvContainerCommandRunner({
@@ -461,7 +510,12 @@ function resolveOsvCommandRunner(
  * Run residual OSV scan verification after updates are applied.
  * Best-effort: logs a warning on failure but does not abort the pipeline.
  */
-async function runOsvResidualVerification(osvRunner: CommandRunner, cwd: string, dryRun: boolean, command: string): Promise<void> {
+async function runOsvResidualVerification(
+  osvRunner: CommandRunner,
+  cwd: string,
+  dryRun: boolean,
+  command: string,
+): Promise<void> {
   if (dryRun) {
     logger.info(`[DRY-RUN] Would execute: ${command}`);
     return;
@@ -471,7 +525,9 @@ async function runOsvResidualVerification(osvRunner: CommandRunner, cwd: string,
     await osvRunner.run(command, { cwd });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    logger.warn(`[OSV verify] Post-update OSV verification failed (non-fatal): ${message}`);
+    logger.warn(
+      `[OSV verify] Post-update OSV verification failed (non-fatal): ${message}`,
+    );
   }
 }
 
@@ -483,20 +539,20 @@ export async function runOrchestrator(
   const result: OrchestratorResult = {
     scan: null,
     updates: {},
-    overallStatus: 'success',
+    overallStatus: "success",
     hasPendingVulns: false,
     warnings: [],
     advisorResults: {},
   };
 
   // Scan — hard precondition for all update steps
-  if (!shouldRunPhase('scan', options)) {
+  if (!shouldRunPhase("scan", options)) {
     logger.warn('Skipping scan phase — phases option does not include "scan"');
-    result.overallStatus = 'skipped';
+    result.overallStatus = "skipped";
     return result;
   }
 
-  logger.info('=== Vulnerability Scan ===');
+  logger.info("=== Vulnerability Scan ===");
 
   const ecosystemRegistry = options.registry ?? defaultRegistry;
   const engineRegistry = options.scannerRegistry ?? defaultScannerRegistry;
@@ -509,11 +565,11 @@ export async function runOrchestrator(
   }
 
   // OSV disable guard: if OSV engine is not in registry, block update/fix flow
-  if (!engineRegistry.has('osv')) {
+  if (!engineRegistry.has("osv")) {
     throw new Error(
-      'OSV scanner engine is not registered. ' +
-      'The OSV engine is required for automatic update/fix flow. ' +
-      'Register an OsvScannerEngine with id "osv" before running the orchestrator.',
+      "OSV scanner engine is not registered. " +
+        "The OSV engine is required for automatic update/fix flow. " +
+        'Register an OsvScannerEngine with id "osv" before running the orchestrator.',
     );
   }
 
@@ -533,7 +589,11 @@ export async function runOrchestrator(
   };
 
   // Run all scanner engines; collect results + warnings
-  const { engineEntries, warnings } = await runAllEngines(engineRegistry, ctx, config);
+  const { engineEntries, warnings } = await runAllEngines(
+    engineRegistry,
+    ctx,
+    config,
+  );
   result.warnings = warnings;
 
   // Aggregate: primary is always first engine (OSV); secondary results go into engineResults
@@ -548,22 +608,25 @@ export async function runOrchestrator(
   const gateA = validateGateA(scanResult);
   if (!gateA.valid) {
     throw new GateValidationError(
-      `Gate A validation failed: ${gateA.errors.join(', ')}`,
-      'A',
+      `Gate A validation failed: ${gateA.errors.join(", ")}`,
+      "A",
       gateA.errors,
     );
   }
 
   // Build a summary log using registered ecosystem results
-  const ecosystemSummaryParts = Object.entries(scanResult.ecosystems).map(([id, e]) =>
-    `${e.vulnerabilities_total} ${id} vulns (${e.auto_safe} auto-safe, ${e.breaking} breaking)`,
+  const ecosystemSummaryParts = Object.entries(scanResult.ecosystems).map(
+    ([id, e]) =>
+      `${e.vulnerabilities_total} ${id} vulns (${e.auto_safe} auto-safe, ${e.breaking} breaking)`,
   );
-  logger.info(`Scan complete: ${ecosystemSummaryParts.join(', ') || 'no vulnerabilities found'}`);
+  logger.info(
+    `Scan complete: ${ecosystemSummaryParts.join(", ") || "no vulnerabilities found"}`,
+  );
 
   // Resolve active plugins from declarative config.ecosystems[]
-  const activePlugins = ecosystemRegistry.getAll().filter((p) =>
-    config.ecosystems.some((e) => e.id === p.id),
-  );
+  const activePlugins = ecosystemRegistry
+    .getAll()
+    .filter((p) => config.ecosystems.some((e) => e.id === p.id));
 
   // Iterate over active plugins in registration order (npm → composer)
   for (const plugin of activePlugins) {
@@ -582,7 +645,9 @@ export async function runOrchestrator(
     // Resolve fixer strategy: config override → first supported fixer → 'osv' (npm) or plugin-specific
     const fixerStrategy: FixerStrategyId =
       ecoConfigEntry?.fixer ??
-      (plugin.supportedFixers.length > 0 ? plugin.supportedFixers[0] : 'osv') as FixerStrategyId;
+      ((plugin.supportedFixers.length > 0
+        ? plugin.supportedFixers[0]
+        : "osv") as FixerStrategyId);
 
     // Resolve advisors: config override → plugin defaults
     const advisors = ecoConfigEntry?.advisors ?? plugin.defaultAdvisors;
@@ -602,10 +667,13 @@ export async function runOrchestrator(
     const authorizeBreaking = options.authorizeBreaking?.[plugin.id] ?? false;
     const hasUpdates =
       ecosystemResult &&
-      (ecosystemResult.auto_safe > 0 || (authorizeBreaking && ecosystemResult.breaking > 0));
+      (ecosystemResult.auto_safe > 0 ||
+        (authorizeBreaking && ecosystemResult.breaking > 0));
 
     if (!hasUpdates) {
-      logger.info(`Phase: Skipping ${plugin.name} — no auto-safe vulnerabilities`);
+      logger.info(
+        `Phase: Skipping ${plugin.name} — no auto-safe vulnerabilities`,
+      );
       continue;
     }
 
@@ -613,32 +681,56 @@ export async function runOrchestrator(
 
     // Resolve effective runner by runtimeContainer tag (not by plugin.id)
     let effectiveRunner: CommandRunner = runner;
-    if (plugin.runtimeContainer === 'npm-docker') {
-      effectiveRunner = await resolveNpmContainerRunner(config, options.cwd, runner, plugin.inferVersion?.bind(plugin));
-    } else if (plugin.runtimeContainer === 'pip-docker') {
-      effectiveRunner = await resolvePipContainerRunner(config, options.cwd, runner, plugin.inferVersion?.bind(plugin));
-    } else if (plugin.runtimeContainer === 'composer-docker') {
-      effectiveRunner = await resolveComposerContainerRunner(config, options.cwd, runner, plugin.inferVersion?.bind(plugin));
+    if (plugin.runtimeContainer === "npm-docker") {
+      effectiveRunner = await resolveNpmContainerRunner(
+        config,
+        options.cwd,
+        runner,
+        plugin.inferVersion?.bind(plugin),
+      );
+    } else if (plugin.runtimeContainer === "pip-docker") {
+      effectiveRunner = await resolvePipContainerRunner(
+        config,
+        options.cwd,
+        runner,
+        plugin.inferVersion?.bind(plugin),
+      );
+    } else if (plugin.runtimeContainer === "composer-docker") {
+      effectiveRunner = await resolveComposerContainerRunner(
+        config,
+        options.cwd,
+        runner,
+        plugin.inferVersion?.bind(plugin),
+      );
     }
 
     // OSV staging-apply (generic, driven by plugin.osvFixSpec)
     let preFixBackups: Map<string, string> | undefined;
-    let osvFixOutcome: { applied: boolean; packagesUpdated: Array<{ name: string; versionFrom: string; versionTo: string }> } | undefined;
+    let osvFixOutcome:
+      | {
+          applied: boolean;
+          packagesUpdated: Array<{
+            name: string;
+            versionFrom: string;
+            versionTo: string;
+          }>;
+        }
+      | undefined;
 
     // Fase 3: warn when lockfileVersion=1 + osv strategy (osv-scanner cannot patch v1 lockfiles)
-    if (fixerStrategy === 'osv' && plugin.id === 'npm') {
+    if (fixerStrategy === "osv" && plugin.id === "npm") {
       const lockVer = await readNpmLockfileVersion(options.cwd);
       if (lockVer === 1) {
         logger.warn(
           `[OSV fix] package-lock.json has lockfileVersion: 1 (npm 6 / Node ≤12). ` +
-          `osv-scanner cannot patch lockfileVersion 1 lockfiles in-place. ` +
-          `No lockfile changes will be written for this project. ` +
-          `To fix vulnerabilities automatically, set fixer: "npm-audit" in your deep-health config for the npm ecosystem.`,
+            `osv-scanner cannot patch lockfileVersion 1 lockfiles in-place. ` +
+            `No lockfile changes will be written for this project. ` +
+            `To fix vulnerabilities automatically, set fixer: "npm-audit" in your deep-health config for the npm ecosystem.`,
         );
       }
     }
 
-    if (fixerStrategy === 'osv' && plugin.osvFixSpec) {
+    if (fixerStrategy === "osv" && plugin.osvFixSpec) {
       const fixResult = await applyOsvFixViaStaging({
         cwd: options.cwd,
         osvConfig: config.scanners?.osv,
@@ -646,7 +738,10 @@ export async function runOrchestrator(
         dryRun: options.dryRun ?? false,
       });
       preFixBackups = fixResult.backups;
-      osvFixOutcome = { applied: fixResult.applied, packagesUpdated: fixResult.packagesUpdated };
+      osvFixOutcome = {
+        applied: fixResult.applied,
+        packagesUpdated: fixResult.packagesUpdated,
+      };
     }
 
     const updateResult = await plugin.runUpdater({
@@ -662,7 +757,11 @@ export async function runOrchestrator(
     });
 
     // === Post-updater: Breaking packages install (generic, via plugin hook) ===
-    if (plugin.installBreakingPackages && authorizeBreaking && updateResult.status !== 'error') {
+    if (
+      plugin.installBreakingPackages &&
+      authorizeBreaking &&
+      updateResult.status !== "error"
+    ) {
       const breakRes = await plugin.installBreakingPackages({
         runner: effectiveRunner,
         cwd: options.cwd,
@@ -670,30 +769,49 @@ export async function runOrchestrator(
         dryRun: options.dryRun,
         fixerStrategy,
       });
-      if (breakRes?.status === 'error') {
-        result.updates[plugin.id] = { ...updateResult, status: 'error', error: breakRes.error ?? 'breaking install failed' };
-        result.overallStatus = 'error';
+      if (breakRes?.status === "error") {
+        result.updates[plugin.id] = {
+          ...updateResult,
+          status: "error",
+          error: breakRes.error ?? "breaking install failed",
+        };
+        result.overallStatus = "error";
         break;
       }
     }
 
     // === Post-updater: OSV residual verification (generic, driven by plugin.postUpdateOsvVerify) ===
     const shouldOsvVerify =
-      updateResult.status !== 'error' &&
-      (plugin.postUpdateOsvVerify === 'always' ||
-        (plugin.postUpdateOsvVerify === 'osv-strategy-only' && fixerStrategy === 'osv'));
+      updateResult.status !== "error" &&
+      (plugin.postUpdateOsvVerify === "always" ||
+        (plugin.postUpdateOsvVerify === "osv-strategy-only" &&
+          fixerStrategy === "osv"));
 
     if (shouldOsvVerify) {
-      const osvVerifyRunner = resolveOsvCommandRunner(config, options.cwd, runner, false);
-      const osvVerifyMode = config.scanners?.osv?.runner ?? 'docker';
-      if (osvVerifyMode === 'local') {
-        logger.info('[OSV verify] Using local osv-scanner binary for residual verification');
+      const osvVerifyRunner = resolveOsvCommandRunner(
+        config,
+        options.cwd,
+        runner,
+        false,
+      );
+      const osvVerifyMode = config.scanners?.osv?.runner ?? "docker";
+      if (osvVerifyMode === "local") {
+        logger.info(
+          "[OSV verify] Using local osv-scanner binary for residual verification",
+        );
       } else {
-        logger.info('[OSV verify] Using OSV container runner with read-only mount for residual verification');
+        logger.info(
+          "[OSV verify] Using OSV container runner with read-only mount for residual verification",
+        );
       }
       const verifyScanArgs = plugin.buildScanArgs();
-      const verifyCmd = `osv-scanner ${verifyScanArgs.join(' ')} --format json`;
-      await runOsvResidualVerification(osvVerifyRunner, options.cwd, options.dryRun, verifyCmd);
+      const verifyCmd = `osv-scanner ${verifyScanArgs.join(" ")} --format json`;
+      await runOsvResidualVerification(
+        osvVerifyRunner,
+        options.cwd,
+        options.dryRun,
+        verifyCmd,
+      );
     }
 
     result.updates[plugin.id] = updateResult;
@@ -702,15 +820,15 @@ export async function runOrchestrator(
     const gate = validateEcosystemGate(plugin.id, updateResult);
     if (!gate.valid) {
       throw new GateValidationError(
-        `Gate ${plugin.id} validation failed: ${gate.errors.join(', ')}`,
+        `Gate ${plugin.id} validation failed: ${gate.errors.join(", ")}`,
         plugin.id,
         gate.errors,
       );
     }
 
-    if (updateResult.status === 'error') {
+    if (updateResult.status === "error") {
       logger.error(`${plugin.name} update failed — stopping pipeline`);
-      result.overallStatus = 'error';
+      result.overallStatus = "error";
       break;
     }
 

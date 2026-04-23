@@ -27,6 +27,7 @@ describe('classifyPackage — no safe version', () => {
     const result = classifyPackage(pkg('lodash', '4.17.20', null), []);
     expect(result.classification).toBe('manual');
     expect(result.reason).toContain('No safe version available');
+    expect(result.breakingReason).toBeUndefined();
   });
 });
 
@@ -38,17 +39,20 @@ describe('classifyPackage — no protected_packages list', () => {
   it('patch bump → auto_safe', () => {
     const result = classifyPackage(pkg('lodash', '4.17.20', '4.17.21'), []);
     expect(result.classification).toBe('auto_safe');
+    expect(result.breakingReason).toBeUndefined();
   });
 
   it('minor bump → auto_safe', () => {
     const result = classifyPackage(pkg('lodash', '4.17.21', '4.18.0'), []);
     expect(result.classification).toBe('auto_safe');
+    expect(result.breakingReason).toBeUndefined();
   });
 
   it('major bump → breaking with reason "Major version bump"', () => {
     const result = classifyPackage(pkg('lodash', '4.17.21', '5.0.0'), []);
     expect(result.classification).toBe('breaking');
     expect(result.reason).toContain('Major version bump');
+    expect(result.breakingReason).toBe('major-bump');
   });
 
   it('major bump reason must NOT mention "Protected package"', () => {
@@ -89,6 +93,7 @@ describe('classifyPackage — protected constraint violated', () => {
     expect(result.classification).toBe('breaking');
     expect(result.reason).toContain('Protected package');
     expect(result.reason).toContain('outside constraint');
+    expect(result.breakingReason).toBe('protected-constraint');
   });
 
   it('caret constraint, major bump outside range → breaking with "Protected package"', () => {
@@ -97,6 +102,7 @@ describe('classifyPackage — protected constraint violated', () => {
     const result = classifyPackage(pkg('lodash', '4.17.21', '5.0.0'), protectedList);
     expect(result.classification).toBe('breaking');
     expect(result.reason).toContain('Protected package');
+    expect(result.breakingReason).toBe('protected-constraint');
   });
 
   it('non-protected package alongside a protected list must NOT get "Protected package" reason on breaking', () => {
@@ -106,6 +112,7 @@ describe('classifyPackage — protected constraint violated', () => {
     expect(result.classification).toBe('breaking');
     expect(result.reason).not.toContain('Protected package');
     expect(result.reason).toContain('Major version bump');
+    expect(result.breakingReason).toBe('major-bump');
   });
 });
 

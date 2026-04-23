@@ -14,6 +14,7 @@ export interface ClassifiedPackage {
   safeVersion: string | null;
   classification: VulnerabilityClass;
   reason?: string;
+  breakingReason?: 'major-bump' | 'protected-constraint';
 }
 
 export function classifyPackage(
@@ -39,6 +40,7 @@ export function classifyPackage(
         ...pkg,
         classification: 'breaking',
         reason: `Protected package: ${protected_.reason}. Safe version ${pkg.safeVersion} is outside constraint ${protected_.constraint}`,
+        breakingReason: 'protected-constraint',
       };
     }
   }
@@ -56,6 +58,7 @@ export function classifyPackage(
       ...pkg,
       classification: 'breaking',
       reason: `Major version bump required: ${pkg.currentVersion} → ${pkg.safeVersion}`,
+      breakingReason: 'major-bump',
     };
   }
 

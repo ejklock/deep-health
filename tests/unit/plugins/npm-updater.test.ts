@@ -333,6 +333,95 @@ describe('runNpmUpdater — breaking package installs (authorized)', () => {
     expect(calledCommands.some((cmd) => cmd.includes('react@18.0.0'))).toBe(false);
   });
 
+  it('does NOT install breaking packages with breakingReason=protected-constraint even when authorizeBreaking=true (npm-audit)', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    // Build a scan where react is classified breaking due to protected-constraint
+    const scan: ScanResultJson = {
+      $schema: 'osv-scan-result/v1',
+      agent: 'osv',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {
+        npm: {
+          vulnerabilities_total: 1,
+          auto_safe: 0,
+          breaking: 1,
+          manual: 0,
+          auto_safe_packages: [],
+          breaking_packages: ['react@18.0.0'],
+          manual_packages: [],
+          vulnerabilities: [
+            {
+              ecosystem: 'npm',
+              package: 'react',
+              currentVersion: '17.0.2',
+              safeVersion: '18.0.0',
+              cvss: '8.0',
+              ghsaId: 'GHSA-test-protected',
+              risk: 'critical',
+              classification: 'breaking',
+              reason: 'Protected package: pinned by team. Safe version 18.0.0 is outside constraint ^17.0.0',
+              breakingReason: 'protected-constraint',
+            },
+          ],
+        },
+      },
+      error: null,
+    };
+
+    await runNpmUpdater(runner, baseConfig(), scan, '/tmp/project', true, [], 'npm-audit');
+
+    const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
+    // protected-constraint package must NOT be installed even with authorizeBreaking=true
+    expect(calledCommands.some((cmd) => cmd.includes('react@18.0.0'))).toBe(false);
+  });
+
+  it('does NOT install breaking packages with breakingReason=protected-constraint even when authorizeBreaking=true (osv strategy)', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    const scan: ScanResultJson = {
+      $schema: 'osv-scan-result/v1',
+      agent: 'osv',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {
+        npm: {
+          vulnerabilities_total: 1,
+          auto_safe: 0,
+          breaking: 1,
+          manual: 0,
+          auto_safe_packages: [],
+          breaking_packages: ['lodash@5.0.0'],
+          manual_packages: [],
+          vulnerabilities: [
+            {
+              ecosystem: 'npm',
+              package: 'lodash',
+              currentVersion: '4.17.21',
+              safeVersion: '5.0.0',
+              cvss: '7.5',
+              ghsaId: 'GHSA-test-protected2',
+              risk: 'high',
+              classification: 'breaking',
+              reason: 'Protected package: keep v4. Safe version 5.0.0 is outside constraint ^4.17.0',
+              breakingReason: 'protected-constraint',
+            },
+          ],
+        },
+      },
+      error: null,
+    };
+
+    await runNpmUpdater(runner, baseConfig(), scan, '/tmp/project', true, [], 'osv');
+
+    const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
+    // protected-constraint package must NOT be installed even with authorizeBreaking=true
+    expect(calledCommands.some((cmd) => cmd.includes('lodash@5.0.0'))).toBe(false);
+  });
+
   it('breaking install failure (npm-audit) => status is "error"', async () => {
     // Sequence: npm outdated (ok), npm audit (ok), npm audit fix (ok), npm install react@18.0.0 (FAIL)
     const runner = makeRunner();

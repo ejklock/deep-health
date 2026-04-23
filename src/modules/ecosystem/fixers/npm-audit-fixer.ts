@@ -159,8 +159,16 @@ export async function applyNpmAuditFix(opts: NpmAuditFixerOptions): Promise<NpmA
   }
 
   // ── Breaking install (authorized) ────────────────────────────────────────
+  const skippedProtected = npmEcosystem.vulnerabilities
+    .filter((v) => v.classification === 'breaking' && v.breakingReason === 'protected-constraint');
+  if (skippedProtected.length > 0) {
+    logger.warn(
+      `[npm-audit fix] Skipping ${skippedProtected.length} protected-constraint package(s) — cannot be installed automatically: ` +
+      skippedProtected.map((v) => v.package).join(', '),
+    );
+  }
   const breakingPkgs = npmEcosystem.vulnerabilities
-    .filter((v) => v.classification === 'breaking' && v.safeVersion)
+    .filter((v) => v.classification === 'breaking' && v.safeVersion && v.breakingReason !== 'protected-constraint')
     .reduce<Map<string, string>>((map, v) => {
       if (!map.has(v.package)) map.set(v.package, v.safeVersion!);
       return map;

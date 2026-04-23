@@ -173,6 +173,7 @@ function parseOsvJsonOutput(
           risk,
           classification: classified.classification,
           reason: classified.reason ?? '',
+          ...(classified.breakingReason !== undefined ? { breakingReason: classified.breakingReason } : {}),
         };
 
         target.vulnerabilities.push(entry);

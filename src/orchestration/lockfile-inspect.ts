@@ -8,8 +8,8 @@
  * behavior where the JSON output lists patches that never get written).
  */
 
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 /**
  * Collect all (packageName, version) pairs from an npm package-lock.json string.
@@ -21,7 +21,9 @@ import { join } from 'node:path';
  *
  * Tolerates unknown fields and mixed v1/v2 lockfiles.
  */
-export function collectNpmLockfileVersions(content: string): Map<string, Set<string>> {
+export function collectNpmLockfileVersions(
+  content: string,
+): Map<string, Set<string>> {
   const out = new Map<string, Set<string>>();
   const add = (name: string, version: string): void => {
     if (!name || !version) return;
@@ -36,41 +38,44 @@ export function collectNpmLockfileVersions(content: string): Map<string, Set<str
   } catch {
     return out;
   }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return out;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+    return out;
 
   const root = parsed as Record<string, unknown>;
 
   // v1 and v2 carry a recursive name-keyed `dependencies` tree.
   const walkDeps = (deps: unknown): void => {
-    if (!deps || typeof deps !== 'object' || Array.isArray(deps)) return;
+    if (!deps || typeof deps !== "object" || Array.isArray(deps)) return;
     for (const [name, val] of Object.entries(deps as Record<string, unknown>)) {
-      if (!val || typeof val !== 'object') continue;
+      if (!val || typeof val !== "object") continue;
       const entry = val as Record<string, unknown>;
-      const v = entry['version'];
-      if (typeof v === 'string') add(name, v);
-      walkDeps(entry['dependencies']);
+      const v = entry["version"];
+      if (typeof v === "string") add(name, v);
+      walkDeps(entry["dependencies"]);
     }
   };
-  walkDeps(root['dependencies']);
+  walkDeps(root["dependencies"]);
 
   // v2 and v3 use a path-keyed `packages` map, e.g. "node_modules/foo",
   // "node_modules/@scope/bar", or "node_modules/a/node_modules/b".
-  const pkgs = root['packages'];
-  if (pkgs && typeof pkgs === 'object' && !Array.isArray(pkgs)) {
-    for (const [pathKey, val] of Object.entries(pkgs as Record<string, unknown>)) {
+  const pkgs = root["packages"];
+  if (pkgs && typeof pkgs === "object" && !Array.isArray(pkgs)) {
+    for (const [pathKey, val] of Object.entries(
+      pkgs as Record<string, unknown>,
+    )) {
       // The empty-key entry is the project root itself — always skip.
-      if (pathKey === '') continue;
-      if (!val || typeof val !== 'object') continue;
+      if (pathKey === "") continue;
+      if (!val || typeof val !== "object") continue;
       const entry = val as Record<string, unknown>;
-      const ver = entry['version'];
-      if (typeof ver !== 'string') continue;
+      const ver = entry["version"];
+      if (typeof ver !== "string") continue;
 
-      const explicitName = entry['name'];
+      const explicitName = entry["name"];
       let name: string | undefined;
-      if (typeof explicitName === 'string' && explicitName.length > 0) {
+      if (typeof explicitName === "string" && explicitName.length > 0) {
         name = explicitName;
       } else {
-        const marker = 'node_modules/';
+        const marker = "node_modules/";
         const idx = pathKey.lastIndexOf(marker);
         if (idx < 0) continue;
         name = pathKey.slice(idx + marker.length);
@@ -91,10 +96,12 @@ export function collectNpmLockfileVersions(content: string): Map<string, Set<str
  *
  * Never throws.
  */
-export async function readNpmLockfileVersion(cwd: string): Promise<number | null> {
+export async function readNpmLockfileVersion(
+  cwd: string,
+): Promise<number | null> {
   let content: string;
   try {
-    content = await readFile(join(cwd, 'package-lock.json'), 'utf-8');
+    content = await readFile(join(cwd, "package-lock.json"), "utf-8");
   } catch {
     return null;
   }
@@ -104,7 +111,8 @@ export async function readNpmLockfileVersion(cwd: string): Promise<number | null
   } catch {
     return null;
   }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-  const v = (parsed as Record<string, unknown>)['lockfileVersion'];
-  return typeof v === 'number' ? v : null;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+    return null;
+  const v = (parsed as Record<string, unknown>)["lockfileVersion"];
+  return typeof v === "number" ? v : null;
 }
