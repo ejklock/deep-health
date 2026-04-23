@@ -11,8 +11,10 @@ export interface ProtectedPackage {
  * - 'osv' (default for npm): use OSV in-place fix; OSV fix is coordinated by the orchestrator.
  *   Breaking changes authorized by the user are applied separately via npm at orchestration level.
  * - 'npm-audit': use `npm audit fix`; OSV fix is NOT run in this path.
+ * - 'osv-then-audit': applies OSV fix first, then npm audit fix on top; validates after both;
+ *   if validation fails, reverts audit-fix portion and re-validates against OSV-only state.
  */
-export type FixerStrategyId = "osv" | "npm-audit";
+export type FixerStrategyId = "osv" | "npm-audit" | "osv-then-audit";
 
 /** Output format for generated reports */
 export type OutputFormat = "markdown";

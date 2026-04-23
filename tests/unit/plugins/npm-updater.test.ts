@@ -1126,3 +1126,177 @@ describe('runNpmUpdater — osvFixOutcome parameter', () => {
     expect(Array.isArray(result.packages_updated)).toBe(true);
   });
 });
+
+// ── osv-then-audit strategy ───────────────────────────────────────────────────
+
+describe('runNpmUpdater — osv-then-audit strategy', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockReadFile.mockResolvedValue(DEFAULT_LOCKFILE);
+  });
+
+  it('combines OSV packages and audit-fix packages in packages_updated', async () => {
+    const runner = makeRunner();
+
+    // osvFixOutcome has 1 OSV-fixed package; fixer (osv-then-audit) returns 1 audit-fixed package
+    const osvFixOutcome = {
+      applied: true,
+      packagesUpdated: [
+        { name: 'axios', versionFrom: '1.6.0', versionTo: '1.7.0' },
+      ],
+    };
+
+    // Build a post-OSV lockfile: lodash not yet upgraded by OSV
+    const postOsvLockfile = JSON.stringify({
+      name: 'test',
+      lockfileVersion: 2,
+      dependencies: {
+        lodash: { version: '4.17.20' },
+        axios: { version: '1.7.0' },
+      },
+      packages: {
+        '': { name: 'test', version: '1.0.0' },
+        'node_modules/lodash': { version: '4.17.20' },
+        'node_modules/axios': { version: '1.7.0' },
+      },
+    });
+    // Post-audit lockfile: lodash upgraded by audit fix
+    const postAuditLockfile = JSON.stringify({
+      name: 'test',
+      lockfileVersion: 2,
+      dependencies: {
+        lodash: { version: '4.17.21' },
+        axios: { version: '1.7.0' },
+      },
+      packages: {
+        '': { name: 'test', version: '1.0.0' },
+        'node_modules/lodash': { version: '4.17.21' },
+        'node_modules/axios': { version: '1.7.0' },
+      },
+    });
+
+    mockReadFile
+      .mockResolvedValueOnce(postOsvLockfile)  // pre-audit snapshot (post-OSV state)
+      .mockResolvedValueOnce(postAuditLockfile); // post-audit snapshot
+
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [],
+      'osv-then-audit',
+      undefined,
+      osvFixOutcome,
+    );
+
+    expect(result.status).toBe('success');
+    // Both OSV package and audit-fix package must appear
+    expect(result.packages_updated).toContain('axios@1.7.0');
+    expect(result.packages_updated).toContain('lodash@4.17.21');
+    expect(result.packages_updated).toHaveLength(2);
+  });
+
+  it('partial rollback succeeds: returns status "success" with only OSV packages when re-validation passes', async () => {
+    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/git.js');
+    const restoreSpy = mockRestoreFiles as ReturnType<typeof vi.fn>;
+    restoreSpy.mockClear();
+
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    const postOsvLockfile = DEFAULT_LOCKFILE;
+    const postAuditLockfile = DEFAULT_LOCKFILE;
+
+    mockReadFile
+      .mockResolvedValueOnce(postOsvLockfile)
+      .mockResolvedValueOnce(postAuditLockfile);
+
+    // Sequence: npm outdated (ok), npm audit (ok), npm audit fix (ok),
+    //   npm ci (ok), npm run build (FAIL — validation),
+    //   npm ci after partial revert (ok), npm run build re-validation (ok)
+    runMock
+      .mockResolvedValueOnce(ok())            // npm outdated
+      .mockResolvedValueOnce(ok())            // npm audit
+      .mockResolvedValueOnce(ok())            // npm audit fix
+      .mockResolvedValueOnce(ok())            // npm ci (pre-validation)
+      .mockResolvedValueOnce(fail('build failed')) // npm run build (FAIL)
+      .mockResolvedValueOnce(ok())            // npm ci (partial revert)
+      .mockResolvedValueOnce(ok());           // npm run build (re-validation — passes)
+
+    const osvFixOutcome = {
+      applied: true,
+      packagesUpdated: [
+        { name: 'axios', versionFrom: '1.6.0', versionTo: '1.7.0' },
+      ],
+    };
+
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+      'osv-then-audit',
+      undefined,
+      osvFixOutcome,
+    );
+
+    expect(result.status).toBe('success');
+    // Only OSV packages reported (audit-fix was reverted)
+    expect(result.packages_updated).toContain('axios@1.7.0');
+    expect(result.packages_updated).not.toContain('lodash@4.17.21');
+    // restoreFiles must have been called for partial revert (the intermediateBackup)
+    expect(restoreSpy).toHaveBeenCalled();
+  });
+
+  it('partial rollback fails then full revert: returns status "error" when both validations fail', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    const postOsvLockfile = DEFAULT_LOCKFILE;
+    const postAuditLockfile = DEFAULT_LOCKFILE;
+
+    mockReadFile
+      .mockResolvedValueOnce(postOsvLockfile)
+      .mockResolvedValueOnce(postAuditLockfile);
+
+    // Sequence: npm outdated (ok), npm audit (ok), npm audit fix (ok),
+    //   npm ci (ok), npm run build (FAIL),
+    //   npm ci after partial revert (ok), npm run build re-validation (FAIL — also fails),
+    //   full revert npm ci (ok)
+    runMock
+      .mockResolvedValueOnce(ok())            // npm outdated
+      .mockResolvedValueOnce(ok())            // npm audit
+      .mockResolvedValueOnce(ok())            // npm audit fix
+      .mockResolvedValueOnce(ok())            // npm ci (pre-validation)
+      .mockResolvedValueOnce(fail('build failed')) // npm run build (FAIL)
+      .mockResolvedValueOnce(ok())            // npm ci (partial revert)
+      .mockResolvedValueOnce(fail('build still failing')) // npm run build re-validation (FAIL)
+      .mockResolvedValueOnce(ok());           // npm ci (full revert)
+
+    const osvFixOutcome = {
+      applied: true,
+      packagesUpdated: [
+        { name: 'axios', versionFrom: '1.6.0', versionTo: '1.7.0' },
+      ],
+    };
+
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+      'osv-then-audit',
+      undefined,
+      osvFixOutcome,
+    );
+
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('reverted');
+  });
+});

@@ -13,7 +13,7 @@ const ProtectedPackageSchema = z
  * - 'osv' (default for npm): OSV in-place fix coordinated by the orchestrator.
  * - 'npm-audit': `npm audit fix` approach (OSV fix is skipped).
  */
-const FixerStrategyIdSchema = z.enum(["osv", "npm-audit"]);
+const FixerStrategyIdSchema = z.enum(["osv", "npm-audit", "osv-then-audit"]);
 
 /** Advisor command config */
 const AdvisorConfigSchema = z

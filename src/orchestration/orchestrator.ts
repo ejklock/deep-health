@@ -744,7 +744,7 @@ export async function runOrchestrator(
       }
     }
 
-    if (fixerStrategy === "osv" && plugin.osvFixSpec) {
+    if ((fixerStrategy === "osv" || fixerStrategy === "osv-then-audit") && plugin.osvFixSpec) {
       const fixResult = await applyOsvFixViaStaging({
         cwd: options.cwd,
         osvConfig: config.scanners?.osv,

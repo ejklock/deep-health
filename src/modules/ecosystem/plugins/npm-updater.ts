@@ -166,6 +166,40 @@ export async function runNpmUpdater(
           `Validation "${failedEntry.name}" did not pass. Detail: ${failedEntry.detail ?? '(no detail)'}`,
         );
       }
+
+      // osv-then-audit: before a full revert, try to preserve the post-OSV state
+      if (fixerStrategy === 'osv-then-audit' && fixerResult.intermediateBackup) {
+        logger.warn(
+          '[osv-then-audit] Validation failed after audit-fix. Reverting audit-fix changes, keeping OSV state...',
+        );
+        await restoreFiles(fixerResult.intermediateBackup, cwd);
+
+        logger.info('[osv-then-audit] Running npm ci after partial revert...');
+        const reCiResult = await runner.run('npm ci', { cwd, stream: true });
+
+        if (reCiResult.exitCode === 0) {
+          const reValidation = await runValidations({ runner, cwd, commands: validationCommands });
+          if (reValidation.allPassed) {
+            logger.info(
+              '[osv-then-audit] Post-OSV state validates successfully. Audit-fix changes reverted; OSV changes preserved.',
+            );
+            const osvOnly = osvFixOutcome?.packagesUpdated.map((p) => `${p.name}@${p.versionTo}`) ?? [];
+            return {
+              ...base,
+              packages_updated: osvOnly,
+              validations: reValidation.entries,
+            };
+          }
+          logger.warn(
+            '[osv-then-audit] Post-OSV state also failed validation. Performing full revert...',
+          );
+        } else {
+          logger.warn(
+            '[osv-then-audit] npm ci failed after partial revert. Performing full revert...',
+          );
+        }
+      }
+
       logger.error('Validation failed — reverting npm changes...');
       await revertNpmChanges(runner, backups, cwd);
       return {
@@ -177,10 +211,17 @@ export async function runNpmUpdater(
     }
 
     // When OSV strategy ran, use the applier's evidence; fall back to fixer result
-    const actualPackagesUpdated =
-      fixerStrategy === 'osv' && osvFixOutcome
+    const osvPackages =
+      (fixerStrategy === 'osv' || fixerStrategy === 'osv-then-audit') && osvFixOutcome
         ? osvFixOutcome.packagesUpdated.map((p) => `${p.name}@${p.versionTo}`)
-        : fixerResult.packagesUpdated;
+        : [];
+
+    const actualPackagesUpdated =
+      fixerStrategy === 'osv-then-audit'
+        ? [...osvPackages, ...fixerResult.packagesUpdated]
+        : fixerStrategy === 'osv' && osvFixOutcome
+          ? osvPackages
+          : fixerResult.packagesUpdated;
 
     return {
       ...base,

@@ -103,7 +103,7 @@ export const npmPlugin: EcosystemPlugin = {
 
   postUpdateOsvVerify: 'osv-strategy-only',
 
-  supportedFixers: ['osv', 'npm-audit'],
+  supportedFixers: ['osv', 'npm-audit', 'osv-then-audit'],
 
   defaultValidationCommands: [
     { name: 'build', command: 'npm run build' },
