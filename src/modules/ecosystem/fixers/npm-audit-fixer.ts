@@ -5,7 +5,7 @@ import type { CommandRunner } from '@core/types/common';
 import type { ScanResultJson } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
 import { logger } from '@infra/utils/logger';
-import { collectNpmLockfileVersions } from '@orchestration/lockfile-inspect';
+import { collectNpmLockfileVersions, collectRootNpmLockfileVersions } from '@orchestration/lockfile-inspect';
 
 export interface NpmAuditFixerOptions {
   runner: CommandRunner;
@@ -118,6 +118,7 @@ export async function applyNpmAuditFix(opts: NpmAuditFixerOptions): Promise<NpmA
   }
 
   const versionsAfterAutoSafe = collectNpmLockfileVersions(postAutoSafeLockfile);
+  const rootVersionsAfterAutoSafe = collectRootNpmLockfileVersions(postAutoSafeLockfile);
 
   // ── Verify auto-safe upgrades ─────────────────────────────────────────────
   // auto_safe_packages is a string[] of "name@version" or bare "name" strings from the scanner.
@@ -134,9 +135,11 @@ export async function applyNpmAuditFix(opts: NpmAuditFixerOptions): Promise<NpmA
     const before = semverMax(versionsBefore.get(name) ?? new Set());
     const afterSet = versionsAfterAutoSafe.get(name);
     const after = semverMax(afterSet ?? new Set());
+    const rootAfter = rootVersionsAfterAutoSafe.get(name);
 
     if (isUpgraded(before, after)) {
-      autoSafeVerified.push(`${name}@${after!}`);
+      // Report root-level version to avoid false positives from transitive nested copies
+      autoSafeVerified.push(`${name}@${rootAfter ?? after!}`);
     } else {
       autoSafeFalsePositives.push(name);
     }

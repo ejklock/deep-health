@@ -4,7 +4,7 @@ import semver from 'semver';
 import type { ScanResultJson } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
 import { logger } from '@infra/utils/logger';
-import { collectNpmLockfileVersions } from '@orchestration/lockfile-inspect';
+import { collectNpmLockfileVersions, collectRootNpmLockfileVersions } from '@orchestration/lockfile-inspect';
 import type { FixerCallOptions, FixerCallResult } from './index';
 
 /**
@@ -122,6 +122,7 @@ export async function applyOsvThenAuditFix(opts: FixerCallOptions): Promise<Fixe
   }
 
   const versionsPostAudit = collectNpmLockfileVersions(postAuditContent);
+  const rootVersionsPostAudit = collectRootNpmLockfileVersions(postAuditContent);
 
   // ── Verificar quais pacotes o audit-fix adicionou além do OSV ───────────────
   const auditVerified: string[] = [];
@@ -134,9 +135,11 @@ export async function applyOsvThenAuditFix(opts: FixerCallOptions): Promise<Fixe
 
     const before = semverMax(versionsPreAudit.get(name) ?? new Set());
     const after = semverMax(versionsPostAudit.get(name) ?? new Set());
+    const rootAfter = rootVersionsPostAudit.get(name);
 
     if (isUpgraded(before, after)) {
-      auditVerified.push(`${name}@${after!}`);
+      // Report root-level version to avoid false positives from transitive nested copies
+      auditVerified.push(`${name}@${rootAfter ?? after!}`);
     } else {
       auditFalsePositives.push(name);
     }

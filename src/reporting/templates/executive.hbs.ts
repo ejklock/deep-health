@@ -24,7 +24,7 @@ export default `\
 {{t.found_and_fixed}}
 
 {{t.table_fixed_header}}
-{{#each fixedVulns}}| {{ecoLabel}} | {{ghsaLink}} | {{cvss}} | {{package}} | {{currentVersion}} | {{safeVersion}} | {{risk}} |
+{{#each fixedVulns}}| {{ecoLabel}} | {{ghsaLink}} | {{cvss}} | {{package}} | {{currentVersion}} | {{safeVersion}}{{#if residualWarning}} ⚠{{/if}} | {{risk}} |
 {{/each}}{{/if}}
 {{#if pendingVulns}}
 {{t.pending_intro}}

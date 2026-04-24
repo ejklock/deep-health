@@ -204,6 +204,7 @@ export const npmPlugin: EcosystemPlugin = {
       : new Map<string, string>();
 
     // Verify each requested package landed in the lockfile diff
+    let verifiedCount = 0;
     for (const spec of breakingPkgs.keys()) {
       // Extract name: everything before the last '@'
       const atIdx = spec.lastIndexOf('@');
@@ -214,7 +215,20 @@ export const npmPlugin: EcosystemPlugin = {
         logger.warn(
           `[breaking install] ${name} was requested but not found in lockfile diff after npm install`,
         );
+      } else {
+        verifiedCount++;
       }
+    }
+
+    if (verifiedCount === 0 && breakingPkgs.size > 0) {
+      const names = [...breakingPkgs.keys()].join(', ');
+      logger.error(
+        `[breaking install] None of the requested packages (${names}) were verified in the lockfile after npm install`,
+      );
+      return {
+        status: 'error',
+        error: `Breaking install produced no verified upgrades for: ${names}`,
+      };
     }
 
     return { status: 'success' };

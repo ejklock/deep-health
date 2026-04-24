@@ -186,7 +186,7 @@ export async function runNpmUpdater(
       runner,
       cwd,
       commands: validationCommands,
-      ...(validationCommands.length > 0 ? { failIfAllSkipped: true } : {}),
+      failIfAllSkipped: true,
     });
 
     if (!validationResult.allPassed) {

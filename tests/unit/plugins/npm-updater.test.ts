@@ -275,7 +275,7 @@ describe('runNpmUpdater — OSV-only auto-safe remediation', () => {
     expect(calledCommands.some((cmd) => cmd.startsWith('npm install ') && cmd !== 'npm install')).toBe(false);
   });
 
-  it('returns status "success" and packages_updated empty when osv strategy and no osvFixOutcome', async () => {
+  it('returns status "error" and packages_updated empty when osv strategy, no osvFixOutcome, and no validation commands', async () => {
     const runner = makeRunner();
 
     const result = await runNpmUpdater(
@@ -285,7 +285,8 @@ describe('runNpmUpdater — OSV-only auto-safe remediation', () => {
       '/tmp/project',
     );
 
-    expect(result.status).toBe('success');
+    // failIfAllSkipped is unconditional: empty validation commands → allPassed: false → error + revert
+    expect(result.status).toBe('error');
     // osv strategy without osvFixOutcome: fixer is no-op, packages_updated comes from fixer (empty)
     expect(result.packages_updated).toHaveLength(0);
   });
@@ -488,7 +489,7 @@ describe('runNpmUpdater — build validation via validationCommands', () => {
     expect(result.status).toBe('success');
   });
 
-  it('returns single skipped entry when no validation commands configured', async () => {
+  it('returns single skipped entry and status "error" when no validation commands configured', async () => {
     const runner = makeRunner();
     const runMock = runner.run as ReturnType<typeof vi.fn>;
 
@@ -503,10 +504,12 @@ describe('runNpmUpdater — build validation via validationCommands', () => {
 
     expect(result.validations).toHaveLength(1);
     expect(result.validations[0]!.status).toBe('skipped');
-    expect(result.status).toBe('success');
+    // failIfAllSkipped is now unconditional: empty commands → allPassed: false → error + revert
+    expect(result.status).toBe('error');
 
+    // error path triggers revert which calls npm ci
     const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
-    expect(calledCommands).not.toContain('npm ci');
+    expect(calledCommands).toContain('npm ci');
   });
 
   it('emits logger.warn when no validation commands configured (non-dry-run)', async () => {
@@ -692,8 +695,9 @@ describe('runNpmUpdater — fixer strategy dispatch', () => {
       'osv',
     );
 
-    expect(result.status).toBe('success');
-    // Without osvFixOutcome, fixer returns empty; packages_updated is empty
+    // failIfAllSkipped is unconditional: empty validation commands → allPassed: false → error
+    expect(result.status).toBe('error');
+    // Without osvFixOutcome, fixer returns empty; packages_updated comes from fixer (empty)
     expect(result.packages_updated).toHaveLength(0);
   });
 });
@@ -1085,7 +1089,7 @@ describe('runNpmUpdater — osvFixOutcome parameter', () => {
     mockReadFile.mockResolvedValue(DEFAULT_LOCKFILE);
   });
 
-  it('osvFixOutcome present with packages → packages_updated populated from it', async () => {
+  it('osvFixOutcome present with packages → packages_updated populated from it (with validation commands)', async () => {
     const runner = makeRunner();
 
     const osvFixOutcome = {
@@ -1102,7 +1106,7 @@ describe('runNpmUpdater — osvFixOutcome parameter', () => {
       baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
       '/tmp/project',
       false,
-      [],
+      [{ name: 'build', command: 'npm run build' }],
       'osv',
       undefined,
       osvFixOutcome,
@@ -1113,7 +1117,7 @@ describe('runNpmUpdater — osvFixOutcome parameter', () => {
     expect(result.packages_updated).toContain('axios@1.7.0');
   });
 
-  it('osvFixOutcome present but applied=false → packages_updated from it (empty)', async () => {
+  it('osvFixOutcome present but applied=false → packages_updated from it (empty, with validation commands)', async () => {
     const runner = makeRunner();
 
     const osvFixOutcome = {
@@ -1127,7 +1131,7 @@ describe('runNpmUpdater — osvFixOutcome parameter', () => {
       baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
       '/tmp/project',
       false,
-      [],
+      [{ name: 'build', command: 'npm run build' }],
       'osv',
       undefined,
       osvFixOutcome,
@@ -1141,11 +1145,13 @@ describe('runNpmUpdater — osvFixOutcome parameter', () => {
     const runner = makeRunner();
     const runMock = runner.run as ReturnType<typeof vi.fn>;
 
-    // npm-audit fixer returns the packages via npm audit fix
+    // npm-audit fixer returns the packages via npm audit fix; validation also runs and passes
     runMock
       .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0, command: 'npm outdated', dryRun: false })
       .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0, command: 'npm audit', dryRun: false })
-      .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0, command: 'npm audit fix', dryRun: false });
+      .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0, command: 'npm audit fix', dryRun: false })
+      .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0, command: 'npm ci', dryRun: false })
+      .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0, command: 'npm run build', dryRun: false });
 
     const result = await runNpmUpdater(
       runner,
@@ -1153,7 +1159,7 @@ describe('runNpmUpdater — osvFixOutcome parameter', () => {
       baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
       '/tmp/project',
       false,
-      [],
+      [{ name: 'build', command: 'npm run build' }],
       'npm-audit',
       undefined,
       undefined, // no osvFixOutcome
@@ -1225,7 +1231,7 @@ describe('runNpmUpdater — osv-then-audit strategy', () => {
       baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
       '/tmp/project',
       false,
-      [],
+      [{ name: 'build', command: 'npm run build' }],
       'osv-then-audit',
       undefined,
       osvFixOutcome,
