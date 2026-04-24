@@ -28,6 +28,13 @@ export interface EcosystemUpdaterContext {
     applied: boolean;
     packagesUpdated: Array<{ name: string; versionFrom: string; versionTo: string }>;
   };
+  /**
+   * Pre-run snapshots of key project files (package.json, package-lock.json) taken
+   * at the very start of the orchestrator run, before any mutations.
+   * Used for dirty-tree detection after revert: if the on-disk state after revert differs
+   * from these snapshots, external changes during the run may have been lost.
+   */
+  preRunSnapshots?: Map<string, string>;
 }
 
 export interface EcosystemPlugin {

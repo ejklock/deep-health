@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('@infra/utils/logger.js', () => ({
+  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+
 import { validateGateA, validateEcosystemGate } from '@core/gates/validator';
+import { logger } from '@infra/utils/logger';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
@@ -227,6 +233,10 @@ function validComposerResult(overrides: Record<string, unknown> = {}): Record<st
 }
 
 describe('validateEcosystemGate (canonical validations[] model)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('passes for valid npm update result (fixture)', async () => {
     const data = await loadFixture('update-result-npm.json');
     const result = validateEcosystemGate('npm', data);
@@ -341,5 +351,39 @@ describe('validateEcosystemGate (canonical validations[] model)', () => {
       validations: [{ name: 'build', status: 'skipped', detail: 'No build_commands configured — skipped' }],
     }));
     expect(result.valid).toBe(true);
+  });
+
+  it('emits logger.warn when all validations are skipped (non-fatal)', () => {
+    const result = validateEcosystemGate('npm', validNpmResult({
+      validations: [{ name: 'validation', status: 'skipped', detail: 'No validation commands configured' }],
+    }));
+    expect(result.valid).toBe(true);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('All validations were skipped for npm ecosystem'),
+    );
+  });
+
+  it('does not emit logger.warn when at least one validation passed', () => {
+    const result = validateEcosystemGate('npm', validNpmResult({
+      validations: [
+        { name: 'build', status: 'pass', detail: 'Build OK' },
+        { name: 'test', status: 'skipped', detail: 'Skipped' },
+      ],
+    }));
+    expect(result.valid).toBe(true);
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('emits logger.warn when all of multiple validations are skipped', () => {
+    const result = validateEcosystemGate('composer', validComposerResult({
+      validations: [
+        { name: 'tests', status: 'skipped', detail: 'No test_command configured — skipped' },
+        { name: 'lint', status: 'skipped', detail: 'No lint_command configured — skipped' },
+      ],
+    }));
+    expect(result.valid).toBe(true);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('All validations were skipped for composer ecosystem'),
+    );
   });
 });

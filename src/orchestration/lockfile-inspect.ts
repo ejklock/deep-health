@@ -88,6 +88,104 @@ export function collectNpmLockfileVersions(
 }
 
 /**
+ * Collect only root-level (packageName -> version) pairs from an npm package-lock.json string.
+ *
+ * Unlike `collectNpmLockfileVersions`, this function returns at most one version per package
+ * name — the version installed at the root of the dependency tree, not transitive copies
+ * nested under other packages.
+ *
+ * For v2/v3 lockfiles (has `packages` key): includes only keys of the form
+ * `"node_modules/<name>"` that contain exactly one `node_modules/` segment.
+ *
+ * For v1 lockfiles (has `dependencies` key, no `packages`): includes only the top-level
+ * `dependencies` object keys — does NOT recurse into nested `dependencies`.
+ *
+ * Returns an empty map on parse error (same resilience as `collectNpmLockfileVersions`).
+ */
+export function collectRootNpmLockfileVersions(
+  content: string,
+): Map<string, string> {
+  const out = new Map<string, string>();
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return out;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+    return out;
+
+  const root = parsed as Record<string, unknown>;
+
+  const pkgs = root["packages"];
+  if (pkgs && typeof pkgs === "object" && !Array.isArray(pkgs)) {
+    // v2/v3: use the `packages` key — root-level means exactly one node_modules/ segment
+    for (const [pathKey, val] of Object.entries(
+      pkgs as Record<string, unknown>,
+    )) {
+      if (pathKey === "") continue;
+      if (!val || typeof val !== "object") continue;
+      const entry = val as Record<string, unknown>;
+      const ver = entry["version"];
+      if (typeof ver !== "string") continue;
+
+      // Must start with "node_modules/" and have no second "/node_modules/" after that
+      const prefix = "node_modules/";
+      if (!pathKey.startsWith(prefix)) continue;
+      const afterFirst = pathKey.slice(prefix.length);
+      if (afterFirst.includes("/node_modules/")) continue;
+
+      // Package name is everything after "node_modules/"
+      const name = afterFirst;
+      if (name) out.set(name, ver);
+    }
+    return out;
+  }
+
+  // v1: iterate only top-level dependencies object (no recursion)
+  const deps = root["dependencies"];
+  if (deps && typeof deps === "object" && !Array.isArray(deps)) {
+    for (const [name, val] of Object.entries(deps as Record<string, unknown>)) {
+      if (!val || typeof val !== "object") continue;
+      const entry = val as Record<string, unknown>;
+      const ver = entry["version"];
+      if (typeof ver === "string" && name && ver) {
+        out.set(name, ver);
+      }
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Diff root-level package versions between two lockfile contents.
+ *
+ * Returns only packages whose root-level version changed. Packages present in only
+ * one side have `undefined` for the missing side.
+ */
+export function diffRootNpmLockfileVersions(
+  before: string,
+  after: string,
+): Map<string, { before: string | undefined; after: string | undefined }> {
+  const beforeMap = collectRootNpmLockfileVersions(before);
+  const afterMap = collectRootNpmLockfileVersions(after);
+  const result = new Map<string, { before: string | undefined; after: string | undefined }>();
+
+  const allNames = new Set([...beforeMap.keys(), ...afterMap.keys()]);
+  for (const name of allNames) {
+    const b = beforeMap.get(name);
+    const a = afterMap.get(name);
+    if (b !== a) {
+      result.set(name, { before: b, after: a });
+    }
+  }
+
+  return result;
+}
+
+/**
  * Read `lockfileVersion` from `<cwd>/package-lock.json`.
  *
  * Returns:

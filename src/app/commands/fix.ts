@@ -126,6 +126,7 @@ export async function runFixCommand(
       advisorResults: Object.keys(result.advisorResults).length > 0
         ? result.advisorResults
         : undefined,
+      residualCveSummary: result.residualCveSummary ?? null,
     });
     const filename = executiveReportFilename(
       config.project.client,

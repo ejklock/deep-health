@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { CommandRunner } from '@core/types/common';
 import type { FixerStrategyId, ValidationCommandConfig } from '@core/types/config';
 import type { UpdateResultJson, ValidationEntry } from '@core/types/update';
@@ -24,6 +26,7 @@ async function revertNpmChanges(
   runner: CommandRunner,
   backups: Map<string, string>,
   cwd: string,
+  preRunSnapshots?: Map<string, string>,
 ): Promise<void> {
   await restoreFiles(backups, cwd);
   logger.info('Running npm ci to restore dependencies after revert...');
@@ -52,6 +55,25 @@ async function revertNpmChanges(
     // is byte-identical to the pre-update state regardless of what npm did.
     await restoreFiles(backups, cwd);
   }
+
+  // Dirty-tree detection: compare on-disk state after full revert against pre-run snapshots.
+  // Best-effort only — warn and continue; never fail the revert.
+  if (preRunSnapshots && preRunSnapshots.size > 0) {
+    for (const [filename, preRunContent] of preRunSnapshots) {
+      let onDiskContent: string | undefined;
+      try {
+        onDiskContent = await readFile(join(cwd, filename), 'utf-8') as string;
+      } catch {
+        // File not readable — skip comparison for this file
+        continue;
+      }
+      if (onDiskContent !== preRunContent) {
+        logger.warn(
+          `[revert] ${filename} on disk after revert differs from pre-run state — external changes during the run may have been lost`,
+        );
+      }
+    }
+  }
 }
 
 export async function runNpmUpdater(
@@ -64,6 +86,7 @@ export async function runNpmUpdater(
   fixerStrategy: FixerStrategyId = 'osv',
   preFixBackups?: Map<string, string>,
   osvFixOutcome?: { applied: boolean; packagesUpdated: Array<{ name: string; versionFrom: string; versionTo: string }> },
+  preRunSnapshots?: Map<string, string>,
 ): Promise<UpdateResultJson> {
   logger.info('Running npm safe updates...');
 
@@ -95,6 +118,12 @@ export async function runNpmUpdater(
     logger.info(`[DRY-RUN] Would execute fixer strategy: ${fixerStrategy}`);
     if (authorizeBreaking) logger.info('[DRY-RUN] Would install authorized breaking-change packages');
     return { ...base, validations: skippedValidations };
+  }
+
+  if (validationCommands.length === 0) {
+    logger.warn(
+      'No validation commands configured for npm ecosystem — changes will land without test signal',
+    );
   }
 
   try {
@@ -138,7 +167,7 @@ export async function runNpmUpdater(
           .join('\n');
         logger.error(`npm ci failed before validation:\n${detail}`);
         logger.error('Reverting npm changes...');
-        await revertNpmChanges(runner, backups, cwd);
+        await revertNpmChanges(runner, backups, cwd, preRunSnapshots);
         return {
           ...base,
           status: 'error',
@@ -157,6 +186,7 @@ export async function runNpmUpdater(
       runner,
       cwd,
       commands: validationCommands,
+      ...(validationCommands.length > 0 ? { failIfAllSkipped: true } : {}),
     });
 
     if (!validationResult.allPassed) {
@@ -178,6 +208,10 @@ export async function runNpmUpdater(
         const reCiResult = await runner.run('npm ci', { cwd, stream: true });
 
         if (reCiResult.exitCode === 0) {
+          // npm ci can mutate the lockfile even when it exits 0 (format normalization).
+          // Re-restore from the snapshot so disk is byte-identical to the pre-audit-fix state
+          // before running re-validation, mirroring the double-restore in revertNpmChanges.
+          await restoreFiles(fixerResult.intermediateBackup, cwd);
           const reValidation = await runValidations({ runner, cwd, commands: validationCommands });
           if (reValidation.allPassed) {
             logger.info(
@@ -201,7 +235,7 @@ export async function runNpmUpdater(
       }
 
       logger.error('Validation failed — reverting npm changes...');
-      await revertNpmChanges(runner, backups, cwd);
+      await revertNpmChanges(runner, backups, cwd, preRunSnapshots);
       return {
         ...base,
         status: 'error',
@@ -216,9 +250,17 @@ export async function runNpmUpdater(
         ? osvFixOutcome.packagesUpdated.map((p) => `${p.name}@${p.versionTo}`)
         : [];
 
+    // Deduplicate osv-then-audit: audit overwrites OSV for the same package (last-writer-wins)
+    const merged = new Map<string, string>();
+    for (const spec of [...osvPackages, ...fixerResult.packagesUpdated]) {
+      const at = spec.lastIndexOf('@');
+      const name = at > 0 ? spec.slice(0, at) : spec;
+      merged.set(name, spec);
+    }
+
     const actualPackagesUpdated =
       fixerStrategy === 'osv-then-audit'
-        ? [...osvPackages, ...fixerResult.packagesUpdated]
+        ? [...merged.values()]
         : fixerStrategy === 'osv' && osvFixOutcome
           ? osvPackages
           : fixerResult.packagesUpdated;

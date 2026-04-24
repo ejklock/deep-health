@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { resolve, join } from 'node:path';
 import type { EcosystemPlugin, EcosystemUpdaterContext } from '../types';
 import type { ProjectConfig, ProtectedPackage } from '@core/types/config';
 import type { CommandRunner } from '@core/types/common';
@@ -7,6 +7,7 @@ import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
 import { emptyEcosystem } from '@core/types/scan';
 import { logger } from '@infra/utils/logger';
+import { collectRootNpmLockfileVersions } from '@orchestration/lockfile-inspect';
 import { runNpmUpdater } from './npm-updater';
 
 // ─── Version inference helpers ────────────────────────────────────────────────
@@ -132,6 +133,7 @@ export const npmPlugin: EcosystemPlugin = {
       ctx.fixerStrategy ?? 'osv',
       ctx.preFixBackups,
       ctx.osvFixOutcome,
+      ctx.preRunSnapshots,
     );
   },
 
@@ -171,12 +173,48 @@ export const npmPlugin: EcosystemPlugin = {
       return { status: 'success' };
     }
 
+    // Pre-install snapshot: read package-lock.json before npm install
+    let preInstallContent: string | undefined;
+    try {
+      preInstallContent = await readFile(join(args.cwd, 'package-lock.json'), 'utf-8') as string;
+    } catch {
+      logger.debug('[breaking install] Could not read package-lock.json before install — skipping pre-snapshot');
+    }
+    const rootBefore = preInstallContent !== undefined
+      ? collectRootNpmLockfileVersions(preInstallContent)
+      : new Map<string, string>();
+
     const installResult = await args.runner.run(`npm install ${specs}`, { cwd: args.cwd, stream: true });
     if (installResult.exitCode !== 0) {
       logger.error(
         `[OSV strategy] npm install for breaking packages failed (exit ${installResult.exitCode}): ${installResult.stderr}`,
       );
       return { status: 'error', error: `npm install ${specs} failed: ${installResult.stderr}` };
+    }
+
+    // Post-install snapshot: read package-lock.json after npm install
+    let postInstallContent: string | undefined;
+    try {
+      postInstallContent = await readFile(join(args.cwd, 'package-lock.json'), 'utf-8') as string;
+    } catch {
+      logger.debug('[breaking install] Could not read package-lock.json after install — skipping post-snapshot');
+    }
+    const rootAfter = postInstallContent !== undefined
+      ? collectRootNpmLockfileVersions(postInstallContent)
+      : new Map<string, string>();
+
+    // Verify each requested package landed in the lockfile diff
+    for (const spec of breakingPkgs.keys()) {
+      // Extract name: everything before the last '@'
+      const atIdx = spec.lastIndexOf('@');
+      const name = atIdx > 0 ? spec.slice(0, atIdx) : spec;
+      const versionAfter = rootAfter.get(name);
+      const versionBefore = rootBefore.get(name);
+      if (versionAfter === undefined || versionAfter === versionBefore) {
+        logger.warn(
+          `[breaking install] ${name} was requested but not found in lockfile diff after npm install`,
+        );
+      }
     }
 
     return { status: 'success' };

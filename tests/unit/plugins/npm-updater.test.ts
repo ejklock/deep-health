@@ -509,6 +509,45 @@ describe('runNpmUpdater — build validation via validationCommands', () => {
     expect(calledCommands).not.toContain('npm ci');
   });
 
+  it('emits logger.warn when no validation commands configured (non-dry-run)', async () => {
+    const runner = makeRunner();
+    const { logger: mockLogger } = await import('@infra/utils/logger.js');
+    const warnSpy = mockLogger.warn as ReturnType<typeof vi.fn>;
+    warnSpy.mockClear();
+
+    await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [],
+    );
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('No validation commands configured for npm ecosystem'),
+    );
+  });
+
+  it('does NOT emit no-validation-commands warn in dry-run mode', async () => {
+    const runner = makeRunner({ dryRun: true });
+    const { logger: mockLogger } = await import('@infra/utils/logger.js');
+    const warnSpy = mockLogger.warn as ReturnType<typeof vi.fn>;
+    warnSpy.mockClear();
+
+    await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [],
+    );
+
+    const warnCalls: string[] = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(warnCalls.some((msg) => msg.includes('No validation commands configured'))).toBe(false);
+  });
+
   it('validation failure (npm-audit) => status is "error" and changes are reverted', async () => {
     const runner = makeRunner();
     const runMock = runner.run as ReturnType<typeof vi.fn>;
@@ -1176,7 +1215,8 @@ describe('runNpmUpdater — osv-then-audit strategy', () => {
     });
 
     mockReadFile
-      .mockResolvedValueOnce(postOsvLockfile)  // pre-audit snapshot (post-OSV state)
+      .mockResolvedValueOnce(postOsvLockfile)   // pre-audit snapshot (post-OSV state)
+      .mockResolvedValueOnce('{"name":"test"}') // package.json snapshot for intermediateBackup
       .mockResolvedValueOnce(postAuditLockfile); // post-audit snapshot
 
     const result = await runNpmUpdater(
@@ -1210,8 +1250,9 @@ describe('runNpmUpdater — osv-then-audit strategy', () => {
     const postAuditLockfile = DEFAULT_LOCKFILE;
 
     mockReadFile
-      .mockResolvedValueOnce(postOsvLockfile)
-      .mockResolvedValueOnce(postAuditLockfile);
+      .mockResolvedValueOnce(postOsvLockfile)   // pre-audit snapshot
+      .mockResolvedValueOnce('{"name":"test"}') // package.json snapshot for intermediateBackup
+      .mockResolvedValueOnce(postAuditLockfile); // post-audit snapshot
 
     // Sequence: npm outdated (ok), npm audit (ok), npm audit fix (ok),
     //   npm ci (ok), npm run build (FAIL — validation),
@@ -1252,6 +1293,55 @@ describe('runNpmUpdater — osv-then-audit strategy', () => {
     expect(restoreSpy).toHaveBeenCalled();
   });
 
+  it('partial revert: calls restoreFiles on intermediateBackup a second time after npm ci exits 0 (defeat lockfile mutation)', async () => {
+    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/git.js');
+    const restoreSpy = mockRestoreFiles as ReturnType<typeof vi.fn>;
+    restoreSpy.mockClear();
+
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    mockReadFile
+      .mockResolvedValueOnce(DEFAULT_LOCKFILE)   // pre-audit snapshot
+      .mockResolvedValueOnce('{"name":"test"}')  // package.json snapshot for intermediateBackup
+      .mockResolvedValueOnce(DEFAULT_LOCKFILE);  // post-audit snapshot
+
+    // Sequence: npm outdated, npm audit, npm audit fix,
+    //   npm ci (pre-validation), npm run build (FAIL),
+    //   npm ci (partial revert after restoreFiles), npm run build (re-validation — pass)
+    runMock
+      .mockResolvedValueOnce(ok())                 // npm outdated
+      .mockResolvedValueOnce(ok())                 // npm audit
+      .mockResolvedValueOnce(ok())                 // npm audit fix
+      .mockResolvedValueOnce(ok())                 // npm ci (pre-validation)
+      .mockResolvedValueOnce(fail('build failed')) // npm run build (FAIL)
+      .mockResolvedValueOnce(ok())                 // npm ci (partial revert)
+      .mockResolvedValueOnce(ok());                // npm run build (re-validation — pass)
+
+    const osvFixOutcome = {
+      applied: true,
+      packagesUpdated: [{ name: 'axios', versionFrom: '1.6.0', versionTo: '1.7.0' }],
+    };
+
+    await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+      'osv-then-audit',
+      undefined,
+      osvFixOutcome,
+    );
+
+    // restoreFiles must have been called at least twice in the partial-revert path:
+    // once before npm ci (the actual restore to OSV state), and once after npm ci exits 0
+    // (to undo any lockfile normalization npm ci may have introduced).
+    const restoreCalls = restoreSpy.mock.calls;
+    expect(restoreCalls.length).toBeGreaterThanOrEqual(2);
+  });
+
   it('partial rollback fails then full revert: returns status "error" when both validations fail', async () => {
     const runner = makeRunner();
     const runMock = runner.run as ReturnType<typeof vi.fn>;
@@ -1260,8 +1350,9 @@ describe('runNpmUpdater — osv-then-audit strategy', () => {
     const postAuditLockfile = DEFAULT_LOCKFILE;
 
     mockReadFile
-      .mockResolvedValueOnce(postOsvLockfile)
-      .mockResolvedValueOnce(postAuditLockfile);
+      .mockResolvedValueOnce(postOsvLockfile)   // pre-audit snapshot
+      .mockResolvedValueOnce('{"name":"test"}') // package.json snapshot for intermediateBackup
+      .mockResolvedValueOnce(postAuditLockfile); // post-audit snapshot
 
     // Sequence: npm outdated (ok), npm audit (ok), npm audit fix (ok),
     //   npm ci (ok), npm run build (FAIL),
@@ -1298,5 +1389,159 @@ describe('runNpmUpdater — osv-then-audit strategy', () => {
 
     expect(result.status).toBe('error');
     expect(result.error).toContain('reverted');
+  });
+});
+
+// ── preRunSnapshots: dirty-tree detection after revert ───────────────────────
+
+describe('runNpmUpdater — preRunSnapshots dirty-tree warn after revert', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockReadFile.mockResolvedValue(DEFAULT_LOCKFILE);
+  });
+
+  it('emits logger.warn for each file whose on-disk content differs from pre-run snapshot after revert', async () => {
+    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/git.js');
+    const restoreSpy = mockRestoreFiles as ReturnType<typeof vi.fn>;
+    restoreSpy.mockClear();
+
+    // After revert, restoreFiles restores files in memory — but the test compares
+    // what is on disk by re-reading files. We mock readFile to return content that
+    // differs from what was in preRunSnapshots.
+    const preRunLockfile = '{"lockfileVersion":3,"pre-run":true}';
+    const postRevertLockfile = '{"lockfileVersion":3,"post-revert":true}';
+
+    // mockReadFile call sequence:
+    // 1. DEFAULT_LOCKFILE (npm-audit-fixer pre-snapshot before npm audit fix)
+    // 2. DEFAULT_LOCKFILE (npm-audit-fixer post-snapshot after npm audit fix)
+    // 3. postRevertLockfile (dirty-tree check reads package-lock.json after revert)
+    mockReadFile
+      .mockResolvedValueOnce(DEFAULT_LOCKFILE)     // pre-audit snapshot
+      .mockResolvedValueOnce(DEFAULT_LOCKFILE)     // post-audit snapshot
+      .mockResolvedValueOnce(postRevertLockfile);  // dirty-tree read of package-lock.json after revert
+
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    // Sequence: npm outdated (ok), npm audit (ok), npm audit fix (ok), npm ci (ok), build FAIL,
+    //   npm ci (revert ok)
+    runMock
+      .mockResolvedValueOnce(ok())            // npm outdated
+      .mockResolvedValueOnce(ok())            // npm audit
+      .mockResolvedValueOnce(ok())            // npm audit fix
+      .mockResolvedValueOnce(ok())            // npm ci (pre-validation)
+      .mockResolvedValueOnce(fail('build failed')) // npm run build (FAIL)
+      .mockResolvedValueOnce(ok());           // npm ci (revert)
+
+    const { logger: mockLogger } = await import('@infra/utils/logger.js');
+    const warnSpy = mockLogger.warn as ReturnType<typeof vi.fn>;
+    warnSpy.mockClear();
+
+    const preRunSnapshots = new Map([
+      ['package-lock.json', preRunLockfile],
+    ]);
+
+    await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+      'npm-audit',
+      undefined,
+      undefined,
+      preRunSnapshots,
+    );
+
+    const warnCalls: string[] = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(
+      warnCalls.some(
+        (msg) =>
+          msg.includes('[revert]') &&
+          msg.includes('package-lock.json') &&
+          msg.includes('external changes during the run may have been lost'),
+      ),
+    ).toBe(true);
+  });
+
+  it('does NOT emit dirty-tree warn when on-disk content matches pre-run snapshot', async () => {
+    // Both pre-run and on-disk content are identical — no warn expected
+    mockReadFile
+      .mockResolvedValueOnce(DEFAULT_LOCKFILE)  // pre-audit snapshot
+      .mockResolvedValueOnce(DEFAULT_LOCKFILE)  // post-audit snapshot
+      .mockResolvedValueOnce(DEFAULT_LOCKFILE); // dirty-tree read (same as pre-run)
+
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    runMock
+      .mockResolvedValueOnce(ok())            // npm outdated
+      .mockResolvedValueOnce(ok())            // npm audit
+      .mockResolvedValueOnce(ok())            // npm audit fix
+      .mockResolvedValueOnce(ok())            // npm ci (pre-validation)
+      .mockResolvedValueOnce(fail('build failed')) // npm run build (FAIL)
+      .mockResolvedValueOnce(ok());           // npm ci (revert)
+
+    const { logger: mockLogger } = await import('@infra/utils/logger.js');
+    const warnSpy = mockLogger.warn as ReturnType<typeof vi.fn>;
+    warnSpy.mockClear();
+
+    const preRunSnapshots = new Map([
+      ['package-lock.json', DEFAULT_LOCKFILE],
+    ]);
+
+    await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+      'npm-audit',
+      undefined,
+      undefined,
+      preRunSnapshots,
+    );
+
+    const warnCalls: string[] = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(
+      warnCalls.some(
+        (msg) => msg.includes('[revert]') && msg.includes('package-lock.json'),
+      ),
+    ).toBe(false);
+  });
+
+  it('does NOT emit dirty-tree warn when preRunSnapshots is undefined', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+
+    runMock
+      .mockResolvedValueOnce(ok())            // npm outdated
+      .mockResolvedValueOnce(ok())            // npm audit
+      .mockResolvedValueOnce(ok())            // npm audit fix
+      .mockResolvedValueOnce(ok())            // npm ci (pre-validation)
+      .mockResolvedValueOnce(fail('build failed')) // npm run build (FAIL)
+      .mockResolvedValueOnce(ok());           // npm ci (revert)
+
+    const { logger: mockLogger } = await import('@infra/utils/logger.js');
+    const warnSpy = mockLogger.warn as ReturnType<typeof vi.fn>;
+    warnSpy.mockClear();
+
+    // No preRunSnapshots passed
+    await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+      'npm-audit',
+    );
+
+    const warnCalls: string[] = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(
+      warnCalls.some((msg) => msg.includes('[revert]')),
+    ).toBe(false);
   });
 });

@@ -5,7 +5,7 @@ import semver from 'semver';
 import { OsvDockerRunner } from '@infra/provisioner/osv-runner';
 import { backupFiles } from '@infra/utils/git';
 import { logger } from '@infra/utils/logger';
-import { collectNpmLockfileVersions } from './lockfile-inspect';
+import { collectNpmLockfileVersions, collectRootNpmLockfileVersions } from './lockfile-inspect';
 
 export interface OsvFixApplyInput {
   cwd: string;
@@ -32,22 +32,6 @@ export interface OsvFixApplyResult {
 }
 
 type PackageUpdate = OsvFixApplyResult['packagesUpdated'][number];
-
-function semverMax(versions: Set<string>): string | undefined {
-  if (versions.size === 0) return undefined;
-  let best: string | undefined;
-  for (const v of versions) {
-    if (!best) { best = v; continue; }
-    const vValid = semver.valid(v);
-    const bestValid = semver.valid(best);
-    if (vValid && bestValid) {
-      if (semver.gt(vValid, bestValid)) best = v;
-    } else if (vValid && !bestValid) {
-      best = v;
-    }
-  }
-  return best;
-}
 
 /**
  * Parse the JSON output from `osv-scanner fix --format=json`.
@@ -218,6 +202,7 @@ export async function applyOsvFixViaStaging(
     // Case B: bytes changed — verify each claimed update against the actual
     // staging lockfile contents before propagating to host disk.
     const versionsInStaging = collectNpmLockfileVersions(fixedContent);
+    const rootVersionsInStaging = collectRootNpmLockfileVersions(fixedContent);
 
     if (versionsInStaging.size === 0) {
       // Parser could not extract any package versions from the patched lockfile.
@@ -239,8 +224,8 @@ export async function applyOsvFixViaStaging(
     for (const claim of claimedUpdates) {
       const diskVersions = versionsInStaging.get(claim.name);
       if (claimIsSatisfiedOnDisk(claim, diskVersions)) {
-        const diskMax = semverMax(diskVersions!);
-        verified.push({ ...claim, versionTo: diskMax ?? claim.versionTo });
+        const rootVersion = rootVersionsInStaging.get(claim.name);
+        verified.push({ ...claim, versionTo: rootVersion ?? claim.versionTo });
       } else {
         dropped.push(claim);
       }
@@ -263,6 +248,21 @@ export async function applyOsvFixViaStaging(
     }
 
     await writeFile(resolve(cwd, osvFixSpec.fixLockfile), fixedContent, 'utf-8');
+
+    // Propagate package.json to host disk if osv-scanner fix also modified it.
+    if (backups.has('package.json')) {
+      try {
+        const stagingManifest = await readFile(join(stagingDir, 'package.json'), 'utf-8');
+        if (stagingManifest === backups.get('package.json')) {
+          logger.debug('[OSV fix] package.json unchanged in staging');
+        } else {
+          await writeFile(resolve(cwd, 'package.json'), stagingManifest, 'utf-8');
+          logger.info('[OSV fix] package.json also updated on host disk (manifest range changed by osv-scanner fix)');
+        }
+      } catch {
+        // Staging package.json does not exist — skip silently.
+      }
+    }
 
     if (dropped.length > 0) {
       logger.warn(

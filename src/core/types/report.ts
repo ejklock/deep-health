@@ -69,4 +69,10 @@ export interface ExecutiveReportOptions {
    * Example: ['osv', 'sonarqube']
    */
   scannerEngines?: string[];
+  /**
+   * Residual CVE counts per ecosystem after fix, from post-update scan.
+   * null = scan was not run (dryRun, error, or no verify configured).
+   * {} (empty object) = verified clean — no remaining CVEs.
+   */
+  residualCveSummary?: Record<string, number> | null;
 }

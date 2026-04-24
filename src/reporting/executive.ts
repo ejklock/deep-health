@@ -348,6 +348,8 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
     .map((v) => {
       // Look up reportLabel from registry
       const plugin = defaultRegistry.findByOsvEcosystem(v.ecosystem) ?? defaultRegistry.get(v.ecosystem);
+      const residualCount = opts.residualCveSummary?.[v.ecosystem] ?? null;
+      const residualWarning = residualCount !== null && residualCount > 0;
       return {
         ecoLabel: plugin?.reportLabel ?? v.ecosystem,
         ghsaLink: ghsaLink(v.ghsaId),
@@ -356,6 +358,7 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
         currentVersion: v.currentVersion,
         safeVersion: installedVersionsByEco.get(v.ecosystem)?.get(v.package) ?? v.safeVersion ?? '—',
         risk: v.risk,
+        residualWarning,
       };
     });
 
@@ -384,13 +387,23 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
     const updatedNames = updatedNamesByEco.get(plugin.id) ?? new Set();
 
     const installedVersions = installedVersionsByEco.get(plugin.id) ?? new Map<string, string>();
+    const residualCount = opts.residualCveSummary?.[plugin.id] ?? null;
     const vulnsAfter = (ecoScan?.vulnerabilities ?? []).map((v) => {
       const fixed = updatedNames.has(v.package) && v.classification === 'auto_safe';
+      let statusPt: string;
+      if (fixed) {
+        const fixedVersionLabel = locale.exec.fixed_version(installedVersions.get(v.package) ?? v.safeVersion ?? '—');
+        statusPt = (residualCount !== null && residualCount > 0)
+          ? fixedVersionLabel + ' ⚠ residual CVE detected — verify manually'
+          : fixedVersionLabel;
+      } else {
+        statusPt = pendingStatus(v, locale);
+      }
       return {
         ghsaId: v.ghsaId,
         cvss: v.cvss,
         package: v.package,
-        statusPt: fixed ? locale.exec.fixed_version(installedVersions.get(v.package) ?? v.safeVersion ?? '—') : pendingStatus(v, locale),
+        statusPt,
         risk: v.risk,
       };
     });

@@ -113,8 +113,9 @@ describe('applyOsvThenAuditFix — happy path: audit-fix upgrades a package', ()
     const postAuditLockfile = buildLockfile([{ name: 'lodash', version: '4.17.21' }]);
 
     mockReadFile
-      .mockResolvedValueOnce(postOsvLockfile)  // pre-audit snapshot (post-OSV state)
-      .mockResolvedValueOnce(postAuditLockfile); // post-audit snapshot
+      .mockResolvedValueOnce(postOsvLockfile)           // pre-audit snapshot (post-OSV state)
+      .mockResolvedValueOnce('{"name":"sample"}')       // package.json snapshot for intermediateBackup
+      .mockResolvedValueOnce(postAuditLockfile);        // post-audit snapshot
 
     const scan = buildScan([{ pkg: 'lodash', version: '4.17.21' }]);
 
@@ -154,6 +155,7 @@ describe('applyOsvThenAuditFix — OSV and audit-fix together', () => {
 
     mockReadFile
       .mockResolvedValueOnce(postOsvLockfile)
+      .mockResolvedValueOnce('{"name":"sample"}')
       .mockResolvedValueOnce(postAuditLockfile);
 
     // Only lodash is in auto_safe_packages for this fixer's scope
@@ -187,6 +189,7 @@ describe('applyOsvThenAuditFix — audit-fix makes no changes', () => {
     // same lockfile before and after — npm audit fix did nothing
     mockReadFile
       .mockResolvedValueOnce(lockfile)
+      .mockResolvedValueOnce('{"name":"sample"}')
       .mockResolvedValueOnce(lockfile);
 
     const scan = buildScan([{ pkg: 'lodash', version: '4.17.21' }]);
@@ -287,6 +290,7 @@ describe('applyOsvThenAuditFix — audit-fix exit != 0 with partial changes', ()
 
     mockReadFile
       .mockResolvedValueOnce(postOsvLockfile)
+      .mockResolvedValueOnce('{"name":"sample"}')
       .mockResolvedValueOnce(postAuditLockfile);
 
     const scan = buildScan([
@@ -323,6 +327,7 @@ describe('applyOsvThenAuditFix — audit-fix exit != 0 without changes', () => {
 
     mockReadFile
       .mockResolvedValueOnce(lockfile)
+      .mockResolvedValueOnce('{"name":"sample"}')
       .mockResolvedValueOnce(lockfile);
 
     const scan = buildScan([{ pkg: 'minimist', version: '1.2.8' }]);
@@ -352,6 +357,7 @@ describe('applyOsvThenAuditFix — intermediateBackup always present when lockfi
     // Both reads return the same lockfile (no changes from audit fix)
     mockReadFile
       .mockResolvedValueOnce(lockfile)
+      .mockResolvedValueOnce('{"name":"sample"}')
       .mockResolvedValueOnce(lockfile);
 
     const scan = buildScan([{ pkg: 'lodash', version: '4.17.21' }]);
@@ -383,6 +389,7 @@ describe('applyOsvThenAuditFix — bare package name in pkgSpec (no @version suf
 
     mockReadFile
       .mockResolvedValueOnce(postOsvLockfile)
+      .mockResolvedValueOnce('{"name":"sample"}')
       .mockResolvedValueOnce(postAuditLockfile);
 
     // Use a scan with bare package name (no @version)
@@ -453,6 +460,7 @@ describe('applyOsvThenAuditFix — multiple packages with partial verification',
 
     mockReadFile
       .mockResolvedValueOnce(postOsvLockfile)
+      .mockResolvedValueOnce('{"name":"sample"}')
       .mockResolvedValueOnce(postAuditLockfile);
 
     const scan = buildScan([

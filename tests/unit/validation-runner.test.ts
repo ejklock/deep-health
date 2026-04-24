@@ -67,6 +67,54 @@ describe("runValidations", () => {
     expect(runner.run).not.toHaveBeenCalled();
   });
 
+  it("failIfAllSkipped=false (default) keeps allPassed: true when commands is empty", async () => {
+    const runner = makeRunner();
+    const result = await runValidations({
+      runner,
+      cwd: "/tmp",
+      commands: [],
+      failIfAllSkipped: false,
+    });
+
+    expect(result.allPassed).toBe(true);
+    expect(result.entries[0]!.status).toBe("skipped");
+    expect(result.entries[0]!.detail).toBe("No validation commands configured");
+  });
+
+  it("failIfAllSkipped=true returns allPassed: false when commands is empty", async () => {
+    const runner = makeRunner();
+    const result = await runValidations({
+      runner,
+      cwd: "/tmp",
+      commands: [],
+      failIfAllSkipped: true,
+    });
+
+    expect(result.allPassed).toBe(false);
+    expect(result.entries).toHaveLength(1);
+    expect(result.entries[0]!.status).toBe("skipped");
+    expect(result.entries[0]!.detail).toContain(
+      "caller requires at least one passing validation",
+    );
+    expect(runner.run).not.toHaveBeenCalled();
+  });
+
+  it("failIfAllSkipped=true does not affect behavior when commands are present and pass", async () => {
+    const runner = makeRunner({
+      "npm run build": { stdout: "Build complete", exitCode: 0 },
+    });
+
+    const result = await runValidations({
+      runner,
+      cwd: "/tmp",
+      commands: [{ name: "build", command: "npm run build" }],
+      failIfAllSkipped: true,
+    });
+
+    expect(result.allPassed).toBe(true);
+    expect(result.entries[0]!.status).toBe("pass");
+  });
+
   it("returns pass entry when command exits 0", async () => {
     const runner = makeRunner({
       "npm run build": { stdout: "Build complete", exitCode: 0 },

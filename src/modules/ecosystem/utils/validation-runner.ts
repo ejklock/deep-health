@@ -12,6 +12,12 @@ export interface RunValidationsOptions {
    * Defaults to [0] per standard shell semantics.
    */
   successExitCodes?: number[];
+  /**
+   * When true and commands is empty, returns allPassed: false instead of allPassed: true.
+   * Use this when the caller requires at least one passing validation — a skip is not acceptable.
+   * Defaults to false (existing behavior: empty commands → allPassed: true).
+   */
+  failIfAllSkipped?: boolean;
 }
 
 export interface RunValidationsResult {
@@ -35,9 +41,22 @@ export interface RunValidationsResult {
 export async function runValidations(
   opts: RunValidationsOptions,
 ): Promise<RunValidationsResult> {
-  const { runner, cwd, commands, successExitCodes = [0] } = opts;
+  const { runner, cwd, commands, successExitCodes = [0], failIfAllSkipped = false } = opts;
 
   if (commands.length === 0) {
+    if (failIfAllSkipped) {
+      return {
+        entries: [
+          {
+            name: "validation",
+            status: "skipped",
+            detail:
+              "No validation commands configured — skipped (caller requires at least one passing validation)",
+          },
+        ],
+        allPassed: false,
+      };
+    }
     return {
       entries: [
         {

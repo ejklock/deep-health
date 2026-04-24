@@ -39,6 +39,8 @@ import {
 } from "@modules/scanner/index";
 import type { AggregatedScanResult } from "@modules/scanner/index";
 import { runAdvisors } from "@modules/advisor/index";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { applyOsvFixViaStaging } from "./osv-fix-applier";
 import { readNpmLockfileVersion } from "./lockfile-inspect";
 
@@ -96,6 +98,12 @@ export interface OrchestratorResult {
    * Advisors are informational only — they never block the pipeline.
    */
   advisorResults: Record<string, AdvisorResult[]>;
+  /**
+   * Residual CVE counts per ecosystem after updates, from post-update OSV verification.
+   * null = verification was not run (dryRun, error, or no post-update verify configured).
+   * {} (empty object) = verified clean — no remaining CVEs found.
+   */
+  residualCveSummary?: Record<string, number> | null;
 }
 
 function shouldRunPhase(phase: string, options: OrchestratorOptions): boolean {
@@ -510,25 +518,44 @@ function resolveOsvCommandRunner(
 /**
  * Run residual OSV scan verification after updates are applied.
  * Best-effort: logs a warning on failure but does not abort the pipeline.
+ *
+ * Returns:
+ *   - Record<string, number>: CVE counts per ecosystem (may be empty {} when all clean)
+ *   - null: scan was not run (dryRun), errored, or output could not be parsed
  */
 async function runOsvResidualVerification(
   osvRunner: CommandRunner,
   cwd: string,
   dryRun: boolean,
   command: string,
-): Promise<void> {
+): Promise<Record<string, number> | null> {
   if (dryRun) {
     logger.info(`[DRY-RUN] Would execute: ${command}`);
-    return;
+    return null;
   }
   logger.info(`[OSV verify] Running post-update OSV verification: ${command}`);
   try {
-    await osvRunner.run(command, { cwd });
+    const cmdResult = await osvRunner.run(command, { cwd });
+    // Parse JSON output from osv-scanner
+    let parsed: ScanResultJson;
+    try {
+      parsed = JSON.parse(cmdResult.stdout) as ScanResultJson;
+    } catch {
+      logger.warn('[OSV verify] Could not parse osv-scanner JSON output — treating as non-fatal');
+      return null;
+    }
+    // Extract CVE count per ecosystem
+    const summary: Record<string, number> = {};
+    for (const [ecoId, ecoResult] of Object.entries(parsed.ecosystems)) {
+      summary[ecoId] = ecoResult.vulnerabilities_total;
+    }
+    return summary;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.warn(
       `[OSV verify] Post-update OSV verification failed (non-fatal): ${message}`,
     );
+    return null;
   }
 }
 
@@ -545,6 +572,19 @@ export async function runOrchestrator(
     warnings: [],
     advisorResults: {},
   };
+
+  // Pre-run snapshots: capture package.json and package-lock.json before any mutations.
+  // Used for dirty-tree detection after revert — if on-disk state differs after revert,
+  // external changes during the run may have been lost (warn only, never fail).
+  const preRunSnapshots = new Map<string, string>();
+  for (const filename of ['package.json', 'package-lock.json']) {
+    try {
+      const content = await readFile(join(options.cwd, filename), 'utf-8');
+      preRunSnapshots.set(filename, content as string);
+    } catch {
+      logger.debug(`[pre-run] Could not read ${filename} — skipping pre-run snapshot`);
+    }
+  }
 
   // Scan — hard precondition for all update steps
   if (!shouldRunPhase("scan", options)) {
@@ -773,6 +813,7 @@ export async function runOrchestrator(
       fixerStrategy,
       preFixBackups,
       osvFixOutcome,
+      preRunSnapshots: preRunSnapshots.size > 0 ? preRunSnapshots : undefined,
     });
 
     // === Post-updater: Breaking packages install (generic, via plugin hook) ===
@@ -825,12 +866,13 @@ export async function runOrchestrator(
       }
       const verifyScanArgs = plugin.buildScanArgs();
       const verifyCmd = `osv-scanner ${verifyScanArgs.join(" ")} --format json`;
-      await runOsvResidualVerification(
+      const residualSummary = await runOsvResidualVerification(
         osvVerifyRunner,
         options.cwd,
         options.dryRun,
         verifyCmd,
       );
+      result.residualCveSummary = residualSummary;
     }
 
     result.updates[plugin.id] = updateResult;

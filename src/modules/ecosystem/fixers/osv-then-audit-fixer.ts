@@ -88,7 +88,20 @@ export async function applyOsvThenAuditFix(opts: FixerCallOptions): Promise<Fixe
   }
 
   // intermediateBackup = estado pós-OSV para rollback parcial se audit-fix quebrar
-  const intermediateBackup = new Map([['package-lock.json', postOsvContent]]);
+  let postOsvManifest: string | undefined;
+  try {
+    postOsvManifest = await readFile(join(cwd, 'package.json'), 'utf-8');
+    logger.debug('[osv-then-audit] package.json included in intermediateBackup');
+  } catch {
+    logger.warn(
+      '[osv-then-audit] package.json not found before audit fix; partial revert will not restore manifest',
+    );
+  }
+
+  const intermediateBackup = new Map<string, string>([
+    ['package-lock.json', postOsvContent],
+    ...(postOsvManifest ? [['package.json', postOsvManifest] as [string, string]] : []),
+  ]);
 
   // ── npm audit fix ────────────────────────────────────────────────────────────
   logger.info('[osv-then-audit] Running npm audit fix on top of OSV changes...');
