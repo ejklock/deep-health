@@ -294,6 +294,26 @@ Ecosystem plugins and scanner engines are registered at runtime, making it strai
 
 ---
 
+## Security
+
+### SEC-004 — Trust boundary for user-configured command strings
+
+`deep-health` executes several command strings that are **read directly from `project-config.yml`** and are therefore under full control of the **repository owner**:
+
+| Config field | Used by | Notes |
+|---|---|---|
+| `runtime.test_command` | fix workflow — post-update validation | Shell string; repo-owner controlled |
+| `ecosystems[].validationCommands[]` | fix workflow — per-ecosystem validation | Shell string(s); repo-owner controlled |
+| `ecosystems[].advisors[].command` | advisor step — informational only | Shell string; repo-owner controlled |
+
+**Trust boundary:** these strings are treated as trusted configuration supplied by the repository owner (the same person who checks in `project-config.yml`).  They are **not** attacker-controlled in a normal deployment — an attacker who can modify `project-config.yml` already has write access to the repository.
+
+**OAuth browser opener** (`cloud-setup`): the Google OAuth URL is opened via `execFile` with `shell: false`, passing the URL as a discrete `argv` element.  Shell metacharacters in the URL cannot cause command injection because no shell is involved in the spawn.
+
+> If you use `deep-health` in a context where `project-config.yml` is written by untrusted parties, treat those command strings as untrusted input and review them before running the tool.
+
+---
+
 ## License
 
 MIT

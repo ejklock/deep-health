@@ -18,8 +18,8 @@ const NPM_ADVISOR_FILES = ['yarn.lock'];
 
 async function checkCurrentState(runner: CommandRunner, cwd: string): Promise<void> {
   logger.debug('Running npm outdated and npm audit (informational)...');
-  await runner.run('npm outdated', { cwd });
-  await runner.run('npm audit', { cwd });
+  await runner.runArgs('npm', ['outdated'], { cwd });
+  await runner.runArgs('npm', ['audit'], { cwd });
 }
 
 async function revertNpmChanges(
@@ -31,7 +31,7 @@ async function revertNpmChanges(
   await restoreFiles(backups, cwd);
   logger.info('Running npm ci to restore dependencies after revert...');
   try {
-    const revertResult = await runner.run('npm ci', { cwd, stream: true });
+    const revertResult = await runner.runArgs('npm', ['ci'], { cwd, stream: true });
     if (revertResult.exitCode !== 0) {
       logger.error(
         [
@@ -155,7 +155,7 @@ export async function runNpmUpdater(
     // Bootstrap dependencies before running validations
     if (validationCommands.length > 0) {
       logger.info('Running npm ci to ensure clean dependency state before validation...');
-      const ciResult = await runner.run('npm ci', { cwd, stream: true });
+      const ciResult = await runner.runArgs('npm', ['ci'], { cwd, stream: true });
       if (ciResult.exitCode !== 0) {
         const detail = [
           `npm ci failed (exit ${ciResult.exitCode})`,
@@ -205,7 +205,7 @@ export async function runNpmUpdater(
         await restoreFiles(fixerResult.intermediateBackup, cwd);
 
         logger.info('[osv-then-audit] Running npm ci after partial revert...');
-        const reCiResult = await runner.run('npm ci', { cwd, stream: true });
+        const reCiResult = await runner.runArgs('npm', ['ci'], { cwd, stream: true });
 
         if (reCiResult.exitCode === 0) {
           // npm ci can mutate the lockfile even when it exits 0 (format normalization).

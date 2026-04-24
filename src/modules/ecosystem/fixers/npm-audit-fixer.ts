@@ -100,7 +100,9 @@ export async function applyNpmAuditFix(opts: NpmAuditFixerOptions): Promise<NpmA
 
   // ── Run npm audit fix ─────────────────────────────────────────────────────
   logger.info('Applying npm audit fix for auto-safe vulnerabilities...');
-  const fixResult = await runner.run('npm audit fix', { cwd, stream: true });
+  // SEC: use runArgs (shell: false) — 'npm audit fix' has no variable data but
+  // runArgs is used for consistency with all other npm invocations in this module.
+  const fixResult = await runner.runArgs('npm', ['audit', 'fix'], { cwd, stream: true });
   if (fixResult.exitCode !== 0) {
     // npm audit fix applies partial patches before failing in many cases — do not abort.
     logger.warn(
@@ -181,9 +183,11 @@ export async function applyNpmAuditFix(opts: NpmAuditFixerOptions): Promise<NpmA
     return { breakingInstallError: null, packagesUpdated };
   }
 
-  const specs = [...breakingPkgs.entries()].map(([name, ver]) => `${name}@${ver}`).join(' ');
-  logger.info(`Installing authorized breaking-change packages: ${specs}`);
-  const installResult = await runner.run(`npm install ${specs}`, { cwd, stream: true });
+  const specs = [...breakingPkgs.entries()].map(([name, ver]) => `${name}@${ver}`);
+  const specsStr = specs.join(' ');
+  logger.info(`Installing authorized breaking-change packages: ${specsStr}`);
+  // SEC: use runArgs (shell: false) — package-name@version data must not reach a shell tokenizer
+  const installResult = await runner.runArgs('npm', ['install', ...specs], { cwd, stream: true });
 
   // Read lockfile after breaking install regardless of exit code — partial patches may apply.
   let postBreakingLockfile: string;
@@ -232,7 +236,7 @@ export async function applyNpmAuditFix(opts: NpmAuditFixerOptions): Promise<NpmA
 
   if (installResult.exitCode !== 0 && breakingVerified.length === 0) {
     return {
-      breakingInstallError: `npm install ${specs} failed: ${installResult.stderr}`,
+      breakingInstallError: `npm install ${specsStr} failed: ${installResult.stderr}`,
       packagesUpdated,
     };
   }

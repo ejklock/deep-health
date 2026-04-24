@@ -126,6 +126,11 @@ export interface EcosystemConfig {
 export interface CloudStorageConfig {
   provider: "google_drive";
   folder_id: string;
+  /**
+   * When true, the fix/executive-report commands will fail if cloud upload fails.
+   * Default: false (cloud upload failure is non-fatal — warns to stderr only).
+   */
+  require_upload?: boolean;
 }
 
 /**

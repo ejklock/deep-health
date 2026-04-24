@@ -15,6 +15,13 @@ import { parseNpmAuditJson } from '@modules/ecosystem/plugins/npm-audit-parser';
  * - 'findings': command completed (any exit code) and findings were detected.
  * - 'error':    command threw an exception or produced unparseable output for json format.
  * - 'skipped':  not currently used at runtime (reserved for config-level suppression).
+ *
+ * SEC-004 — Trust boundary:
+ * Advisor command strings come from the project config file (operator-controlled).
+ * They are run via `runner.run(advisor.command)` using `shell: true` in LocalExecutor.
+ * This is intentional: operators author advisor commands as shell strings.
+ * The trust boundary is: advisor command strings MUST NOT include external
+ * (scanner-sourced or network-sourced) data. Callers are responsible for this invariant.
  */
 export async function runAdvisors(
   runner: CommandRunner,

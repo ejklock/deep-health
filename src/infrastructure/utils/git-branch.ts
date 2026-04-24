@@ -27,7 +27,8 @@ export async function detectGitBranch(
   runner: CommandRunner,
 ): Promise<string | null> {
   try {
-    const result = await runner.run('git rev-parse --abbrev-ref HEAD', { cwd });
+    // SEC: use runArgs (shell: false) — no variable data reaches a shell tokenizer
+    const result = await runner.runArgs('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd });
 
     if (result.exitCode !== 0) {
       logger.debug(

@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { exec } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -58,10 +58,22 @@ export function createOAuth2Client() {
   return { clientId, clientSecret };
 }
 
-function openBrowser(url: string): void {
-  const platform = process.platform;
+/**
+ * Open a URL in the default browser using a shell-free execFile invocation.
+ *
+ * SEC-004: The URL is passed as a standalone argv element (not interpolated into
+ * a shell string), so shell metacharacters in the URL cannot cause injection.
+ * execFile spawns the OS opener directly — no shell is involved.
+ *
+ * @param url      - The URL to open.
+ * @param platform - OS platform (defaults to process.platform). Exposed for testing.
+ */
+export function openBrowser(url: string, platform: NodeJS.Platform = process.platform): void {
   const cmd = platform === 'darwin' ? 'open' : platform === 'win32' ? 'start' : 'xdg-open';
-  exec(`${cmd} "${url}"`);
+  // Pass url as a discrete argument — no shell interpolation
+  execFile(cmd, [url], { shell: false }, () => {
+    // Ignore errors: if the browser doesn't open, the fallback URL printed to stdout is sufficient.
+  });
 }
 
 export async function runOAuthFlow(): Promise<StoredTokens> {

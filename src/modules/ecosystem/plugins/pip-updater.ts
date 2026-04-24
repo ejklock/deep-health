@@ -38,7 +38,7 @@ export function stripPipVersion(ref: string): string {
 async function checkCurrentState(runner: CommandRunner, cwd: string): Promise<void> {
   logger.debug('Running pip list --outdated (informational)...');
   // Ignore exit code — informational only
-  await runner.run('pip list --outdated', { cwd });
+  await runner.runArgs('pip', ['list', '--outdated'], { cwd });
 }
 
 async function revertPipChanges(
@@ -49,7 +49,8 @@ async function revertPipChanges(
   await restoreFiles(backups, cwd);
   logger.info('Running pip install -r requirements.txt to restore dependencies after revert...');
   try {
-    const revertResult = await runner.run('pip install -r requirements.txt', { cwd, stream: true });
+    // SEC: use runArgs (shell: false) — static args only, no variable data
+    const revertResult = await runner.runArgs('pip', ['install', '-r', 'requirements.txt'], { cwd, stream: true });
     if (revertResult.exitCode !== 0) {
       logger.error(
         [
@@ -142,7 +143,8 @@ export async function runPipUpdater(
 
     const pkgList = packageNamesToUpdate.join(' ');
     logger.info(`Updating packages: ${pkgList}`);
-    const updateResult = await runner.run(`pip install -U ${pkgList}`, { cwd, stream: true });
+    // SEC: use runArgs (shell: false) — package names from scanner are variable data
+    const updateResult = await runner.runArgs('pip', ['install', '-U', ...packageNamesToUpdate], { cwd, stream: true });
     if (updateResult.exitCode !== 0) {
       // pip install -U can mutate requirements.txt in projects where a post-hook
       // or pip-tools compile is wired in, and always mutates the Python env.

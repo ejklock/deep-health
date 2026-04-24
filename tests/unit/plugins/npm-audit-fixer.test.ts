@@ -51,6 +51,7 @@ function makeRunner(overrides: Partial<CommandRunner> & { dryRun?: boolean } = {
   const { dryRun = false, ...rest } = overrides;
   return {
     run: vi.fn().mockResolvedValue(ok()),
+    runArgs: vi.fn().mockResolvedValue(ok()),
     dryRun,
     environment: 'local',
     ...rest,
@@ -438,10 +439,10 @@ describe('applyNpmAuditFix — breaking install total failure', () => {
 
   it('sets breakingInstallError and packagesUpdated contains only auto-safe verified when npm install fails with no disk changes', async () => {
     const runner = makeRunner();
-    const runMock = runner.run as ReturnType<typeof vi.fn>;
+    const runArgsMock = runner.runArgs as ReturnType<typeof vi.fn>;
 
     // npm audit fix succeeds (upgrades lodash), npm install fails (nothing upgrades)
-    runMock
+    runArgsMock
       .mockResolvedValueOnce(ok())           // npm audit fix
       .mockResolvedValueOnce(fail('peer dep conflict', 1)); // npm install
 

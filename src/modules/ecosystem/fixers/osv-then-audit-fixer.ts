@@ -105,7 +105,7 @@ export async function applyOsvThenAuditFix(opts: FixerCallOptions): Promise<Fixe
 
   // ── npm audit fix ────────────────────────────────────────────────────────────
   logger.info('[osv-then-audit] Running npm audit fix on top of OSV changes...');
-  const auditResult = await runner.run('npm audit fix', { cwd, stream: true });
+  const auditResult = await runner.runArgs('npm', ['audit', 'fix'], { cwd, stream: true });
   if (auditResult.exitCode !== 0) {
     logger.warn(
       `[osv-then-audit] npm audit fix exited with ${auditResult.exitCode}; checking lockfile for partial upgrades`,

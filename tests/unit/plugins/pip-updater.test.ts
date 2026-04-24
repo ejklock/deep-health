@@ -34,10 +34,11 @@ import { runPipUpdater, stripPipVersion } from '@modules/ecosystem/plugins/pip-u
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function makeRunner(overrides: { dryRun?: boolean; run?: ReturnType<typeof vi.fn> } = {}): CommandRunner {
-  const { dryRun = false, run } = overrides;
+function makeRunner(overrides: { dryRun?: boolean; run?: ReturnType<typeof vi.fn>; runArgs?: ReturnType<typeof vi.fn> } = {}): CommandRunner {
+  const { dryRun = false, run, runArgs } = overrides;
   return {
     run: run ?? vi.fn().mockResolvedValue(ok()),
+    runArgs: runArgs ?? vi.fn().mockResolvedValue(ok()),
     dryRun,
     environment: 'local',
   } as unknown as CommandRunner;
@@ -200,11 +201,13 @@ describe('runPipUpdater — happy path', () => {
 
   it('runs validation command after successful update and returns status "success"', async () => {
     const runMock = vi.fn()
-      .mockResolvedValueOnce(ok()) // pip list --outdated
-      .mockResolvedValueOnce(ok('Successfully installed')) // pip install -U
-      .mockResolvedValueOnce(ok('No broken packages')); // pip check
+      .mockResolvedValueOnce(ok('No broken packages')); // pip check (validation)
 
-    const runner = makeRunner({ run: runMock });
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(ok()) // pip list --outdated
+      .mockResolvedValueOnce(ok('Successfully installed')); // pip install -U
+
+    const runner = makeRunner({ run: runMock, runArgs: runArgsMock });
 
     const result = await runPipUpdater(
       runner,
@@ -228,12 +231,14 @@ describe('runPipUpdater — update failure path', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('pip install -U failure => status is "error" and error message contains stderr', async () => {
-    const runMock = vi.fn()
-      .mockResolvedValueOnce(ok()) // pip list --outdated
-      .mockResolvedValueOnce(fail('Could not find a version that satisfies the requirement'))
-      .mockResolvedValueOnce(ok()); // pip install -r requirements.txt (revert after install failure)
+    const runMock = vi.fn(); // no pip list --outdated here
 
-    const runner = makeRunner({ run: runMock });
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(ok()) // pip list --outdated
+      .mockResolvedValueOnce(fail('Could not find a version that satisfies the requirement')) // pip install -U
+      .mockResolvedValueOnce(ok()); // pip install -r requirements.txt (revert)
+
+    const runner = makeRunner({ run: runMock, runArgs: runArgsMock });
     const result = await runPipUpdater(runner, baseConfig(), baseScan(), '/tmp/project');
 
     expect(result.status).toBe('error');
@@ -242,12 +247,14 @@ describe('runPipUpdater — update failure path', () => {
   });
 
   it('pip install -U failure => validations are skipped', async () => {
-    const runMock = vi.fn()
+    const runMock = vi.fn(); // no pip list --outdated
+
+    const runArgsMock = vi.fn()
       .mockResolvedValueOnce(ok()) // pip list --outdated
-      .mockResolvedValueOnce(fail('conflict'))
+      .mockResolvedValueOnce(fail('conflict')) // pip install -U
       .mockResolvedValueOnce(ok()); // pip install -r requirements.txt (revert)
 
-    const runner = makeRunner({ run: runMock });
+    const runner = makeRunner({ run: runMock, runArgs: runArgsMock });
     const result = await runPipUpdater(runner, baseConfig(), baseScan(), '/tmp/project');
 
     expect(result.validations[0]!.status).toBe('skipped');
@@ -258,12 +265,14 @@ describe('runPipUpdater — update failure path', () => {
     const restoreSpy = mockRestoreFiles as ReturnType<typeof vi.fn>;
     restoreSpy.mockClear();
 
-    const runMock = vi.fn()
-      .mockResolvedValueOnce(ok())                        // pip list --outdated
+    const runMock = vi.fn(); // no pip list --outdated
+
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(ok()) // pip list --outdated
       .mockResolvedValueOnce(fail('resolver error'))      // pip install -U
       .mockResolvedValueOnce(ok());                       // pip install -r requirements.txt (revert)
 
-    const runner = makeRunner({ run: runMock });
+    const runner = makeRunner({ run: runMock, runArgs: runArgsMock });
     const result = await runPipUpdater(runner, baseConfig(), baseScan(), '/tmp/project');
 
     expect(result.status).toBe('error');
@@ -279,12 +288,14 @@ describe('runPipUpdater — validation failure path', () => {
 
   it('validation failure => status is "error", changes reverted, pip install -r requirements.txt called', async () => {
     const runMock = vi.fn()
+      .mockResolvedValueOnce(fail('pip check failed')); // pip check (FAIL via validation-runner)
+
+    const runArgsMock = vi.fn()
       .mockResolvedValueOnce(ok()) // pip list --outdated
       .mockResolvedValueOnce(ok()) // pip install -U
-      .mockResolvedValueOnce(fail('pip check failed')) // pip check (FAIL)
       .mockResolvedValueOnce(ok()); // pip install -r requirements.txt (revert)
 
-    const runner = makeRunner({ run: runMock });
+    const runner = makeRunner({ run: runMock, runArgs: runArgsMock });
 
     const result = await runPipUpdater(
       runner,
@@ -300,8 +311,9 @@ describe('runPipUpdater — validation failure path', () => {
     expect(result.validations[0]!.status).toBe('fail');
     expect(result.validations[0]!.name).toBe('check');
 
-    const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
-    expect(calledCommands.some((cmd) => cmd.includes('pip install -r requirements.txt'))).toBe(true);
+    // Revert pip install -r requirements.txt is called via runArgs
+    const runArgsCommands = runArgsMock.mock.calls.map((c: unknown[]) => [String(c[0]), ...(c[1] as string[])].join(' '));
+    expect(runArgsCommands.some((cmd) => cmd.includes('pip install -r requirements.txt'))).toBe(true);
   });
 });
 
@@ -312,11 +324,13 @@ describe('runPipUpdater — authorizeBreaking=true', () => {
 
   it('includes both auto_safe and breaking packages in update command', async () => {
     const runMock = vi.fn()
-      .mockResolvedValueOnce(ok()) // pip list --outdated
-      .mockResolvedValueOnce(ok()) // pip install -U
-      .mockResolvedValueOnce(ok()); // pip check
+      .mockResolvedValueOnce(ok()); // pip check (validation)
 
-    const runner = makeRunner({ run: runMock });
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(ok()) // pip list --outdated
+      .mockResolvedValueOnce(ok()); // pip install -U
+
+    const runner = makeRunner({ run: runMock, runArgs: runArgsMock });
 
     await runPipUpdater(
       runner,
@@ -327,11 +341,14 @@ describe('runPipUpdater — authorizeBreaking=true', () => {
       [{ name: 'check', command: 'pip check' }],
     );
 
-    const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
-    const installCmd = calledCommands.find((cmd) => cmd.startsWith('pip install -U'));
-    expect(installCmd).toBeDefined();
-    expect(installCmd).toContain('requests');
-    expect(installCmd).toContain('django');
+    // runArgs is called as runArgs('pip', ['install', '-U', ...pkgs], ...)
+    // call[0] is pip list --outdated, call[1] is pip install -U
+    const runArgsArgs = runArgsMock.mock.calls[1] as [string, string[], unknown];
+    expect(runArgsArgs[0]).toBe('pip');
+    expect(runArgsArgs[1]).toContain('install');
+    expect(runArgsArgs[1]).toContain('-U');
+    expect(runArgsArgs[1]).toContain('requests');
+    expect(runArgsArgs[1]).toContain('django');
   });
 });
 

@@ -32,6 +32,15 @@ function hasStreaming(c: unknown): c is StreamingContainerRunner {
  * the streaming variant is used so output is forwarded to logger.info in real time.
  *
  * Environment is always 'docker' to reflect that npm runs in Docker.
+ *
+ * SEC-004 — Container tokenizer trust boundary:
+ * The `run(command: string)` path tokenizes the command string via `extractNpmArgs`
+ * (simple whitespace split). This tokenizer is intentionally TRUSTED-STATIC-ONLY:
+ * it may only receive compile-time-constant command strings (e.g. "npm audit fix").
+ * Variable data (package names, versions, branch names) MUST be passed via `runArgs`
+ * so that each token is an independent array element, never reaching a shell or
+ * any tokenizer that could be exploited via injection.
+ * All callers in this codebase that supply variable data already use `runArgs`.
  */
 export class NpmContainerCommandRunner implements CommandRunner {
   readonly dryRun: boolean;

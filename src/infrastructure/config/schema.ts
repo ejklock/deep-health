@@ -235,6 +235,11 @@ const CloudStorageConfigSchema = z
   .object({
     provider: z.enum(["google_drive"]),
     folder_id: z.string(),
+    /**
+     * When true, fix/executive-report commands will fail if cloud upload fails.
+     * Default: false (cloud upload failure is non-fatal — warns to stderr).
+     */
+    require_upload: z.boolean().default(false),
   })
   .strict();
 

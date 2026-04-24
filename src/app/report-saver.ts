@@ -10,8 +10,27 @@ import type { StorageProvider } from "@infra/storage/provider";
 import type { ScanResultJson } from "@core/types/scan";
 
 /**
+ * Outcome of a saveReport call.
+ *
+ * - `localUrl`:   URL / path reported by the local storage provider.
+ * - `cloudUrl`:   URL reported by the cloud storage provider (undefined when not configured).
+ * - `cloudError`: Error message from cloud upload when it failed (undefined when succeeded or not configured).
+ * - `cloudSkipped`: true when cloud upload was not configured at all.
+ */
+export interface SaveReportOutcome {
+  localUrl: string;
+  cloudUrl?: string;
+  cloudError?: string;
+  cloudSkipped: boolean;
+}
+
+/**
  * Save a report to local storage and optionally to cloud storage.
- * Local save failure is fatal; cloud failure is non-fatal (warns to stderr).
+ * Local save failure is always fatal.
+ * Cloud failure is non-fatal by default; when `cloudStorageConfig.require_upload` is true,
+ * the returned outcome will have `cloudError` set and the caller must treat it as a failure.
+ *
+ * Returns a SaveReportOutcome describing what was saved and where.
  */
 export async function saveReport(
   filename: string,
@@ -19,36 +38,51 @@ export async function saveReport(
   reportsDir: string,
   cloudStorageConfig: CloudStorageConfig | undefined,
   cwd: string,
-): Promise<void> {
+): Promise<SaveReportOutcome> {
   const providers: StorageProvider[] = [new LocalStorageProvider(reportsDir)];
   if (cloudStorageConfig) {
     try {
       providers.push(await createStorageProvider(cloudStorageConfig, cwd));
     } catch (err) {
-      process.stderr.write(
-        `Cloud storage init failed: ${err instanceof Error ? err.message : String(err)}\n`,
-      );
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`Cloud storage init failed: ${msg}\n`);
+      if (cloudStorageConfig.require_upload) {
+        return {
+          localUrl: '',
+          cloudError: `Cloud storage init failed: ${msg}`,
+          cloudSkipped: false,
+        };
+      }
     }
   }
 
-  let localSaved = false;
+  let localUrl = '';
   for (const provider of providers) {
     try {
       const result = await provider.upload(filename, content);
       process.stdout.write(
         `Report saved [${result.provider}]: ${result.url}\n`,
       );
-      if (result.provider === "local") localSaved = true;
+      if (result.provider === "local") {
+        localUrl = result.url;
+      } else {
+        // Cloud provider succeeded — return full outcome
+        return { localUrl, cloudUrl: result.url, cloudSkipped: false };
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (!localSaved) {
-        // Local save failure is fatal
+      if (!localUrl) {
+        // Local save failure is always fatal
         throw new Error(`Failed to save report locally: ${msg}`);
       }
-      // Cloud failure is non-fatal
+      // Cloud failure
       process.stderr.write(`Cloud upload failed: ${msg}\n`);
+      return { localUrl, cloudError: msg, cloudSkipped: false };
     }
   }
+
+  // No cloud provider configured (or only local)
+  return { localUrl, cloudSkipped: !cloudStorageConfig };
 }
 
 /**

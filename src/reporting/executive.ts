@@ -1,4 +1,4 @@
-import type { ExecutiveReportOptions } from '@core/types/report';
+import type { ExecutiveReportOptions, ResidualVerification } from '@core/types/report';
 import type { AdvisorResult, AdvisorFinding } from '@core/types/report';
 import type { ScanResultJson, VulnerabilityEntry, SonarQubeQualityGateCondition, SonarQubeIssue } from '@core/types/scan';
 import type { Locale } from './i18n/index';
@@ -311,6 +311,9 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
   const locale = getLocale(opts.locale);
   const now = new Date();
 
+  // Resolve residual verification state — use the explicit union type.
+  const residualVerification: ResidualVerification = opts.residualVerification ?? { status: 'skipped' };
+
   // Build per-ecosystem update name sets (for determining fixed vs pending)
   const plugins = defaultRegistry.getAll();
 
@@ -348,8 +351,11 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
     .map((v) => {
       // Look up reportLabel from registry
       const plugin = defaultRegistry.findByOsvEcosystem(v.ecosystem) ?? defaultRegistry.get(v.ecosystem);
-      const residualCount = opts.residualCveSummary?.[v.ecosystem] ?? null;
-      const residualWarning = residualCount !== null && residualCount > 0;
+      // Render residual warning distinctly: only when verification ran and CVEs remain
+      const residualCount = residualVerification.status !== 'skipped'
+        ? (residualVerification.summary[v.ecosystem] ?? 0)
+        : null;
+      const residualWarning = residualVerification.status === 'unverified' && residualCount !== null && residualCount > 0;
       return {
         ecoLabel: plugin?.reportLabel ?? v.ecosystem,
         ghsaLink: ghsaLink(v.ghsaId),
@@ -387,14 +393,18 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
     const updatedNames = updatedNamesByEco.get(plugin.id) ?? new Set();
 
     const installedVersions = installedVersionsByEco.get(plugin.id) ?? new Map<string, string>();
-    const residualCount = opts.residualCveSummary?.[plugin.id] ?? null;
+    // Use the explicit verification state: only show residual warning when 'unverified'
+    const residualCount = residualVerification.status !== 'skipped'
+      ? (residualVerification.summary[plugin.id] ?? 0)
+      : null;
+    const isUnverified = residualVerification.status === 'unverified';
     const vulnsAfter = (ecoScan?.vulnerabilities ?? []).map((v) => {
       const fixed = updatedNames.has(v.package) && v.classification === 'auto_safe';
       let statusPt: string;
       if (fixed) {
         const fixedVersionLabel = locale.exec.fixed_version(installedVersions.get(v.package) ?? v.safeVersion ?? '—');
-        statusPt = (residualCount !== null && residualCount > 0)
-          ? fixedVersionLabel + ' ⚠ residual CVE detected — verify manually'
+        statusPt = (isUnverified && residualCount !== null && residualCount > 0)
+          ? fixedVersionLabel + ' ⚠ residual CVE unverified — post-update scan detected remaining vulnerabilities'
           : fixedVersionLabel;
       } else {
         statusPt = pendingStatus(v, locale);

@@ -37,6 +37,16 @@ export interface RunValidationsResult {
  * - Commands run sequentially; stops at first failure.
  * - Success is determined by exit code membership in successExitCodes (default [0]).
  * - Never throws on command failure — failure is represented as ValidationEntry with status 'fail'.
+ *
+ * SEC-004 — Trust boundary:
+ * Validation commands are user-defined strings from the project config file, which is
+ * an operator-controlled file (not untrusted external data). These commands are run
+ * via `runner.run(cmd.command)` — which uses `shell: true` in LocalExecutor.
+ * This is intentional: operators author these commands exactly as they would write
+ * them in a shell script. The trust boundary is: validation command strings MUST NOT
+ * include external (scanner-sourced or network-sourced) data. Package names, versions,
+ * and any variable data from external sources must never be interpolated into
+ * validationCommands. Callers are responsible for this invariant.
  */
 export async function runValidations(
   opts: RunValidationsOptions,

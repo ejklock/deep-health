@@ -76,13 +76,19 @@ export async function runExecutiveReportCommand(
 
   if (markdownEnabled) {
     const filename = executiveReportFilename(client, project);
-    await saveReport(
+    const outcome = await saveReport(
       filename,
       report,
       reportsDir,
       config.cloud_storage,
       opts.cwd,
     );
+    if (outcome.cloudError && config.cloud_storage?.require_upload) {
+      process.stderr.write(
+        `[deep-health] Cloud upload required but failed: ${outcome.cloudError}\n`,
+      );
+      return 1;
+    }
 
     // Standalone SonarQube HTML artifact
     const sonarHtml = generateSonarQubeHtmlReport(
@@ -92,13 +98,19 @@ export async function runExecutiveReportCommand(
     );
     if (sonarHtml) {
       const htmlFilename = sonarqubeHtmlReportFilename(client, project);
-      await saveReport(
+      const sonarOutcome = await saveReport(
         htmlFilename,
         sonarHtml,
         sonarReportsDir,
         config.cloud_storage,
         opts.cwd,
       );
+      if (sonarOutcome.cloudError && config.cloud_storage?.require_upload) {
+        process.stderr.write(
+          `[deep-health] Cloud upload required but failed (SonarQube HTML): ${sonarOutcome.cloudError}\n`,
+        );
+        return 1;
+      }
     }
   }
 

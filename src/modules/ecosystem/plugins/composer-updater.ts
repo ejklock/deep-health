@@ -17,7 +17,7 @@ function extractPackageNames(packageRefs: string[]): string[] {
   });
 }
 
-// Shared composer flags for all write-path commands.
+// Shared composer flags for all write-path commands (array form for runArgs).
 // --no-interaction : no prompts (CI context)
 // --no-scripts     : skip post-install-cmd, post-autoload-dump, post-update-cmd, etc.
 //                    These framework hooks (e.g. Laravel's `artisan package:discover`)
@@ -26,11 +26,12 @@ function extractPackageNames(packageRefs: string[]): string[] {
 //                    turns dep failures into app-bootstrap failures and makes rollback
 //                    noisier. The user's explicit validationCommands can still invoke them
 //                    if needed.
-const COMPOSER_AUTOMATION_FLAGS = '--no-interaction --no-scripts';
+const COMPOSER_AUTOMATION_ARGS = ['--no-interaction', '--no-scripts'];
 
 async function checkCurrentState(runner: CommandRunner, cwd: string): Promise<void> {
   logger.debug('Running composer outdated --direct (informational)...');
-  await runner.run('composer outdated --direct', { cwd });
+  // SEC: static args only — no variable data
+  await runner.runArgs('composer', ['outdated', '--direct'], { cwd });
 }
 
 async function applyComposerUpdate(
@@ -40,8 +41,10 @@ async function applyComposerUpdate(
 ): Promise<CommandResult> {
   const pkgList = packageNames.join(' ');
   logger.info(`Updating packages: ${pkgList}`);
-  return runner.run(
-    `composer update ${pkgList} --with-all-dependencies ${COMPOSER_AUTOMATION_FLAGS}`,
+  // SEC: use runArgs (shell: false) — packageNames from scanner are variable data
+  return runner.runArgs(
+    'composer',
+    ['update', ...packageNames, '--with-all-dependencies', ...COMPOSER_AUTOMATION_ARGS],
     { cwd, stream: true },
   );
 }
@@ -53,7 +56,8 @@ async function revertComposerChanges(
 ): Promise<void> {
   await restoreFiles(backups, cwd);
   try {
-    await runner.run(`composer install ${COMPOSER_AUTOMATION_FLAGS}`, { cwd });
+    // SEC: static args only — no variable data
+    await runner.runArgs('composer', ['install', ...COMPOSER_AUTOMATION_ARGS], { cwd });
   } finally {
     // composer install rewrites composer.lock on any drift; re-restore from the
     // in-memory snapshot so the on-disk lockfile is byte-identical to pre-update.
@@ -133,7 +137,8 @@ export async function runComposerUpdater(
     // Returns a structured error result (not a thrown exception) so the caller can
     // surface the diagnostic cleanly without aborting the pipeline unexpectedly.
     logger.info('[composer env-check] Running composer install --no-interaction --no-scripts to verify environment...');
-    const envCheckResult = await runner.run(`composer install ${COMPOSER_AUTOMATION_FLAGS}`, { cwd });
+    // SEC: static args only — no variable data
+    const envCheckResult = await runner.runArgs('composer', ['install', ...COMPOSER_AUTOMATION_ARGS], { cwd });
     if (envCheckResult.exitCode !== 0) {
       const detail = envCheckResult.stderr || envCheckResult.stdout || '(no output)';
       logger.error('[composer env-check] Environment check failed — aborting update.');

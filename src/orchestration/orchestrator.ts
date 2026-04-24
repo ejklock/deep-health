@@ -2,7 +2,7 @@ import type { CommandRunner, PhaseStatus } from "@core/types/common";
 import type { ProjectConfig, FixerStrategyId } from "@core/types/config";
 import type { ScanResultJson } from "@core/types/scan";
 import type { UpdateResultJson } from "@core/types/update";
-import type { AdvisorResult } from "@core/types/report";
+import type { AdvisorResult, ResidualVerification } from "@core/types/report";
 import type {
   EngineWarning,
   ScannerEngineContext,
@@ -99,11 +99,9 @@ export interface OrchestratorResult {
    */
   advisorResults: Record<string, AdvisorResult[]>;
   /**
-   * Residual CVE counts per ecosystem after updates, from post-update OSV verification.
-   * null = verification was not run (dryRun, error, or no post-update verify configured).
-   * {} (empty object) = verified clean — no remaining CVEs found.
+   * Residual OSV verification outcome (typed union).
    */
-  residualCveSummary?: Record<string, number> | null;
+  residualVerification?: ResidualVerification;
 }
 
 function shouldRunPhase(phase: string, options: OrchestratorOptions): boolean {
@@ -519,19 +517,20 @@ function resolveOsvCommandRunner(
  * Run residual OSV scan verification after updates are applied.
  * Best-effort: logs a warning on failure but does not abort the pipeline.
  *
- * Returns:
- *   - Record<string, number>: CVE counts per ecosystem (may be empty {} when all clean)
- *   - null: scan was not run (dryRun), errored, or output could not be parsed
+ * Returns a ResidualVerification union:
+ *   - { status: 'verified', summary }   — scan ran, all ecosystems clean
+ *   - { status: 'unverified', summary } — scan ran, CVEs remain in ≥1 ecosystem
+ *   - { status: 'skipped' }             — scan not run (dryRun, error, unparseable output)
  */
 async function runOsvResidualVerification(
   osvRunner: CommandRunner,
   cwd: string,
   dryRun: boolean,
   command: string,
-): Promise<Record<string, number> | null> {
+): Promise<ResidualVerification> {
   if (dryRun) {
     logger.info(`[DRY-RUN] Would execute: ${command}`);
-    return null;
+    return { status: 'skipped' };
   }
   logger.info(`[OSV verify] Running post-update OSV verification: ${command}`);
   try {
@@ -542,20 +541,26 @@ async function runOsvResidualVerification(
       parsed = JSON.parse(cmdResult.stdout) as ScanResultJson;
     } catch {
       logger.warn('[OSV verify] Could not parse osv-scanner JSON output — treating as non-fatal');
-      return null;
+      return { status: 'skipped' };
     }
     // Extract CVE count per ecosystem
     const summary: Record<string, number> = {};
     for (const [ecoId, ecoResult] of Object.entries(parsed.ecosystems)) {
       summary[ecoId] = ecoResult.vulnerabilities_total;
     }
-    return summary;
+    const hasResidual = Object.values(summary).some((n) => n > 0);
+    if (hasResidual) {
+      logger.warn('[OSV verify] Residual CVEs detected after update — see summary for details');
+    }
+    return hasResidual
+      ? { status: 'unverified', summary }
+      : { status: 'verified', summary };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.warn(
       `[OSV verify] Post-update OSV verification failed (non-fatal): ${message}`,
     );
-    return null;
+    return { status: 'skipped' };
   }
 }
 
@@ -866,13 +871,13 @@ export async function runOrchestrator(
       }
       const verifyScanArgs = plugin.buildScanArgs();
       const verifyCmd = `osv-scanner ${verifyScanArgs.join(" ")} --format json`;
-      const residualSummary = await runOsvResidualVerification(
+      const residualVerification = await runOsvResidualVerification(
         osvVerifyRunner,
         options.cwd,
         options.dryRun,
         verifyCmd,
       );
-      result.residualCveSummary = residualSummary;
+      result.residualVerification = residualVerification;
     }
 
     result.updates[plugin.id] = updateResult;

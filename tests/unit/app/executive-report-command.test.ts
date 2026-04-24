@@ -21,7 +21,7 @@ vi.mock('@reporting/sonarqube-report', () => ({
 }));
 
 vi.mock('@app/report-saver', () => ({
-  saveReport: vi.fn(),
+  saveReport: vi.fn().mockResolvedValue({ localUrl: '/abs/reports/report.md', cloudSkipped: true }),
   resolveReportsDir: vi.fn(() => '/abs/reports'),
   resolveEngineReportsDir: vi.fn(() => '/abs/reports'),
 }));
@@ -92,7 +92,7 @@ describe('runExecutiveReportCommand', () => {
 
     const ctx: RunContext = {
       config: { ...baseConfig, outputs: { formats: [], dir: '.deep-health/reports' } },
-      runner: { environment: 'local', run: vi.fn() },
+      runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
     };
 
     const code = await runExecutiveReportCommand(ctx, {
@@ -122,7 +122,7 @@ describe('runExecutiveReportCommand', () => {
         ...baseConfig,
         outputs: { formats: ['markdown'], dir: '.deep-health/reports' },
       },
-      runner: { environment: 'local', run: vi.fn() },
+      runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
     };
 
     await runExecutiveReportCommand(ctx, {
@@ -163,7 +163,7 @@ describe('runExecutiveReportCommand', () => {
         ...baseConfig,
         outputs: { formats: ['markdown'], dir: '.deep-health/reports' },
       },
-      runner: { environment: 'local', run: vi.fn() },
+      runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
     };
 
     await runExecutiveReportCommand(ctx, {
@@ -204,7 +204,7 @@ describe('runExecutiveReportCommand', () => {
         ...baseConfig,
         outputs: { formats: ['markdown'], dir: '.deep-health/reports' },
       },
-      runner: { environment: 'local', run: vi.fn() },
+      runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
     };
 
     await runExecutiveReportCommand(ctx, {
@@ -243,7 +243,7 @@ describe('runExecutiveReportCommand', () => {
         ...baseConfig,
         outputs: { formats: ['markdown'], dir: '.deep-health/reports' },
       },
-      runner: { environment: 'local', run: vi.fn() },
+      runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
     };
 
     await runExecutiveReportCommand(ctx, {
@@ -257,5 +257,141 @@ describe('runExecutiveReportCommand', () => {
 
     // Only the executive report; no SonarQube HTML artifact when it returns null
     expect(saveReport).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns exit code 1 and emits stderr when require_upload is true and saveReport returns cloudError (executive report)', async () => {
+    vi.mocked(runOrchestrator).mockResolvedValue({
+      scan: scanResult,
+      updates: {},
+      overallStatus: 'success',
+      warnings: [],
+      aggregated: undefined,
+      advisorResults: {},
+    });
+    vi.mocked(saveReport).mockResolvedValueOnce({
+      localUrl: '/abs/reports/executive.md',
+      cloudError: 'Google Drive quota exceeded',
+      cloudSkipped: false,
+    });
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    const ctx: RunContext = {
+      config: {
+        ...baseConfig,
+        outputs: { formats: ['markdown'], dir: '.deep-health/reports' },
+        cloud_storage: { provider: 'google_drive', folder_id: 'abc123', require_upload: true },
+      },
+      runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
+    };
+
+    const code = await runExecutiveReportCommand(ctx, {
+      config: 'project-config.yml',
+      cwd: '/repo',
+      dryRun: false,
+      verbose: false,
+      quiet: false,
+      json: false,
+    });
+
+    expect(code).toBe(1);
+    expect(stderrSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Cloud upload required but failed'),
+    );
+
+    stderrSpy.mockRestore();
+  });
+
+  it('returns exit code 1 and emits stderr when require_upload is true and saveReport returns cloudError (sonarqube html)', async () => {
+    vi.mocked(runOrchestrator).mockResolvedValue({
+      scan: scanResult,
+      updates: {},
+      overallStatus: 'success',
+      warnings: [],
+      aggregated: {
+        primary: scanResult,
+        engineResults: {
+          sonarqube: {
+            ...scanResult,
+            $schema: 'sonarqube-scan-result/v1',
+            agent: 'sonarqube',
+          },
+        },
+      },
+      advisorResults: {},
+    });
+    vi.mocked(generateSonarQubeHtmlReport).mockReturnValue('<html></html>');
+    // First saveReport (executive report) succeeds; second (sonarqube html) fails with cloudError
+    vi.mocked(saveReport)
+      .mockResolvedValueOnce({ localUrl: '/abs/reports/executive.md', cloudSkipped: false })
+      .mockResolvedValueOnce({
+        localUrl: '/abs/reports/sonarqube.html',
+        cloudError: 'Upload bandwidth exceeded',
+        cloudSkipped: false,
+      });
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    const ctx: RunContext = {
+      config: {
+        ...baseConfig,
+        outputs: { formats: ['markdown'], dir: '.deep-health/reports' },
+        cloud_storage: { provider: 'google_drive', folder_id: 'abc123', require_upload: true },
+      },
+      runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
+    };
+
+    const code = await runExecutiveReportCommand(ctx, {
+      config: 'project-config.yml',
+      cwd: '/repo',
+      dryRun: false,
+      verbose: false,
+      quiet: false,
+      json: false,
+    });
+
+    expect(code).toBe(1);
+    expect(stderrSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Cloud upload required but failed (SonarQube HTML)'),
+    );
+
+    stderrSpy.mockRestore();
+  });
+
+  it('does NOT return exit code 1 when cloudError is set but require_upload is false', async () => {
+    vi.mocked(runOrchestrator).mockResolvedValue({
+      scan: scanResult,
+      updates: {},
+      overallStatus: 'success',
+      warnings: [],
+      aggregated: undefined,
+      advisorResults: {},
+    });
+    vi.mocked(saveReport).mockResolvedValueOnce({
+      localUrl: '/abs/reports/executive.md',
+      cloudError: 'Some cloud error',
+      cloudSkipped: false,
+    });
+
+    const ctx: RunContext = {
+      config: {
+        ...baseConfig,
+        outputs: { formats: ['markdown'], dir: '.deep-health/reports' },
+        cloud_storage: { provider: 'google_drive', folder_id: 'abc123', require_upload: false },
+      },
+      runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
+    };
+
+    const code = await runExecutiveReportCommand(ctx, {
+      config: 'project-config.yml',
+      cwd: '/repo',
+      dryRun: false,
+      verbose: false,
+      quiet: false,
+      json: false,
+    });
+
+    // Cloud error without require_upload must not force exit code 1
+    expect(code).toBe(0);
   });
 });

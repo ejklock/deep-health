@@ -51,6 +51,7 @@ function makeRunner(overrides: Partial<CommandRunner> & { dryRun?: boolean } = {
   const { dryRun = false, ...rest } = overrides;
   return {
     run: vi.fn().mockResolvedValue(ok()),
+    runArgs: vi.fn().mockResolvedValue(ok()),
     dryRun,
     environment: 'local',
     ...rest,
@@ -274,10 +275,10 @@ describe('applyOsvThenAuditFix — audit-fix exit != 0 with partial changes', ()
 
   it('does not abort on non-zero exit and returns verified packages when lockfile changed', async () => {
     const runner = makeRunner();
-    const runMock = runner.run as ReturnType<typeof vi.fn>;
+    const runArgsMock = runner.runArgs as ReturnType<typeof vi.fn>;
 
     // npm audit fix exits 1 but some upgrades were applied
-    runMock.mockResolvedValue(fail('some audit error', 1));
+    runArgsMock.mockResolvedValue(fail('some audit error', 1));
 
     const postOsvLockfile = buildLockfile([
       { name: 'p1', version: '1.0.0' },
@@ -319,9 +320,9 @@ describe('applyOsvThenAuditFix — audit-fix exit != 0 without changes', () => {
 
   it('returns packagesUpdated=[] when npm audit fix exits non-zero and lockfile is unchanged', async () => {
     const runner = makeRunner();
-    const runMock = runner.run as ReturnType<typeof vi.fn>;
+    const runArgsMock = runner.runArgs as ReturnType<typeof vi.fn>;
 
-    runMock.mockResolvedValue(fail('npm ERR! audit fix failed', 1));
+    runArgsMock.mockResolvedValue(fail('npm ERR! audit fix failed', 1));
 
     const lockfile = buildLockfile([{ name: 'minimist', version: '1.2.5' }]);
 

@@ -165,7 +165,8 @@ export const npmPlugin: EcosystemPlugin = {
 
     if (breakingPkgs.size === 0) return { status: 'success' };
 
-    const specs = [...breakingPkgs.entries()].map(([name, ver]) => `${name}@${ver}`).join(' ');
+    const specArgs = [...breakingPkgs.entries()].map(([name, ver]) => `${name}@${ver}`);
+    const specs = specArgs.join(' ');
     logger.info(`[OSV strategy] Installing authorized breaking-change packages via npm: ${specs}`);
 
     if (args.dryRun) {
@@ -184,7 +185,8 @@ export const npmPlugin: EcosystemPlugin = {
       ? collectRootNpmLockfileVersions(preInstallContent)
       : new Map<string, string>();
 
-    const installResult = await args.runner.run(`npm install ${specs}`, { cwd: args.cwd, stream: true });
+    // SEC: use runArgs (shell: false) so package-name/version data never reaches a shell tokenizer
+    const installResult = await args.runner.runArgs('npm', ['install', ...specArgs], { cwd: args.cwd, stream: true });
     if (installResult.exitCode !== 0) {
       logger.error(
         `[OSV strategy] npm install for breaking packages failed (exit ${installResult.exitCode}): ${installResult.stderr}`,

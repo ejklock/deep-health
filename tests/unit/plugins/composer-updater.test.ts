@@ -34,10 +34,11 @@ import { runComposerUpdater } from '@modules/ecosystem/plugins/composer-updater'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function makeRunner(overrides: { dryRun?: boolean; run?: ReturnType<typeof vi.fn> } = {}): CommandRunner {
-  const { dryRun = false, run } = overrides;
+function makeRunner(overrides: { dryRun?: boolean; run?: ReturnType<typeof vi.fn>; runArgs?: ReturnType<typeof vi.fn> } = {}): CommandRunner {
+  const { dryRun = false, run, runArgs } = overrides;
   return {
     run: run ?? vi.fn().mockResolvedValue(ok()),
+    runArgs: runArgs ?? vi.fn().mockResolvedValue(ok()),
     dryRun,
     environment: 'local',
   } as unknown as CommandRunner;
@@ -228,13 +229,13 @@ describe('runComposerUpdater — update failure path', () => {
   });
 
   it('composer update failure => status is "error" and error message contains stderr', async () => {
-    // Sequence: composer install (env-check ok), composer outdated (ok), composer update (FAIL)
-    const runMock = vi.fn()
+    // All composer commands go through runArgs; validation commands go through run
+    const runArgsMock = vi.fn()
       .mockResolvedValueOnce(ok()) // composer install --no-interaction --no-scripts (env-check)
       .mockResolvedValueOnce(ok()) // composer outdated --direct
       .mockResolvedValueOnce(fail('Your requirements could not be resolved'));
 
-    const runner = makeRunner({ run: runMock });
+    const runner = makeRunner({ runArgs: runArgsMock });
 
     const result = await runComposerUpdater(runner, baseConfig(), baseScan(), '/tmp/project');
 
@@ -244,12 +245,12 @@ describe('runComposerUpdater — update failure path', () => {
   });
 
   it('composer update failure => validation is not empty and has meaningful detail', async () => {
-    const runMock = vi.fn()
+    const runArgsMock = vi.fn()
       .mockResolvedValueOnce(ok()) // composer install (env-check)
       .mockResolvedValueOnce(ok()) // composer outdated --direct
       .mockResolvedValueOnce(fail('conflict detected'));
 
-    const runner = makeRunner({ run: runMock });
+    const runner = makeRunner({ runArgs: runArgsMock });
 
     const result = await runComposerUpdater(runner, baseConfig(), baseScan(), '/tmp/project');
 
@@ -263,12 +264,12 @@ describe('runComposerUpdater — update failure path', () => {
   });
 
   it('composer update failure => validation name is "validation"', async () => {
-    const runMock = vi.fn()
+    const runArgsMock = vi.fn()
       .mockResolvedValueOnce(ok()) // composer install (env-check)
       .mockResolvedValueOnce(ok()) // composer outdated --direct
       .mockResolvedValueOnce(fail('version conflict'));
 
-    const runner = makeRunner({ run: runMock });
+    const runner = makeRunner({ runArgs: runArgsMock });
 
     const result = await runComposerUpdater(runner, baseConfig(), baseScan(), '/tmp/project');
 
@@ -280,13 +281,13 @@ describe('runComposerUpdater — update failure path', () => {
     const restoreSpy = mockRestoreFiles as ReturnType<typeof vi.fn>;
     restoreSpy.mockClear();
 
-    const runMock = vi.fn()
+    const runArgsMock = vi.fn()
       .mockResolvedValueOnce(ok())                           // composer install (env-check)
       .mockResolvedValueOnce(ok())                           // composer outdated --direct
       .mockResolvedValueOnce(fail('post-autoload-dump hook failed')) // composer update
       .mockResolvedValueOnce(ok());                          // composer install (revert)
 
-    const runner = makeRunner({ run: runMock });
+    const runner = makeRunner({ runArgs: runArgsMock });
     const result = await runComposerUpdater(runner, baseConfig(), baseScan(), '/tmp/project');
 
     expect(result.status).toBe('error');
@@ -301,30 +302,39 @@ describe('runComposerUpdater — automation flags', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('composer update command uses --no-scripts to avoid framework hooks (Laravel artisan, etc.)', async () => {
-    const runMock = vi.fn().mockResolvedValue(ok());
-    const runner = makeRunner({ run: runMock });
+    const runArgsMock = vi.fn().mockResolvedValue(ok());
+    const runner = makeRunner({ runArgs: runArgsMock });
 
     await runComposerUpdater(runner, baseConfig({ testCommand: 'phpunit' }), baseScan(), '/tmp/project');
 
-    const updateCall = runMock.mock.calls.find((c: unknown[]) => String(c[0]).startsWith('composer update'));
+    // runArgs is called as runArgs('composer', [...args], opts)
+    const updateCall = runArgsMock.mock.calls.find((c: unknown[]) => {
+      const args = c[1] as string[];
+      return args[0] === 'update';
+    });
     expect(updateCall).toBeDefined();
-    expect(String(updateCall![0])).toContain('--no-scripts');
-    expect(String(updateCall![0])).toContain('--no-interaction');
+    const args = updateCall![1] as string[];
+    expect(args).toContain('--no-scripts');
+    expect(args).toContain('--no-interaction');
   });
 
   it('composer install (revert) uses --no-scripts to match update semantics', async () => {
-    const runMock = vi.fn()
-      .mockResolvedValueOnce(ok())                          // composer install (env-check)
-      .mockResolvedValueOnce(ok())                          // composer outdated
-      .mockResolvedValueOnce(fail('hook failed'))           // composer update (fails)
-      .mockResolvedValueOnce(ok());                         // composer install (revert)
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(ok())             // composer install (env-check)
+      .mockResolvedValueOnce(ok())             // composer outdated
+      .mockResolvedValueOnce(fail('hook failed')) // composer update (fails)
+      .mockResolvedValueOnce(ok());            // composer install (revert)
 
-    const runner = makeRunner({ run: runMock });
+    const runner = makeRunner({ runArgs: runArgsMock });
     await runComposerUpdater(runner, baseConfig(), baseScan(), '/tmp/project');
 
-    const installCall = runMock.mock.calls.find((c: unknown[]) => String(c[0]).startsWith('composer install'));
+    const installCall = runArgsMock.mock.calls.find((c: unknown[]) => {
+      const args = c[1] as string[];
+      return args[0] === 'install';
+    });
     expect(installCall).toBeDefined();
-    expect(String(installCall![0])).toContain('--no-scripts');
+    const args = installCall![1] as string[];
+    expect(args).toContain('--no-scripts');
   });
 });
 
@@ -336,13 +346,15 @@ describe('runComposerUpdater — validation commands', () => {
   });
 
   it('runs validation command after successful update', async () => {
-    const runMock = vi.fn()
+    const runArgsMock = vi.fn()
       .mockResolvedValueOnce(ok()) // composer install (env-check)
       .mockResolvedValueOnce(ok()) // composer outdated
-      .mockResolvedValueOnce(ok()) // composer update
-      .mockResolvedValueOnce(ok('Tests passed')); // php artisan test
+      .mockResolvedValueOnce(ok()); // composer update
 
-    const runner = makeRunner({ run: runMock });
+    const runMock = vi.fn()
+      .mockResolvedValueOnce(ok('Tests passed')); // php artisan test (via validation-runner)
+
+    const runner = makeRunner({ run: runMock, runArgs: runArgsMock });
 
     const result = await runComposerUpdater(
       runner,
@@ -363,14 +375,16 @@ describe('runComposerUpdater — validation commands', () => {
   });
 
   it('validation failure => status is "error" and changes are reverted', async () => {
-    const runMock = vi.fn()
+    const runArgsMock = vi.fn()
       .mockResolvedValueOnce(ok()) // composer install (env-check)
       .mockResolvedValueOnce(ok()) // composer outdated
       .mockResolvedValueOnce(ok()) // composer update
-      .mockResolvedValueOnce({ stdout: '', stderr: 'test fail', exitCode: 1, command: '', dryRun: false }) // php artisan test (FAIL)
       .mockResolvedValueOnce(ok()); // composer install (revert)
 
-    const runner = makeRunner({ run: runMock });
+    const runMock = vi.fn()
+      .mockResolvedValueOnce({ stdout: '', stderr: 'test fail', exitCode: 1, command: '', dryRun: false }); // php artisan test (FAIL)
+
+    const runner = makeRunner({ run: runMock, runArgs: runArgsMock });
 
     const result = await runComposerUpdater(
       runner,
@@ -386,7 +400,8 @@ describe('runComposerUpdater — validation commands', () => {
     expect(result.validations[0]!.status).toBe('fail');
     expect(result.validations[0]!.name).toBe('tests');
 
-    const calledCommands: string[] = runMock.mock.calls.map((c: unknown[]) => String(c[0]));
-    expect(calledCommands.some((cmd) => cmd.includes('composer install'))).toBe(true);
+    // Revert is composer install via runArgs
+    const runArgsArgs = runArgsMock.mock.calls.map((c: unknown[]) => c[1] as string[]);
+    expect(runArgsArgs.some((args) => args[0] === 'install')).toBe(true);
   });
 });

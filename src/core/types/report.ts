@@ -39,6 +39,17 @@ export interface AdvisorResult {
   findings?: AdvisorFinding[];
 }
 
+/**
+ * Residual OSV verification outcome (typed union).
+ * - `verified`:   Scan ran, all ecosystems have 0 residual CVEs.
+ * - `unverified`: Scan ran but ≥1 ecosystem still has CVEs remaining.
+ * - `skipped`:    Scan was not run (dryRun, error, or no verify configured).
+ */
+export type ResidualVerification =
+  | { status: 'verified'; summary: Record<string, number> }
+  | { status: 'unverified'; summary: Record<string, number> }
+  | { status: 'skipped' };
+
 export interface ExecutiveReportOptions {
   client: string;
   project: string;
@@ -70,9 +81,7 @@ export interface ExecutiveReportOptions {
    */
   scannerEngines?: string[];
   /**
-   * Residual CVE counts per ecosystem after fix, from post-update scan.
-   * null = scan was not run (dryRun, error, or no verify configured).
-   * {} (empty object) = verified clean — no remaining CVEs.
+   * Residual OSV verification outcome (typed union).
    */
-  residualCveSummary?: Record<string, number> | null;
+  residualVerification?: ResidualVerification;
 }
