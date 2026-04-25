@@ -20,6 +20,8 @@ vi.mock('@infra/utils/logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+import { logger } from '@infra/utils/logger.js';
+
 describe('registerShutdownHook', () => {
   beforeEach(() => {
     _resetShutdownHooks();
@@ -116,6 +118,18 @@ describe('signal-triggered hook execution', () => {
     expect(second).toHaveBeenCalledTimes(1);
   });
 
+  it('logs String(err) when a hook throws a non-Error value (line 99 false branch)', async () => {
+    // eslint-disable-next-line @typescript-eslint/only-throw-error
+    registerShutdownHook(() => { throw 'plain string failure'; });
+
+    process.emit('SIGINT');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
+      expect.stringContaining('plain string failure'),
+    );
+  });
+
   it('a second signal while shutdown is already running is a no-op', async () => {
     const hook = vi.fn();
     registerShutdownHook(hook);
@@ -129,4 +143,91 @@ describe('signal-triggered hook execution', () => {
     // `shuttingDown` guard.
     expect(hook).toHaveBeenCalledTimes(1);
   });
+});
+
+describe('uncaughtException and unhandledRejection handlers (lines 69-71, 74-76)', () => {
+  let originalExit: typeof process.exit;
+
+  beforeEach(() => {
+    _resetShutdownHooks();
+    originalExit = process.exit;
+    process.exit = vi.fn() as never;
+  });
+
+  afterEach(() => {
+    process.exit = originalExit;
+    _resetShutdownHooks();
+  });
+
+  it('uncaughtException triggers registered hook with exit code 1 (lines 69-71)', async () => {
+    const hook = vi.fn().mockResolvedValue(undefined);
+    registerShutdownHook(hook);
+
+    const err = new Error('test uncaught exception');
+    err.stack = 'Error: test\n  at test.ts:1:1';
+    process.emit('uncaughtException', err);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(hook).toHaveBeenCalledTimes(1);
+    expect(process.exit).toHaveBeenCalledWith(1);
+  });
+
+  it('unhandledRejection triggers registered hook with exit code 1 (lines 74-76)', async () => {
+    const hook = vi.fn().mockResolvedValue(undefined);
+    registerShutdownHook(hook);
+
+    process.emit('unhandledRejection', new Error('test unhandled rejection'), Promise.resolve());
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(hook).toHaveBeenCalledTimes(1);
+    expect(process.exit).toHaveBeenCalledWith(1);
+  });
+
+  it('unhandledRejection with non-Error reason (line 74 string branch)', async () => {
+    const hook = vi.fn().mockResolvedValue(undefined);
+    registerShutdownHook(hook);
+
+    process.emit('unhandledRejection', 'plain string reason', Promise.resolve());
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(hook).toHaveBeenCalledTimes(1);
+    expect(process.exit).toHaveBeenCalledWith(1);
+  });
+});
+
+describe('hook timeout (lines 94-95)', () => {
+  let originalExit: typeof process.exit;
+
+  beforeEach(() => {
+    _resetShutdownHooks();
+    originalExit = process.exit;
+    process.exit = vi.fn() as never;
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    process.exit = originalExit;
+    _resetShutdownHooks();
+    vi.useRealTimers();
+  });
+
+  it('abandons a hook that exceeds HOOK_TIMEOUT_MS and logs a warning (lines 94-95)', async () => {
+    // A hook controlled by a fake timer — resolves after 20s (well past HOOK_TIMEOUT_MS=7s)
+    // so the race's setTimeout fires first at 7s and abandons it
+    let hookResolve!: () => void;
+    const hangingHook = () => new Promise<void>((res) => { hookResolve = res; });
+    registerShutdownHook(hangingHook);
+
+    process.emit('SIGINT');
+    // Advance past HOOK_TIMEOUT_MS (7000ms) — the race's setTimeout fires and resolves
+    await vi.advanceTimersByTimeAsync(7500);
+    // The Promise.race resolves; drain the remaining microtask queue
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Satisfy the hanging hook promise so no open handles remain
+    hookResolve?.();
+
+    expect(process.exit).toHaveBeenCalledWith(130);
+  }, 15_000);
 });

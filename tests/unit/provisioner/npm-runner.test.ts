@@ -104,3 +104,36 @@ describe('resolveNpmDockerImage', () => {
     expect(resolveNpmDockerImage('v20')).toBe('node:lts');
   });
 });
+
+import { execFile } from 'node:child_process';
+const mockExecFile = vi.mocked(execFile);
+
+describe('NpmDockerRunner.run() (lines 150-166)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns exitCode 0 with stdout/stderr on success', async () => {
+    // promisify(execFile) resolves with { stdout, stderr }
+    (mockExecFile as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (_file: string, _args: string[], cb: (err: null, result: { stdout: string; stderr: string }) => void) => {
+        cb(null, { stdout: 'ok', stderr: '' });
+      },
+    );
+    const runner = new NpmDockerRunner({ projectDir: '/project' });
+    const result = await runner.run(['install']);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe('ok');
+  });
+
+  it('returns non-zero exitCode and stderr when docker exits with error', async () => {
+    const err = Object.assign(new Error('docker failed'), { code: 2, stdout: '', stderr: 'permission denied' });
+    (mockExecFile as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (_file: string, _args: string[], cb: (err: Error) => void) => {
+        cb(err);
+      },
+    );
+    const runner = new NpmDockerRunner({ projectDir: '/project' });
+    const result = await runner.run(['install']);
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toBe('permission denied');
+  });
+});

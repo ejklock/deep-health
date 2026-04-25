@@ -45,6 +45,14 @@ export function _resetShutdownHooks(): void {
   // a fresh run still iterates the (now-empty) hooks set safely.
 }
 
+/** Expose for tests: run all registered hooks sequentially (without process.exit). */
+export async function _runAllHooksForTests(): Promise<void> {
+  const snapshot = Array.from(hooks);
+  for (const hook of snapshot) {
+    await hook();
+  }
+}
+
 function ensureHandlersInstalled(): void {
   if (handlersInstalled) return;
   handlersInstalled = true;

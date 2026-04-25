@@ -90,3 +90,52 @@ describe('ComposerContainerCommandRunner', () => {
     expect(fallback.runArgs).not.toHaveBeenCalled();
   });
 });
+
+describe('ComposerContainerCommandRunner — dryRun=true branches', () => {
+  it('run() returns early with dryRun result when dryRun=true', async () => {
+    const { container } = makeContainerRunner();
+    const fallback = makeFallbackRunner();
+    const runner = new ComposerContainerCommandRunner({ container, fallback, dryRun: true });
+
+    const result = await runner.run('composer install');
+    expect(result.dryRun).toBe(true);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('runArgs() returns early with dryRun result when dryRun=true', async () => {
+    const { container } = makeContainerRunner();
+    const fallback = makeFallbackRunner();
+    const runner = new ComposerContainerCommandRunner({ container, fallback, dryRun: true });
+
+    const result = await runner.runArgs('composer', ['install']);
+    expect(result.dryRun).toBe(true);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('delegates non-composer runArgs() to fallback runner (line 107)', async () => {
+    const { container } = makeContainerRunner();
+    const fallback = makeFallbackRunner();
+    const runner = new ComposerContainerCommandRunner({ container, fallback, dryRun: false });
+
+    await runner.runArgs('git', ['status']);
+
+    expect(container.run).not.toHaveBeenCalled();
+    expect(fallback.runArgs).toHaveBeenCalledWith('git', ['status'], undefined);
+  });
+
+  it('dryRun defaults to false when not provided (line 59 ?? false branch)', async () => {
+    const { container } = makeContainerRunner();
+    const fallback = makeFallbackRunner();
+    const runner = new ComposerContainerCommandRunner({ container, fallback });
+    expect((runner as any).dryRun).toBe(false);
+  });
+
+  it('run() with empty command falls back to fallback (extractComposerArgs ?? [] + parts.length===0 branches)', async () => {
+    const { container } = makeContainerRunner();
+    const fallback = makeFallbackRunner();
+    const runner = new ComposerContainerCommandRunner({ container, fallback });
+    await runner.run('');
+    expect(fallback.run).toHaveBeenCalled();
+    expect(container.run).not.toHaveBeenCalled();
+  });
+});

@@ -268,3 +268,48 @@ describe("runOrchestrator — DEEP_HEALTH_NO_AUTO_FIX kill-switch", () => {
     runUpdaterSpy.mockRestore();
   });
 });
+
+describe("runOrchestrator — lockfileVersion 1 warning (lines 783-789)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('warns when package-lock.json has lockfileVersion 1 and fixer is osv', async () => {
+    const { readNpmLockfileVersion } = await import('@orchestration/lockfile-inspect.js');
+    vi.mocked(readNpmLockfileVersion).mockResolvedValueOnce(1);
+
+    const runUpdaterSpy = vi.spyOn(npmPlugin, 'runUpdater').mockResolvedValue({
+      $schema: 'osv-update-result/v1',
+      agent: 'deep-health/test',
+      status: 'success',
+      packages_updated: [],
+      packages_skipped: [],
+      packages_pending_breaking: [],
+      validations: [{ name: 'validation', status: 'skipped' }],
+      error: null,
+    });
+
+    const config = baseNpmConfig({ scanners: { osv: { runner: 'local' } } });
+    const runner = new MockCommandRunner({
+      '--lockfile package-lock.json --format json': {
+        stdout: npmScanWithAutoSafe(),
+        exitCode: 0,
+      },
+    });
+
+    await runOrchestrator(runner, config, {
+      configPath: 'project-config.yml',
+      cwd: '/repo',
+      dryRun: false,
+      verbose: false,
+      scannerRegistry: makeRegistry(),
+    });
+
+    const warnCalls = (logger.warn as ReturnType<typeof vi.fn>).mock.calls;
+    expect(warnCalls.some((c: unknown[]) => String(c[0]).includes('lockfileVersion: 1'))).toBe(true);
+
+    runUpdaterSpy.mockRestore();
+  });
+});
+
+// NOTE: lines 896-899 (updateResult.status === 'error' → break) are structurally
+// unreachable: validateEcosystemGate() always throws GateValidationError first when
+// the updater returns status:'error', so the if-branch below the gate never executes.

@@ -216,3 +216,48 @@ describe('pipPlugin shape', () => {
     expect(pipPlugin.buildScanArgs()).toEqual(['--lockfile', 'requirements.txt']);
   });
 });
+
+// ─── Additional branch coverage for extractPythonMajorMinor and parsePythonConstraint ───
+
+describe('pipPlugin.inferVersion — additional branch coverage', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns undefined when .python-version contains non-numeric string (line 31 !stripped branch)', async () => {
+    // 'abc' has no digits → extractPythonMajorMinor returns undefined
+    mockReadFile.mockImplementation(async (p: any) => {
+      if (String(p).endsWith('.python-version')) return 'abc';
+      throw ENOENT;
+    });
+    const result = await pipPlugin.inferVersion!('/project');
+    expect(result).toBeUndefined();
+  });
+
+  it('parsePythonConstraint: returns undefined for "*" (line 51 trimmed === "*")', async () => {
+    mockReadFile.mockImplementation(async (p: any) => {
+      if (String(p).endsWith('pyproject.toml')) return 'requires-python = "*"';
+      throw ENOENT;
+    });
+    const result = await pipPlugin.inferVersion!('/project');
+    expect(result).toBeUndefined();
+  });
+
+  it('parsePythonConstraint: returns undefined when firstPart is empty (line 55 !firstPart)', async () => {
+    // ",3.11" splits to ['', '3.11'] → firstPart = '' → !firstPart
+    mockReadFile.mockImplementation(async (p: any) => {
+      if (String(p).endsWith('pyproject.toml')) return 'requires-python = ",3.11"';
+      throw ENOENT;
+    });
+    const result = await pipPlugin.inferVersion!('/project');
+    expect(result).toBeUndefined();
+  });
+
+  it('parsePythonConstraint: returns undefined when no digit match (line 59 !match)', async () => {
+    // ">=" has no digits → match is null
+    mockReadFile.mockImplementation(async (p: any) => {
+      if (String(p).endsWith('pyproject.toml')) return 'requires-python = ">="';
+      throw ENOENT;
+    });
+    const result = await pipPlugin.inferVersion!('/project');
+    expect(result).toBeUndefined();
+  });
+});

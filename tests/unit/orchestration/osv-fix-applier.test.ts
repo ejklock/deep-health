@@ -450,3 +450,81 @@ describe('applyOsvFixViaStaging — staging dir cleanup', () => {
     });
   });
 });
+
+describe('applyOsvFixViaStaging — package.json propagation branches (lines 257, 264)', () => {
+  const originalLockfile = buildLockfile([{ name: 'lodash', version: '4.17.20' }]);
+  const fixedLockfile = buildLockfile([{ name: 'lodash', version: '4.17.21' }]);
+  const originalManifest = '{"name":"test"}';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (gitUtils.backupFiles as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Map([
+        ['package.json', originalManifest],
+        ['package-lock.json', originalLockfile],
+      ]),
+    );
+    mockMkdtemp.mockResolvedValue('/tmp/deep-health-osv-fix-pjson');
+    mockWriteFile.mockResolvedValue(undefined);
+    mockRm.mockResolvedValue(undefined);
+    mockOsvDockerRunnerRun.mockResolvedValue({
+      exitCode: 0,
+      stdout: osvFixJsonFor([{ name: 'lodash', versionFrom: '4.17.20', versionTo: '4.17.21' }]),
+      stderr: '',
+    });
+  });
+
+  it('logs debug when staging package.json is unchanged vs backup (line 257)', async () => {
+    // First readFile → fixed lockfile, second readFile → same manifest as backup
+    mockReadFile
+      .mockResolvedValueOnce(fixedLockfile)
+      .mockResolvedValueOnce(originalManifest);
+
+    await applyOsvFixViaStaging(makeInput());
+
+    expect((logger.debug as ReturnType<typeof vi.fn>).mock.calls.some(
+      (c: unknown[]) => String(c[0]).includes('package.json unchanged'),
+    )).toBe(true);
+  });
+
+  it('silently swallows error when staging package.json does not exist (line 264)', async () => {
+    // First readFile → fixed lockfile, second readFile → throws (no staging package.json)
+    mockReadFile
+      .mockResolvedValueOnce(fixedLockfile)
+      .mockRejectedValueOnce(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+
+    // Should not throw
+    const result = await applyOsvFixViaStaging(makeInput());
+    expect(result.applied).toBe(true);
+  });
+});
+
+describe('applyOsvFixViaStaging — rm throws in finally (lines 289-290)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (gitUtils.backupFiles as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Map([['package-lock.json', buildLockfile([{ name: 'x', version: '1.0.0' }])]]),
+    );
+    mockMkdtemp.mockResolvedValue('/tmp/deep-health-osv-fix-rm-fail');
+    mockWriteFile.mockResolvedValue(undefined);
+  });
+
+  it('logs warn and does not rethrow when rm throws in finally (lines 289-290)', async () => {
+    mockRm.mockRejectedValue(new Error('permission denied'));
+    mockOsvDockerRunnerRun.mockResolvedValue({
+      exitCode: 0,
+      stdout: JSON.stringify({ patches: [] }),
+      stderr: '',
+    });
+    mockReadFile.mockResolvedValue(buildLockfile([{ name: 'x', version: '1.0.0' }]));
+
+    // Should not throw — rm error is swallowed
+    await applyOsvFixViaStaging(makeInput({
+      osvFixSpec: { fixLockfile: 'package-lock.json', backupFiles: ['package-lock.json'] as const },
+    }));
+
+    expect((logger.warn as ReturnType<typeof vi.fn>).mock.calls.some(
+      (c: unknown[]) => String(c[0]).includes('Failed to clean staging dir'),
+    )).toBe(true);
+  });
+});

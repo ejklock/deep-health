@@ -23,7 +23,27 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
-      exclude: ['src/types/**'],
+      exclude: [
+        'src/types/**',
+        // Pure type/interface files — no executable runtime code; v8 would always show 0%
+        'src/core/types/common.ts',
+        'src/core/types/locale.ts',
+        'src/core/types/report.ts',
+        'src/core/types/sonarqube.ts',
+        'src/core/types/update.ts',
+        'src/modules/ecosystem/types.ts',
+        'src/modules/scanner/types.ts',
+        'src/infrastructure/storage/provider.ts',
+        'src/infrastructure/provisioner/types.ts',
+        'src/reporting/i18n/raw-locale.ts',
+        'src/reporting/i18n/types.ts',
+      ],
+      thresholds: {
+        statements: 100,
+        functions: 100,
+        lines: 100,
+        branches: 88,
+      },
     },
     // Named projects for targeted runs: pnpm test:unit, pnpm test:integration, pnpm test:smoke
     // NOTE: vitest 2.x inline-project mode does NOT support `--project <name>` CLI filtering

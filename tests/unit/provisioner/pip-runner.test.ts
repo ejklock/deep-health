@@ -140,3 +140,35 @@ describe('PipDockerRunner._buildDockerArgs', () => {
     expect(args).toContain(PIP_DEFAULT_IMAGE);
   });
 });
+
+import { execFile } from 'node:child_process';
+const mockExecFilePip = vi.mocked(execFile);
+
+describe('PipDockerRunner.run() (lines 149-166)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns exitCode 0 with stdout/stderr on success', async () => {
+    (mockExecFilePip as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (_file: string, _args: string[], cb: (err: null, result: { stdout: string; stderr: string }) => void) => {
+        cb(null, { stdout: 'pip output', stderr: '' });
+      },
+    );
+    const runner = new PipDockerRunner({ projectDir: '/project' });
+    const result = await runner.run(['pip', 'install', '-r', 'requirements.txt']);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe('pip output');
+  });
+
+  it('returns non-zero exitCode when docker exits with error', async () => {
+    const err = Object.assign(new Error('docker failed'), { code: 1, stdout: '', stderr: 'OOMKilled' });
+    (mockExecFilePip as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (_file: string, _args: string[], cb: (err: Error) => void) => {
+        cb(err);
+      },
+    );
+    const runner = new PipDockerRunner({ projectDir: '/project' });
+    const result = await runner.run(['pip', 'install']);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe('OOMKilled');
+  });
+});

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyPackage } from '@core/policy/safe-update';
+import { classifyPackage, classifyPackages } from '@core/policy/safe-update';
 import type { ProtectedPackage } from '@core/types/config';
 
 // ---------------------------------------------------------------------------
@@ -229,4 +229,23 @@ describe('regression: protected constraint check precedes major bump check', () 
       expect(result.reason).not.toContain('Major version bump');
     },
   );
+});
+
+describe('classifyPackages()', () => {
+  it('classifies a batch of packages using protectedPackages list (lines 78-84)', () => {
+    const pkgs = [
+      pkg('lodash', '4.17.0', '4.17.5'),
+      pkg('express', '4.18.0', null),
+    ];
+    const results = classifyPackages(pkgs, []);
+    expect(results[0].classification).toBe('auto_safe');
+    expect(results[1].classification).toBe('manual');
+  });
+
+  it('applies protected-constraint classification via classifyPackages', () => {
+    const pkgs = [pkg('lodash', '4.17.0', '5.0.0')]; // 5.0.0 violates ^4.17.0
+    const results = classifyPackages(pkgs, [protected_('lodash', '^4.17.0')]);
+    expect(results[0].classification).toBe('breaking');
+    expect(results[0].breakingReason).toBe('protected-constraint');
+  });
 });

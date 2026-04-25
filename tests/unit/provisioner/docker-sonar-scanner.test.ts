@@ -37,10 +37,11 @@ vi.mock('node:os', async (importOriginal) => {
 });
 
 import { execFile } from 'node:child_process';
-import { arch as osArch } from 'node:os';
+import { arch as osArch, platform as osPlatform } from 'node:os';
 
 const mockExecFile = vi.mocked(execFile);
 const mockArch = vi.mocked(osArch);
+const mockPlatform = vi.mocked(osPlatform);
 
 function resolveExecFile(stdout = '', stderr = '') {
   mockExecFile.mockImplementation(
@@ -304,6 +305,19 @@ describe('DockerSonarScannerRunner', () => {
       expect(args).not.toContain('--platform');
     });
 
+    it('adds --add-host host.docker.internal:host-gateway on Linux (lines 128-129)', () => {
+      mockPlatform.mockReturnValue('linux');
+      const runner = new DockerSonarScannerRunner({
+        projectDir: '/app',
+        sonarHostUrl: 'http://localhost:9000',
+      });
+      const args = runner._buildDockerArgs('http://host.docker.internal:9000', []);
+      const addHostIdx = args.indexOf('--add-host');
+      expect(addHostIdx).toBeGreaterThanOrEqual(0);
+      expect(args[addHostIdx + 1]).toBe('host.docker.internal:host-gateway');
+      mockPlatform.mockReturnValue('darwin');
+    });
+
     it('places --platform before --volume in arg list', () => {
       mockArch.mockReturnValue('arm64');
       const runner = new DockerSonarScannerRunner({
@@ -481,5 +495,34 @@ describe('DockerSonarScannerRunner — EphemeralContainerRunner contract', () =>
     expect(result.exitCode).toBe(1);
     expect(result).toHaveProperty('stderr');
     expect(result).toHaveProperty('stdout');
+  });
+});
+
+describe('DockerSonarScannerRunner.run() — catch branch edge cases (lines 87-89)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('uses exitCode=1 and String(err) when error has no code/stdout/stderr/message', async () => {
+    mockExecFile.mockImplementation(
+      (_cmd: string, _args: string[], callback: Function) => {
+        callback('string-err');
+      },
+    );
+    const runner = new DockerSonarScannerRunner({ projectDir: '/p', sonarHostUrl: 'http://localhost:9000', projectKey: 'k', token: 't' });
+    const result = await runner.run([]);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe('string-err');
+  });
+
+  it('uses spawnErr.code when numeric (line 87 true branch)', async () => {
+    mockExecFile.mockImplementation(
+      (_cmd: string, _args: string[], callback: Function) => {
+        callback(Object.assign(new Error('exit'), { code: 4, stdout: 'out', stderr: 'err' }));
+      },
+    );
+    const runner = new DockerSonarScannerRunner({ projectDir: '/p', sonarHostUrl: 'http://localhost:9000', projectKey: 'k', token: 't' });
+    const result = await runner.run([]);
+    expect(result.exitCode).toBe(4);
+    expect(result.stdout).toBe('out');
+    expect(result.stderr).toBe('err');
   });
 });

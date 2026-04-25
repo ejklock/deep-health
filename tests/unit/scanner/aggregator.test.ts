@@ -377,3 +377,40 @@ describe('aggregateScanResults — status propagation', () => {
     expect(aggregated.primary.status).toBe('error');
   });
 });
+
+// ─── aggregator branch coverage top-up ───────────────────────────────────────
+
+describe('aggregateScanResults — breaking/manual package merge (lines 78, 81)', () => {
+  it('merges breaking_packages and manual_packages from secondary engine', () => {
+    const eco1: EcosystemScanResult = {
+      ...makeEmptyEcosystem(),
+      breaking: 1,
+      breaking_packages: ['lodash@4.x'],
+      manual: 1,
+      manual_packages: ['chalk@5.x'],
+    };
+    const eco2: EcosystemScanResult = {
+      ...makeEmptyEcosystem(),
+      breaking: 1,
+      breaking_packages: ['lodash@4.x', 'express@4.x'],
+      manual: 1,
+      manual_packages: ['chalk@5.x', 'inquirer@9.x'],
+    };
+
+    const osvResult = makeOsvResult({ ecosystems: { npm: eco1 } });
+    const secondary = makeSecondaryResult('secondary', { ecosystems: { npm: eco2 } });
+
+    const aggregated = aggregateScanResults([
+      { engineId: 'osv', result: osvResult },
+      { engineId: 'secondary', result: secondary },
+    ]);
+
+    const mergedNpm = aggregated.primary.ecosystems['npm']!;
+    // lodash deduped, express added
+    expect(mergedNpm.breaking_packages).toHaveLength(2);
+    expect(mergedNpm.breaking_packages).toContain('express@4.x');
+    // chalk deduped, inquirer added
+    expect(mergedNpm.manual_packages).toHaveLength(2);
+    expect(mergedNpm.manual_packages).toContain('inquirer@9.x');
+  });
+});

@@ -356,3 +356,30 @@ describe('OsvDockerRunner', () => {
     });
   });
 });
+
+describe('OsvDockerRunner.run() — catch branch edge cases (lines 114-116)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('uses exitCode=1 and String(err) when error has no code/stdout/stderr/message', async () => {
+    mockExecFile.mockImplementation((...args: unknown[]) => {
+      const cb = args.findLast((a) => typeof a === 'function') as Function;
+      cb('string-err');
+    });
+    const runner = new OsvDockerRunner({ projectDir: '/p' });
+    const result = await runner.run(['--lockfile', 'pnpm-lock.yaml']);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe('string-err');
+  });
+
+  it('uses spawnErr.code when numeric (line 114 true branch)', async () => {
+    mockExecFile.mockImplementation((...args: unknown[]) => {
+      const cb = args.findLast((a) => typeof a === 'function') as Function;
+      cb(Object.assign(new Error('exit'), { code: 2, stdout: 'out', stderr: 'err' }));
+    });
+    const runner = new OsvDockerRunner({ projectDir: '/p' });
+    const result = await runner.run(['--lockfile', 'pnpm-lock.yaml']);
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toBe('out');
+    expect(result.stderr).toBe('err');
+  });
+});

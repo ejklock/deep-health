@@ -61,3 +61,33 @@ describe('parseNpmAuditJson', () => {
     expect(() => parseNpmAuditJson('{"vulnerabilities": {"lodash":')).toThrow(SyntaxError);
   });
 });
+
+describe('parseNpmAuditJson — additional branch coverage', () => {
+  it('returns [] when parsed result is a non-null primitive (line 24 false branch)', () => {
+    // JSON.parse('"hello"') returns a string, not null and not an object
+    expect(parseNpmAuditJson('"hello"')).toEqual([]);
+  });
+
+  it('skips null vulnerability entries (line 32 !vuln branch)', () => {
+    const json = JSON.stringify({
+      vulnerabilities: { 'pkg-a': null },
+    });
+    expect(parseNpmAuditJson(json)).toEqual([]);
+  });
+
+  it('uses "unknown" when severity is not a string (line 35 false branch)', () => {
+    const json = JSON.stringify({
+      vulnerabilities: { 'pkg-a': { severity: 42, range: '>=1.0.0' } },
+    });
+    const result = parseNpmAuditJson(json);
+    expect(result[0]?.severity).toBe('unknown');
+  });
+
+  it('uses undefined when range is not a string (line 36 false branch)', () => {
+    const json = JSON.stringify({
+      vulnerabilities: { 'pkg-a': { severity: 'high', range: 99 } },
+    });
+    const result = parseNpmAuditJson(json);
+    expect(result[0]?.range).toBeUndefined();
+  });
+});

@@ -264,3 +264,95 @@ describe("readNpmLockfileVersion", () => {
     await expect(readNpmLockfileVersion("/some/path")).resolves.toBeNull();
   });
 });
+
+import {
+  collectRootNpmLockfileVersions,
+  diffRootNpmLockfileVersions,
+} from "@orchestration/lockfile-inspect";
+
+describe("collectRootNpmLockfileVersions — v1 lockfile (lines 149-160)", () => {
+  it("returns versions from dependencies object when no packages key", () => {
+    const content = JSON.stringify({
+      lockfileVersion: 1,
+      dependencies: {
+        lodash: { version: "4.17.21" },
+        axios: { version: "0.21.0" },
+      },
+    });
+    const map = collectRootNpmLockfileVersions(content);
+    expect(map.get("lodash")).toBe("4.17.21");
+    expect(map.get("axios")).toBe("0.21.0");
+  });
+
+  it("skips entries where version is not a string", () => {
+    const content = JSON.stringify({
+      lockfileVersion: 1,
+      dependencies: {
+        lodash: { version: "4.17.21" },
+        broken: { version: 123 },
+        missing: {},
+      },
+    });
+    const map = collectRootNpmLockfileVersions(content);
+    expect(map.get("lodash")).toBe("4.17.21");
+    expect(map.has("broken")).toBe(false);
+    expect(map.has("missing")).toBe(false);
+  });
+
+  it("returns empty map when dependencies is not an object", () => {
+    const content = JSON.stringify({ lockfileVersion: 1, dependencies: null });
+    expect(collectRootNpmLockfileVersions(content).size).toBe(0);
+  });
+
+  it("returns empty map for invalid JSON", () => {
+    expect(collectRootNpmLockfileVersions("NOT JSON").size).toBe(0);
+  });
+});
+
+describe("diffRootNpmLockfileVersions (lines 169-186)", () => {
+  it("returns changed packages between two v2 lockfiles", () => {
+    const before = JSON.stringify({
+      lockfileVersion: 2,
+      packages: {
+        "node_modules/lodash": { version: "4.17.20" },
+        "node_modules/axios": { version: "0.21.0" },
+      },
+    });
+    const after = JSON.stringify({
+      lockfileVersion: 2,
+      packages: {
+        "node_modules/lodash": { version: "4.17.21" },
+        "node_modules/axios": { version: "0.21.0" },
+      },
+    });
+    const diff = diffRootNpmLockfileVersions(before, after);
+    expect(diff.get("lodash")).toEqual({ before: "4.17.20", after: "4.17.21" });
+    expect(diff.has("axios")).toBe(false);
+  });
+
+  it("includes packages present in only one side", () => {
+    const before = JSON.stringify({
+      lockfileVersion: 2,
+      packages: {
+        "node_modules/lodash": { version: "4.17.20" },
+      },
+    });
+    const after = JSON.stringify({
+      lockfileVersion: 2,
+      packages: {
+        "node_modules/axios": { version: "0.21.0" },
+      },
+    });
+    const diff = diffRootNpmLockfileVersions(before, after);
+    expect(diff.get("lodash")).toEqual({ before: "4.17.20", after: undefined });
+    expect(diff.get("axios")).toEqual({ before: undefined, after: "0.21.0" });
+  });
+
+  it("returns empty map when both sides are identical", () => {
+    const content = JSON.stringify({
+      lockfileVersion: 2,
+      packages: { "node_modules/lodash": { version: "4.17.21" } },
+    });
+    expect(diffRootNpmLockfileVersions(content, content).size).toBe(0);
+  });
+});

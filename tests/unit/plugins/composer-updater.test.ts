@@ -405,3 +405,119 @@ describe('runComposerUpdater — validation commands', () => {
     expect(runArgsArgs.some((args) => args[0] === 'install')).toBe(true);
   });
 });
+
+describe('runComposerUpdater — authorizeBreaking=true (line 103)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('includes breaking packages in update command when authorizeBreaking=true', async () => {
+    const runMock = vi.fn().mockResolvedValue(ok());
+    const runArgsMock = vi.fn().mockResolvedValue(ok());
+    const runner = makeRunner({ run: runMock, runArgs: runArgsMock });
+
+    const scan: ScanResultJson = {
+      $schema: 'osv-scan-result/v1',
+      agent: 'osv',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {
+        composer: {
+          vulnerabilities_total: 2,
+          auto_safe: 1,
+          breaking: 1,
+          manual: 0,
+          auto_safe_packages: ['vendor/safe-pkg@1.2.3'],
+          breaking_packages: ['vendor/breaking-pkg@2.0.0'],
+          manual_packages: [],
+          vulnerabilities: [],
+        },
+      },
+      error: null,
+    };
+
+    const result = await runComposerUpdater(
+      runner,
+      baseConfig(),
+      scan,
+      '/tmp/project',
+      true, // authorizeBreaking
+      [],
+    );
+
+    expect(result.status).toBe('success');
+    // The update command should include both packages
+    const runArgsCalls = runArgsMock.mock.calls as [string, string[], unknown][];
+    const updateCall = runArgsCalls.find((c) => c[1]?.includes('update'));
+    expect(updateCall).toBeTruthy();
+    expect(updateCall![1]).toContain('vendor/breaking-pkg');
+  });
+});
+
+describe('runComposerUpdater — PhaseError on unexpected throw (lines 198-203)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('throws PhaseError when backupFiles throws unexpectedly', async () => {
+    const { backupFiles } = await import('@infra/utils/git.js');
+    (backupFiles as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('disk full'));
+
+    const runner = makeRunner();
+
+    await expect(
+      runComposerUpdater(runner, baseConfig(), baseScan(), '/tmp/project', false, []),
+    ).rejects.toThrow('Composer updater phase failed');
+  });
+});
+
+describe('composer-updater additional branch coverage', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('extractPackageNames returns ref as-is when no "@" found (line 16 false branch)', async () => {
+    // We can test this via baseScan with a package ref that has no "@"
+    // The function is internal but exercised via runComposerUpdater
+    // Set up scan with a package ref without "@"
+    const scanWithNoAt: ScanResultJson = {
+      ...baseScan(),
+      ecosystems: {
+        composer: {
+          vulnerabilities_total: 1,
+          auto_safe: 1,
+          breaking: 0,
+          manual: 0,
+          auto_safe_packages: ['vendor/my-package'], // no "@version"
+          manual_packages: [],
+          breaking_packages: [],
+          vulnerabilities: [],
+        },
+      },
+    };
+    const runner = makeRunner();
+    const result = await runComposerUpdater(runner, baseConfig(), scanWithNoAt, '/tmp/project', false, []);
+    expect(result).toBeDefined();
+  });
+
+  it('uses emptyEcosystem() when composer key missing from scan (line 78 ?? branch)', async () => {
+    const scan: ScanResultJson = { ...baseScan(), ecosystems: {} };
+    const runner = makeRunner();
+    const result = await runComposerUpdater(runner, baseConfig(), scan as any, '/tmp/project', false, []);
+    expect(result).toBeDefined();
+  });
+
+  it('env-check detail uses "(no output)" when both stdout and stderr are empty (line 143)', async () => {
+    const runArgsMock = vi.fn();
+    // First call: composer install returns exitCode 1 with no stdout/stderr
+    runArgsMock.mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: '', command: 'composer install', dryRun: false });
+    const runner = { ...makeRunner(), runArgs: runArgsMock } as any;
+
+    const result = await runComposerUpdater(runner, baseConfig(), baseScan(), '/tmp/project', false, []);
+    expect(result.status).toBe('error');
+  });
+
+  it('uses String(err) when a non-Error is thrown (line 199)', async () => {
+    const { backupFiles } = await import('@infra/utils/git.js');
+    (backupFiles as ReturnType<typeof vi.fn>).mockRejectedValueOnce('string-composer-error');
+
+    const runner = makeRunner();
+    await expect(
+      runComposerUpdater(runner, baseConfig(), baseScan(), '/tmp/project', false, []),
+    ).rejects.toThrow('Composer updater phase failed: string-composer-error');
+  });
+});

@@ -391,3 +391,82 @@ describe('stripPipVersion', () => {
     expect(stripPipVersion('pkg[a,b]>=1')).toBe('pkg');
   });
 });
+
+describe('runPipUpdater — revert pip install fails (lines 55-66)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('logs error when pip install -r requirements.txt during revert exits non-zero', async () => {
+    const runMock = vi.fn()
+      .mockResolvedValueOnce(fail('pip check failed'));
+
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(ok())              // pip list --outdated
+      .mockResolvedValueOnce(ok())              // pip install -U
+      .mockResolvedValueOnce(fail('revert err', 1)); // pip install -r requirements.txt (revert FAILS)
+
+    const runner = makeRunner({ run: runMock, runArgs: runArgsMock });
+
+    const result = await runPipUpdater(
+      runner,
+      baseConfig(),
+      baseScan(),
+      '/tmp/project',
+      false,
+      [{ name: 'check', command: 'pip check' }],
+    );
+
+    // The updater should still return an error result (validation failed)
+    expect(result.status).toBe('error');
+    const { logger: mockLogger } = await import('@infra/utils/logger.js');
+    const errorCalls = (mockLogger.error as ReturnType<typeof vi.fn>).mock.calls;
+    expect(errorCalls.some((c) => String(c[0]).includes('requirements.txt (revert) failed!'))).toBe(true);
+  });
+});
+
+describe('runPipUpdater — unexpected error triggers PhaseError (lines 186-191)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('throws PhaseError when backupFiles throws unexpectedly', async () => {
+    const { backupFiles } = await import('@infra/utils/git.js');
+    (backupFiles as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('disk full'));
+
+    const runner = makeRunner();
+
+    await expect(
+      runPipUpdater(
+        runner,
+        baseConfig(),
+        baseScan(),
+        '/tmp/project',
+        false,
+        [],
+      ),
+    ).rejects.toThrow('pip updater phase failed');
+  });
+});
+
+describe('pip-updater additional branch coverage', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('pip ecosystem uses emptyEcosystem() when pip key missing from scan (line 84 ?? branch)', async () => {
+    const runner = makeRunner();
+    // Use a scan with no pip ecosystem
+    const scan: ScanResultJson = {
+      ...baseScan(),
+      ecosystems: {}, // no 'pip' key
+    };
+    // Should not throw — just returns no-op result with no updates
+    const result = await runPipUpdater(runner, baseConfig(), scan as any, '/tmp/project', false, []);
+    expect(result).toBeDefined();
+  });
+
+  it('uses String(err) when a non-Error is thrown during pip updater (line 187)', async () => {
+    const { backupFiles } = await import('@infra/utils/git.js');
+    (backupFiles as ReturnType<typeof vi.fn>).mockRejectedValueOnce('string-error');
+
+    const runner = makeRunner();
+    await expect(
+      runPipUpdater(runner, baseConfig(), baseScan(), '/tmp/project', false, []),
+    ).rejects.toThrow('pip updater phase failed: string-error');
+  });
+});

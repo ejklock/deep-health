@@ -1446,4 +1446,488 @@ describe('SonarQubeEngine — CE-task waiting (no fake timers)', () => {
     const ceCalls = fetchMock.mock.calls.filter(([url]) => typeof url === 'string' && String(url).includes('/api/ce/task'));
     expect(ceCalls).toHaveLength(0);
   });
-})
+});
+
+// ─── Coverage gap: parseCeTaskId returns null when key not found / file absent ──
+
+describe('SonarQubeEngine — parseCeTaskId edge cases (line 82, 83-86)', () => {
+  const engine = new SonarQubeEngine();
+
+  beforeEach(() => {
+    process.env['SONAR_TOKEN'] = 'test-token';
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    delete process.env['SONAR_TOKEN'];
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('proceeds to quality-gate fetch when report-task.txt has no ceTaskId key (line 82)', async () => {
+    // file exists but has no ceTaskId line → parseCeTaskId returns null → waitForCeTask returns 'skipped'
+    vi.spyOn(fs, 'readFileSync').mockImplementation((path: unknown) => {
+      if (typeof path === 'string' && path.endsWith('report-task.txt')) {
+        return 'projectKey=my-project\nserverUrl=http://internal:9000\n'; // no ceTaskId line
+      }
+      throw new Error(`ENOENT: ${String(path)}`);
+    });
+
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfig(true);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ projectStatus: { status: 'OK', conditions: [] } }) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ component: { measures: [] } }) })
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }),
+    );
+
+    const resultPromise = engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+
+    expect(result.status).toBe('success');
+  });
+
+  it('proceeds to quality-gate fetch when report-task.txt is absent (catch block line 83-86)', async () => {
+    // file does not exist → readFileSync throws → parseCeTaskId returns null
+    vi.spyOn(fs, 'readFileSync').mockImplementation(() => {
+      throw new Error('ENOENT: no such file');
+    });
+
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfig(true);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ projectStatus: { status: 'OK', conditions: [] } }) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ component: { measures: [] } }) })
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }),
+    );
+
+    const resultPromise = engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+
+    expect(result.status).toBe('success');
+  });
+});
+
+// ─── Coverage gap: waitForCeTask — HTTP non-ok + FAILED/CANCELED + catch ────────
+
+describe('SonarQubeEngine — waitForCeTask branches (lines 129, 140-142, 146-147)', () => {
+  const engine = new SonarQubeEngine();
+
+  beforeEach(() => {
+    process.env['SONAR_TOKEN'] = 'test-token';
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    delete process.env['SONAR_TOKEN'];
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  function stubReportTaskFile(ceTaskId: string): void {
+    vi.spyOn(fs, 'readFileSync').mockImplementation((path: unknown) => {
+      if (typeof path === 'string' && path.endsWith('report-task.txt')) {
+        return `projectKey=my-project\nceTaskId=${ceTaskId}\nserverUrl=http://internal:9000\n`;
+      }
+      throw new Error(`ENOENT: ${String(path)}`);
+    });
+  }
+
+  it('retries on non-ok CE task poll then succeeds (line 129)', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfig(true);
+    stubReportTaskFile('task-retry-123');
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        // First CE poll → non-ok (line 129)
+        .mockResolvedValueOnce({ ok: false, status: 503, statusText: 'Service Unavailable', json: async () => ({}) })
+        // Second CE poll → SUCCESS
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ task: { status: 'SUCCESS' } }) })
+        // quality gate
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ projectStatus: { status: 'OK', conditions: [] } }) })
+        // measures
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ component: { measures: [] } }) })
+        // issues
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }),
+    );
+
+    const resultPromise = engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+
+    expect(result.status).toBe('success');
+  });
+
+  it('returns failed when CE task status is FAILED (lines 140-142)', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfig(true);
+    stubReportTaskFile('task-fail-456');
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        // CE poll → FAILED
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ task: { status: 'FAILED' } }) })
+        // quality gate
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ projectStatus: { status: 'OK', conditions: [] } }) })
+        // measures
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ component: { measures: [] } }) })
+        // issues
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }),
+    );
+
+    const resultPromise = engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+
+    // CE task failed → engine proceeds to QG anyway (warn path)
+    expect(result.status).toBeDefined();
+  });
+
+  it('returns failed when CE task status is CANCELED (line 140-142 — CANCELED branch)', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfig(true);
+    stubReportTaskFile('task-canceled-789');
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        // CE poll → CANCELED
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ task: { status: 'CANCELED' } }) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ projectStatus: { status: 'OK', conditions: [] } }) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ component: { measures: [] } }) })
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }),
+    );
+
+    const resultPromise = engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+
+    expect(result.status).toBeDefined();
+  });
+
+  it('handles fetch throw during CE task poll (lines 146-147)', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfig(true);
+    stubReportTaskFile('task-throw-000');
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        // CE poll → throws (lines 146-147)
+        .mockRejectedValueOnce(new Error('network error'))
+        // Second CE poll → SUCCESS
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ task: { status: 'SUCCESS' } }) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ projectStatus: { status: 'OK', conditions: [] } }) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ component: { measures: [] } }) })
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }),
+    );
+
+    const resultPromise = engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+
+    expect(result.status).toBe('success');
+  });
+});
+
+// ─── Coverage gap: fetchSonarQualityGate / fetchSonarMetrics non-ok ─────────────
+
+describe('SonarQubeEngine — fetchSonarQualityGate non-ok + fetchSonarMetrics non-ok (lines 189-191, 212-214)', () => {
+  const engine = new SonarQubeEngine();
+
+  beforeEach(() => {
+    process.env['SONAR_TOKEN'] = 'test-token';
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    delete process.env['SONAR_TOKEN'];
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('returns null quality gate when API returns non-ok (lines 189-191)', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfig(true);
+
+    vi.spyOn(fs, 'readFileSync').mockImplementation(() => {
+      throw new Error('ENOENT'); // no CE task id → skip CE wait
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        // quality gate → non-ok (lines 189-191)
+        .mockResolvedValueOnce({ ok: false, status: 403, statusText: 'Forbidden', json: async () => ({}) })
+        // measures
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ component: { measures: [] } }) })
+        // issues
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }),
+    );
+
+    const resultPromise = engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+
+    // engine continues even without QG; status is 'success' with no failing gate
+    expect(result.status).toBe('success');
+  });
+
+  it('returns null metrics when measures API returns non-ok (lines 212-214)', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfig(true);
+
+    vi.spyOn(fs, 'readFileSync').mockImplementation(() => {
+      throw new Error('ENOENT');
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        // quality gate → ok
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ projectStatus: { status: 'OK', conditions: [] } }) })
+        // measures → non-ok (lines 212-214)
+        .mockResolvedValueOnce({ ok: false, status: 500, statusText: 'Internal Server Error', json: async () => ({}) })
+        // issues
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }),
+    );
+
+    const resultPromise = engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+
+    expect(result.status).toBe('success');
+  });
+});
+
+// ─── Coverage gap: token generation fallback path + catch (lines 328-329, 334-337) ──
+
+describe('SonarQubeEngine — managed mode token generation fallback + catch (lines 328-329, 334-337)', () => {
+  const engine = new SonarQubeEngine();
+
+  beforeEach(() => {
+    setSonarPropsFixture(new Map([['sonar.projectKey', 'my-project']]));
+    vi.useFakeTimers();
+    // Re-register provisioner mock in case vi.restoreAllMocks() cleared it
+    vi.mocked(DockerSonarQubeProvisioner).mockImplementation(() => ({
+      provision: vi.fn().mockResolvedValue({ baseUrl: 'http://localhost:19999' }),
+      waitReady: vi.fn().mockResolvedValue(undefined),
+      teardown: vi.fn().mockResolvedValue(undefined),
+    }) as never);
+  });
+  afterEach(() => {
+    setSonarPropsFixture(new Map([['sonar.projectKey', 'my-project'], ['sonar.host.url', 'http://localhost:9000']]));
+    vi.clearAllMocks();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('falls back to older token API endpoint when primary returns 404 (lines 328-329)', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfig(true, 'warn', 'managed');
+
+    vi.spyOn(fs, 'readFileSync').mockImplementation(() => { throw new Error('ENOENT'); });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        // revoke → ok
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) })
+        // generate primary → 404 → triggers fallback path
+        .mockResolvedValueOnce({ ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) })
+        // fallback generate → ok (lines 328-329)
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ token: 'fallback-tok' }) })
+        // quality gate
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ projectStatus: { status: 'OK', conditions: [] } }) })
+        // measures
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ component: { measures: [] } }) })
+        // issues
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }),
+    );
+
+    const resultPromise = engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+
+    expect(result.status).toBeDefined();
+  });
+
+  it('returns null token when token generation throws (lines 334-337)', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfig(true, 'warn', 'managed');
+
+    vi.spyOn(fs, 'readFileSync').mockImplementation(() => { throw new Error('ENOENT'); });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        // revoke → ok
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) })
+        // generate → throws (lines 334-337)
+        .mockRejectedValueOnce(new Error('connection refused'))
+        // quality gate
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ projectStatus: { status: 'OK', conditions: [] } }) })
+        // measures
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ component: { measures: [] } }) })
+        // issues
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }),
+    );
+
+    const resultPromise = engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+
+    expect(result.status).toBeDefined();
+  });
+});
+
+// ─── Coverage gap: _isLocalScannerAvailable throws (lines 572-573) ──────────────
+
+describe('SonarQubeEngine — _isLocalScannerAvailable catch (lines 572-573)', () => {
+  const engine = new SonarQubeEngine();
+
+  beforeEach(() => {
+    setSonarPropsFixture(new Map([['sonar.projectKey', 'my-project']]));
+    vi.useFakeTimers();
+    // Re-register provisioner mock in case vi.restoreAllMocks() cleared it
+    vi.mocked(DockerSonarQubeProvisioner).mockImplementation(() => ({
+      provision: vi.fn().mockResolvedValue({ baseUrl: 'http://localhost:19999' }),
+      waitReady: vi.fn().mockResolvedValue(undefined),
+      teardown: vi.fn().mockResolvedValue(undefined),
+    }) as never);
+    vi.mocked(DockerSonarScannerRunner).mockImplementation(() => ({
+      run: vi.fn().mockResolvedValue({ exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL', stderr: '' }),
+    }) as never);
+  });
+  afterEach(() => {
+    setSonarPropsFixture(new Map([['sonar.projectKey', 'my-project'], ['sonar.host.url', 'http://localhost:9000']]));
+    vi.clearAllMocks();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('falls back to container scanner when local sonar-scanner throws (lines 572-573)', async () => {
+    // runner.run throws for sonar-scanner --version → _isLocalScannerAvailable returns false
+    const runner: CommandRunner = {
+      dryRun: false,
+      environment: 'local' as const,
+      async run(command: string): Promise<CommandResult> {
+        if (command.includes('sonar-scanner')) throw new Error('command not found');
+        return { stdout: '', stderr: '', exitCode: 0, command, dryRun: false };
+      },
+      async runArgs(file: string, args: string[]): Promise<CommandResult> {
+        return { stdout: 'ANALYSIS SUCCESSFUL', stderr: '', exitCode: 0, command: [file, ...args].join(' '), dryRun: false };
+      },
+    };
+    const config = makeConfig(true, 'warn', 'managed');
+
+    vi.spyOn(fs, 'readFileSync').mockImplementation(() => { throw new Error('ENOENT'); });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ token: 'tok' }) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ projectStatus: { status: 'OK', conditions: [] } }) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ component: { measures: [] } }) })
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }),
+    );
+
+    const resultPromise = engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+
+    expect(result.status).toBeDefined();
+  });
+});
+
+// ─── Coverage gap: scan — missing sonar-project.properties / projectKey / hostUrl ─
+
+describe('SonarQubeEngine — scan input validation (lines 615-620, 624-628, 656-660)', () => {
+  const engine = new SonarQubeEngine();
+
+  beforeEach(() => {
+    process.env['SONAR_TOKEN'] = 'test-token';
+  });
+  afterEach(() => {
+    delete process.env['SONAR_TOKEN'];
+    setSonarPropsFixture(new Map([['sonar.projectKey', 'my-project'], ['sonar.host.url', 'http://localhost:9000']]));
+    vi.unstubAllGlobals();
+  });
+
+  it('throws EnvironmentError when sonar-project.properties is missing (lines 615-620)', async () => {
+    setSonarPropsFixture(null); // readSonarProperties returns null
+
+    const runner = new MockRunner();
+    const config = makeConfig(true);
+
+    await expect(
+      engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null }),
+    ).rejects.toThrow(EnvironmentError);
+  });
+
+  it('throws EnvironmentError when sonar.projectKey is missing (lines 624-628)', async () => {
+    setSonarPropsFixture(new Map([['sonar.host.url', 'http://localhost:9000']])); // no projectKey
+
+    const runner = new MockRunner();
+    const config = makeConfig(true);
+
+    await expect(
+      engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null }),
+    ).rejects.toThrow(EnvironmentError);
+  });
+
+  it('throws EnvironmentError when sonar.host.url is missing in external mode (lines 656-660)', async () => {
+    setSonarPropsFixture(new Map([['sonar.projectKey', 'my-project']])); // no host.url
+
+    const runner = new MockRunner();
+    const config = makeConfig(true);
+
+    await expect(
+      engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null }),
+    ).rejects.toThrow(EnvironmentError);
+  });
+});

@@ -348,3 +348,68 @@ describe('composerPlugin.inferVersion — error handling', () => {
     expect(await composerPlugin.inferVersion!('/project')).toBeUndefined();
   });
 });
+
+// ─── composer plugin — parseComposerPhpConstraint branch gaps ─────────────────
+
+describe('composerPlugin.inferVersion — parseComposerPhpConstraint branch gaps', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns undefined when constraint splits to empty first part (e.g. pipe-only "|8.1")', async () => {
+    // Split on pipe produces ['', '8.1']; firstPart = '' → falsy → return undefined (line 38)
+    mockReadFile.mockImplementation(async (p: any) => {
+      if (String(p).endsWith('composer.json'))
+        return JSON.stringify({ require: { php: '|8.1' } });
+      throw ENOENT;
+    });
+    // '|8.1' splits to ['', '8.1'], firstPart = '' → undefined
+    expect(await composerPlugin.inferVersion!('/project')).toBeUndefined();
+  });
+
+  it('returns undefined when constraint has no numeric part (e.g. "dev-main")', async () => {
+    // No match on numeric regex → line 48-51 branch
+    mockReadFile.mockImplementation(async (p: any) => {
+      if (String(p).endsWith('composer.json'))
+        return JSON.stringify({ require: { php: 'dev-main' } });
+      throw ENOENT;
+    });
+    expect(await composerPlugin.inferVersion!('/project')).toBeUndefined();
+  });
+});
+
+
+
+// ─── npm plugin — uncovered branch gaps ──────────────────────────────────────
+
+describe('npmPlugin.inferVersion — inferNodeVersion/parseEnginesNodeRange branch gaps', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('line 42: .nvmrc with non-numeric stripped value (e.g. "lts/iron") → undefined, falls through', async () => {
+    // "lts/iron" strips "v"→ same; /^\d[\d.]*$/ fails → return undefined
+    mockReadFile.mockImplementation(async (p: any) => {
+      if (String(p).endsWith('.nvmrc')) return 'lts/iron';
+      if (String(p).endsWith('.node-version')) throw ENOENT;
+      if (String(p).endsWith('package.json')) return JSON.stringify({ engines: { node: '>=20' } });
+      throw ENOENT;
+    });
+    // falls through to package.json engines
+    expect(await npmPlugin.inferVersion!('/project')).toBe('20');
+  });
+
+  it('line 77: parseEnginesNodeRange returns undefined when no digit in range (e.g. "latest")', async () => {
+    // 'latest' has no digit → match is null → return undefined
+    mockReadFile.mockImplementation(async (p: any) => {
+      if (String(p).endsWith('package.json')) return JSON.stringify({ engines: { node: 'latest' } });
+      throw ENOENT;
+    });
+    expect(await npmPlugin.inferVersion!('/project')).toBeUndefined();
+  });
+
+  it('line 84: parseEnginesNodeRange returns undefined when normalized version has non-numeric chars', async () => {
+    // '>=20x' → match[1]='20x', no .x suffix to strip, fails /^\d[\d.]*$/ → undefined
+    mockReadFile.mockImplementation(async (p: any) => {
+      if (String(p).endsWith('package.json')) return JSON.stringify({ engines: { node: '>=20x' } });
+      throw ENOENT;
+    });
+    expect(await npmPlugin.inferVersion!('/project')).toBeUndefined();
+  });
+});

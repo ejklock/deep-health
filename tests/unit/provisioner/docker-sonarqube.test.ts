@@ -221,6 +221,18 @@ describe('DockerSonarQubeProvisioner', () => {
       const calledUrl = String(fetchMock.mock.calls[0]?.[0]);
       expect(calledUrl).toBe('http://localhost:19013/api/system/status');
     });
+
+    it('continues polling when fetch throws (line 64 catch branch)', async () => {
+      let callCount = 0;
+      vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => {
+        callCount++;
+        if (callCount < 3) throw new Error('Network error');
+        return { ok: true, status: 200, json: async () => ({ status: 'UP' }) };
+      }));
+      const provisioner = new DockerSonarQubeProvisioner({ hostPort: 19014, pollIntervalMs: 0 });
+      await provisioner.provision();
+      await expect(provisioner.waitReady()).resolves.toBeUndefined();
+    });
   });
 
   // ── teardown() ───────────────────────────────────────────────────────────────
@@ -321,5 +333,75 @@ describe('DockerSonarQubeProvisioner', () => {
       // Hook is gone after normal teardown — won't re-fire at process exit.
       expect(_activeHookCount()).toBe(0);
     });
+
+    it('fires shutdown hook lambda which calls teardown (line 160)', async () => {
+      const { _activeHookCount, _resetShutdownHooks, _runAllHooksForTests } = await import('@infra/utils/shutdown-hooks');
+      _resetShutdownHooks();
+
+      const provisioner = new DockerSonarQubeProvisioner({ hostPort: 19042 });
+      await provisioner.provision();
+      expect(_activeHookCount()).toBe(1);
+
+      // Firing hooks should call teardown (docker stop + rm)
+      resolveExecFile();
+      await _runAllHooksForTests();
+
+      expect(mockExecFile).toHaveBeenCalled();
+      _resetShutdownHooks();
+    });
+  });
+});
+
+describe('docker-sonarqube additional branch coverage', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it('waitForSonarQube: data.status ?? "unknown" branch when status is undefined (line 60)', async () => {
+    // First response: ok=true but status undefined (triggers ?? 'unknown'), then UP
+    const responses = [
+      { ok: true, json: async () => ({}) },          // status undefined → ?? 'unknown'
+      { ok: true, json: async () => ({ status: 'UP' }) },
+    ];
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => responses.shift()!));
+    resolveExecFile();
+
+    const provisioner = new DockerSonarQubeProvisioner({ hostPort: 19099 });
+    await expect(provisioner.provision()).resolves.toHaveProperty('baseUrl');
+  });
+
+  it('teardown(): uses String(err) when docker stop throws a non-Error (line 209)', async () => {
+    stubReadyFetch();
+    resolveExecFile();
+
+    const provisioner = new DockerSonarQubeProvisioner({ hostPort: 19098 });
+    await provisioner.provision();
+
+    // Make docker stop throw a non-Error string
+    setupExecFileMock((_cmd, _args, cb) => cb('string-stop-err' as any, { stdout: '', stderr: '' }));
+
+    const warnSpy = vi.spyOn(await import('@infra/utils/logger').then(m => m.logger), 'warn');
+    await provisioner.teardown();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('string-stop-err'));
+  });
+
+  it('teardown(): uses String(err) when docker rm throws a non-Error (line 218)', async () => {
+    stubReadyFetch();
+    resolveExecFile();
+
+    const provisioner = new DockerSonarQubeProvisioner({ hostPort: 19097 });
+    await provisioner.provision();
+
+    let callCount = 0;
+    setupExecFileMock((_cmd, _args, cb) => {
+      callCount++;
+      if (callCount === 1) cb(null, { stdout: '', stderr: '' }); // docker stop succeeds
+      else cb('string-rm-err' as any, { stdout: '', stderr: '' }); // docker rm throws non-Error
+    });
+
+    const warnSpy = vi.spyOn(await import('@infra/utils/logger').then(m => m.logger), 'warn');
+    await provisioner.teardown();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('string-rm-err'));
   });
 });

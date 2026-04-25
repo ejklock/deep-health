@@ -109,3 +109,53 @@ describe('NpmContainerCommandRunner', () => {
     expect(fallback.run).toHaveBeenCalledWith('git status', { cwd: '/tmp/project' });
   });
 });
+
+describe('NpmContainerCommandRunner — dryRun=true branches (lines 66-67)', () => {
+  it('run() returns early with dryRun result when dryRun=true', async () => {
+    const { container } = makeContainerRunner();
+    const fallback = makeFallbackRunner();
+    const runner = new NpmContainerCommandRunner({ container, fallback, dryRun: true });
+
+    const result = await runner.run('npm install');
+    expect(result.dryRun).toBe(true);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('runArgs() returns early with dryRun result when dryRun=true', async () => {
+    const { container } = makeContainerRunner();
+    const fallback = makeFallbackRunner();
+    const runner = new NpmContainerCommandRunner({ container, fallback, dryRun: true });
+
+    const result = await runner.runArgs('npm', ['install']);
+    expect(result.dryRun).toBe(true);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('delegates non-npm runArgs() to fallback runner (line 106)', async () => {
+    const { container } = makeContainerRunner();
+    const fallback = makeFallbackRunner();
+    const runner = new NpmContainerCommandRunner({ container, fallback, dryRun: false });
+
+    await runner.runArgs('git', ['status']);
+
+    expect(container.run).not.toHaveBeenCalled();
+    expect(fallback.runArgs).toHaveBeenCalledWith('git', ['status'], undefined);
+  });
+
+  it('dryRun defaults to false when not provided (line 59 ?? false branch)', async () => {
+    const { container } = makeContainerRunner();
+    const fallback = makeFallbackRunner();
+    // omit dryRun — triggers ?? false branch
+    const runner = new NpmContainerCommandRunner({ container, fallback });
+    expect((runner as any).dryRun).toBe(false);
+  });
+
+  it('run() with empty command falls back to fallback (extractNpmArgs ?? [] + parts.length===0 branches)', async () => {
+    const { container } = makeContainerRunner();
+    const fallback = makeFallbackRunner();
+    const runner = new NpmContainerCommandRunner({ container, fallback });
+    await runner.run('');
+    expect(fallback.run).toHaveBeenCalled();
+    expect(container.run).not.toHaveBeenCalled();
+  });
+});

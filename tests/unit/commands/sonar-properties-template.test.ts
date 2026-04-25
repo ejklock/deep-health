@@ -180,4 +180,15 @@ describe('writeSonarPropertiesTemplateIfMissing', () => {
     expect(parsed.get('sonar.projectKey')).toBe('round-trip');
     expect(parsed.get('sonar.exclusions')).toContain('vendor/**');
   });
+
+  it('uses "My Project" fallback when projectName is empty string (line 47 || branch)', async () => {
+    const content = buildSonarPropertiesTemplate({ projectName: '', ecosystemIds: [] });
+    expect(content).toContain('My Project');
+  });
+
+  it('uses ?? [] fallback when ecosystem ID is unknown (line 53 ?? branch)', async () => {
+    // 'unknown-eco' is not in ECOSYSTEM_SONAR_EXCLUSIONS — triggers ?? []
+    const content = buildSonarPropertiesTemplate({ projectName: 'test', ecosystemIds: ['unknown-eco' as any] });
+    expect(typeof content).toBe('string');
+  });
 });

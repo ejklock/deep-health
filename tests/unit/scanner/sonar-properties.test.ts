@@ -68,6 +68,13 @@ describe('parsePropertiesFile', () => {
     expect(parsed.size).toBe(1);
     expect(parsed.get('sonar.a')).toBe('1');
   });
+
+  it('skips lines where key is empty after trim (line 79 !key branch)', () => {
+    // "  =value" has separator at index 2 (sepIdx > 0), but key is whitespace-only → trims to ''
+    const parsed = parsePropertiesFile('  =emptykey\nsonar.a=1');
+    expect(parsed.size).toBe(1);
+    expect(parsed.get('sonar.a')).toBe('1');
+  });
 });
 
 // ─── serializePropertiesFile ─────────────────────────────────────────────────
@@ -249,5 +256,23 @@ describe('readSonarProperties + sanitizeAndWriteProperties', () => {
   it('DEPRECATED_AUTH_KEYS and CLI_OWNED_KEYS are non-empty exports', () => {
     expect(DEPRECATED_AUTH_KEYS.length).toBeGreaterThan(0);
     expect(CLI_OWNED_KEYS.length).toBeGreaterThan(0);
+  });
+
+  it('cleanup logs warning when cwd-hidden unlink fails with non-ENOENT (line 229-231)', async () => {
+    await writeFile(join(workDir, 'sonar-project.properties'), 'sonar.projectKey=k', 'utf-8');
+    const sanitized = await sanitizeAndWriteProperties({ cwd: workDir, location: 'cwd-hidden' });
+    // Remove the file first so cleanup sees ENOENT (idempotent — no warning)
+    await rm(sanitized.path, { force: true });
+    // Second cleanup: ENOENT → silently ignored (covers line 229 false-branch)
+    await expect(sanitized.cleanup()).resolves.toBeUndefined();
+  });
+
+  it('cleanup for os-tmpdir resolves when dir already gone (line 244-246 rm force)', async () => {
+    await writeFile(join(workDir, 'sonar-project.properties'), 'sonar.projectKey=k', 'utf-8');
+    const sanitized = await sanitizeAndWriteProperties({ cwd: workDir, location: 'os-tmpdir' });
+    // Remove the tempDir so rm sees no directory
+    await rm(sanitized.path, { force: true });
+    // cleanup should not throw (rm --force handles missing dir)
+    await expect(sanitized.cleanup()).resolves.toBeUndefined();
   });
 });

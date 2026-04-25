@@ -394,4 +394,87 @@ describe('runExecutiveReportCommand', () => {
     // Cloud error without require_upload must not force exit code 1
     expect(code).toBe(0);
   });
+
+  it('passes non-empty advisorResults to generateExecutiveReport (line 68)', async () => {
+    vi.mocked(runOrchestrator).mockResolvedValue({
+      scan: scanResult,
+      updates: {},
+      overallStatus: 'success',
+      warnings: [],
+      aggregated: undefined,
+      advisorResults: { npm: { total: 1, items: [] } as any },
+    });
+
+    const ctx: RunContext = {
+      config: {
+        ...baseConfig,
+        outputs: { formats: ['markdown'], dir: '.deep-health/reports' },
+      },
+      runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
+    };
+
+    const code = await runExecutiveReportCommand(ctx, {
+      config: 'project-config.yml',
+      cwd: '/repo',
+      dryRun: false,
+      verbose: false,
+      quiet: false,
+      json: false,
+    });
+
+    expect(code).toBe(0);
+  });
+});
+
+describe('runExecutiveReportCommand — branch coverage top-up', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(runScanner).mockResolvedValue(scanResult);
+    vi.mocked(generateSonarQubeHtmlReport).mockReturnValue(null);
+    vi.mocked(runOrchestrator).mockResolvedValue({
+      scan: scanResult,
+      updates: {},
+      overallStatus: 'success',
+      warnings: [],
+      aggregated: undefined,
+      advisorResults: {},
+    });
+  });
+
+  it('uses opts.client and opts.project when provided (line 45 left branch)', async () => {
+    const ctx: RunContext = {
+      config: { ...baseConfig },
+      runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
+    };
+    const code = await runExecutiveReportCommand(ctx, {
+      config: 'project-config.yml',
+      cwd: '/repo',
+      dryRun: false,
+      verbose: false,
+      quiet: false,
+      json: false,
+      client: 'CustomClient',
+      project: 'CustomProject',
+    });
+    expect(code).toBe(0);
+  });
+
+  it('uses sub_folders=true to create engine-specific report dir (line 75 true branch)', async () => {
+    const ctx: RunContext = {
+      config: {
+        ...baseConfig,
+        outputs: { formats: ['markdown'], dir: '.deep-health/reports', sub_folders: true },
+      },
+      runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
+    };
+    const code = await runExecutiveReportCommand(ctx, {
+      config: 'project-config.yml',
+      cwd: '/repo',
+      dryRun: false,
+      verbose: false,
+      quiet: false,
+      json: false,
+    });
+    expect(code).toBe(0);
+  });
 });

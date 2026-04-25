@@ -144,3 +144,41 @@ describe('PipContainerCommandRunner', () => {
     expect(fallback.runArgs).toHaveBeenCalledWith('python', ['-m', 'pytest'], {});
   });
 });
+
+describe('PipContainerCommandRunner — dryRun=true branches', () => {
+  it('run() returns early with dryRun result when dryRun=true', async () => {
+    const { container } = makeContainerRunner();
+    const fallback = makeFallbackRunner();
+    const runner = new PipContainerCommandRunner({ container, fallback, dryRun: true });
+
+    const result = await runner.run('pip install requests');
+    expect(result.dryRun).toBe(true);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('runArgs() returns early with dryRun result when dryRun=true', async () => {
+    const { container } = makeContainerRunner();
+    const fallback = makeFallbackRunner();
+    const runner = new PipContainerCommandRunner({ container, fallback, dryRun: true });
+
+    const result = await runner.runArgs('pip', ['install', 'requests']);
+    expect(result.dryRun).toBe(true);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('dryRun defaults to false when not provided (line 58 ?? false branch)', async () => {
+    const { container } = makeContainerRunner();
+    const fallback = makeFallbackRunner();
+    const runner = new PipContainerCommandRunner({ container, fallback });
+    expect((runner as any).dryRun).toBe(false);
+  });
+
+  it('run() with empty command falls back to fallback (extractPipArgs ?? [] + parts.length===0 branches)', async () => {
+    const { container } = makeContainerRunner();
+    const fallback = makeFallbackRunner();
+    const runner = new PipContainerCommandRunner({ container, fallback });
+    await runner.run('');
+    expect(fallback.run).toHaveBeenCalled();
+    expect(container.run).not.toHaveBeenCalled();
+  });
+});

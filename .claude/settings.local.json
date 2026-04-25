@@ -12,7 +12,8 @@
       "Bash(rtk ls *)",
       "Bash(rtk git *)",
       "Bash(rtk vitest *)",
-      "Bash(rtk tsc *)"
+      "Bash(rtk tsc *)",
+      "mcp__agent-memory-store__write_context"
     ]
   },
   "outputStyle": "Explanatory"

@@ -77,4 +77,52 @@ describe('OsvContainerCommandRunner', () => {
     expect(container.run).toHaveBeenCalledWith(['fix', '--strategy=in-place', '-L', 'package-lock.json']);
     expect(fallback.runArgs).not.toHaveBeenCalled();
   });
+
+  it('returns dryRun result from run() when dryRun=true (line 41)', async () => {
+    const container = makeContainerRunner();
+    const fallback = makeFallbackRunner();
+    const runner = new OsvContainerCommandRunner({ container, fallback, dryRun: true });
+
+    const result = await runner.run('osv-scanner --lockfile package-lock.json', { cwd: '/tmp' });
+
+    expect(result.dryRun).toBe(true);
+    expect(result.stdout).toBe('');
+    expect(container.run).not.toHaveBeenCalled();
+    expect(fallback.run).not.toHaveBeenCalled();
+  });
+
+  it('returns dryRun result from runArgs() when dryRun=true (lines 63-64)', async () => {
+    const container = makeContainerRunner();
+    const fallback = makeFallbackRunner();
+    const runner = new OsvContainerCommandRunner({ container, fallback, dryRun: true });
+
+    const result = await runner.runArgs('osv-scanner', ['--lockfile', 'package-lock.json']);
+
+    expect(result.dryRun).toBe(true);
+    expect(result.command).toBe('osv-scanner --lockfile package-lock.json');
+    expect(container.run).not.toHaveBeenCalled();
+    expect(fallback.runArgs).not.toHaveBeenCalled();
+  });
+
+  it('delegates non-osv-scanner runArgs to fallback (line 81)', async () => {
+    const container = makeContainerRunner();
+    const fallback = makeFallbackRunner();
+    const runner = new OsvContainerCommandRunner({ container, fallback, dryRun: false });
+
+    await runner.runArgs('git', ['status']);
+
+    expect(container.run).not.toHaveBeenCalled();
+    expect(fallback.runArgs).toHaveBeenCalledWith('git', ['status'], undefined);
+  });
+
+  it('dryRun defaults to false when not provided (line 34 ?? false branch)', async () => {
+    const { container } = makeContainerRunner();
+    const fallback = makeFallbackRunner();
+    const runner = new OsvContainerCommandRunner({ container, fallback });
+    expect((runner as any).dryRun).toBe(false);
+  });
+
+  it('extractOsvArgs returns null for empty command (?? [] + parts.length===0 branches)', () => {
+    expect(extractOsvArgs('')).toBeNull();
+  });
 });

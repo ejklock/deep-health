@@ -500,6 +500,9 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
   // Build SonarQube section (graceful: absent when engineResults not provided)
   const sonarSection = buildSonarQubeExecSection(opts.engineResults, locale.exec);
 
+  // Build advisor section (graceful: absent when advisorResults not provided)
+  const advisorSection = buildAdvisorExecSection(opts.advisorResults, locale.exec);
+
   const context: Record<string, unknown> = {
     t: locale.exec,
     client: opts.client,
@@ -530,6 +533,7 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
     allFixed: fixedVulns.length > 0 && pendingOriginal.length === 0,
     pendingByPkg,
     sonarSection,
+    advisorSection,
   };
 
   return render(executiveTemplate, context);

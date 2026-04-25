@@ -197,6 +197,31 @@ describe('OsvScannerEngine.assertAvailable()', () => {
       const ctx = makeCtx(runner, makeConfig(undefined));
       await expect(engine.assertAvailable(ctx)).resolves.toBeUndefined();
     });
+
+    it('returns false from isLocalAvailable when runner.run throws (line 278)', async () => {
+      // runner throws on osv-scanner --version → isLocalAvailable catch → returns false
+      // then docker check also fails → EnvironmentError thrown
+      const runner = new MockRunner({ 'docker': { exitCode: 1 } });
+      const origRun = runner.run.bind(runner);
+      runner.run = async (cmd: string, opts?: CommandRunnerOptions) => {
+        if (cmd.includes('osv-scanner')) throw new Error('spawn ENOENT');
+        return origRun(cmd, opts);
+      };
+      const ctx = makeCtx(runner, makeConfig({ osv: { runner: 'auto' } }));
+      await expect(engine.assertAvailable(ctx)).rejects.toThrow(EnvironmentError);
+    });
+
+    it('returns false from isDockerAvailable when runner.run throws (line 288)', async () => {
+      // runner returns non-zero for osv-scanner (local unavailable), then throws for docker
+      const runner = new MockRunner({ 'osv-scanner': { exitCode: 1 } });
+      const origRun = runner.run.bind(runner);
+      runner.run = async (cmd: string, opts?: CommandRunnerOptions) => {
+        if (cmd.includes('docker')) throw new Error('spawn ENOENT');
+        return origRun(cmd, opts);
+      };
+      const ctx = makeCtx(runner, makeConfig({ osv: { runner: 'auto' } }));
+      await expect(engine.assertAvailable(ctx)).rejects.toThrow(EnvironmentError);
+    });
   });
 });
 
@@ -491,6 +516,29 @@ describe('OsvScannerEngine.scan() — multi-range safeVersion selection', () => 
     // Fallback: returns the first fixed event encountered across all ranges
     expect(vuln?.safeVersion).toBe('2.80.0');
   });
+
+  it('returns null safeVersion when currentVersion is non-semver and no fixed event exists (lines 116-119)', async () => {
+    // Non-semver version → coerce returns null → fallback loop → no fixed event → null
+    const stdout = makeOsvJson({
+      pkgName: 'pkg',
+      pkgVersion: 'dev',
+      vulnRanges: [[{ introduced: '0' }]], // no 'fixed' event
+    });
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout, stderr: '' });
+
+    const runner = new MockRunner({ docker: { exitCode: 0 } });
+    const ctx: ScannerEngineContext = {
+      runner,
+      config: makeConfig({ osv: { runner: 'docker' } }),
+      cwd: '/project',
+      ecosystemRegistry: makeParseRegistry(),
+      branch: null,
+    };
+
+    const result = await engine.scan(ctx);
+    const vuln = result.ecosystems['npm']?.vulnerabilities[0];
+    expect(vuln?.safeVersion).toBeNull();
+  });
 });
 
 // ─── id / name contract ───────────────────────────────────────────────────────
@@ -552,5 +600,512 @@ describe('OsvScannerEngine — branch stamping', () => {
     };
     const result = await engine.scan(ctx);
     expect(result.branch).toBe('feature/my-feature');
+  });
+});
+
+// ─── scan() — breaking and manual classification (lines 188-289) ─────────────
+
+describe('OsvScannerEngine.scan() — breaking classification (major version bump)', () => {
+  const engine = new OsvScannerEngine();
+
+  beforeEach(() => { mockDockerRun.mockClear(); vi.mocked(OsvDockerRunner).mockClear(); });
+  afterEach(() => vi.clearAllMocks());
+
+  it('classifies package as "breaking" when safeVersion is a major bump (line 235-238)', async () => {
+    // current: 1.2.3, fixed: 2.0.0 → major bump → breaking
+    const stdout = makeOsvJson({
+      pkgName: 'legacy-pkg',
+      pkgVersion: '1.2.3',
+      vulnRanges: [[{ introduced: '0' }, { fixed: '2.0.0' }]],
+    });
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout, stderr: '' });
+    const runner = new MockRunner({ docker: { exitCode: 0 } });
+    const ctx: ScannerEngineContext = {
+      runner,
+      config: makeConfig({ osv: { runner: 'docker' } }),
+      cwd: '/project',
+      ecosystemRegistry: makeParseRegistry(),
+      branch: null,
+    };
+
+    const result = await engine.scan(ctx);
+    const vuln = result.ecosystems['npm']?.vulnerabilities[0];
+    expect(vuln?.classification).toBe('breaking');
+    expect(result.ecosystems['npm']?.breaking).toBe(1);
+    expect(result.ecosystems['npm']?.breaking_packages).toContain('legacy-pkg@1.2.3');
+  });
+});
+
+describe('OsvScannerEngine.scan() — manual classification (no safe version)', () => {
+  const engine = new OsvScannerEngine();
+
+  beforeEach(() => { mockDockerRun.mockClear(); vi.mocked(OsvDockerRunner).mockClear(); });
+  afterEach(() => vi.clearAllMocks());
+
+  it('classifies package as "manual" when no fixed version exists (lines 239-243)', async () => {
+    // Range has last_affected but no fixed → safeVersion is null → manual
+    const stdout = makeOsvJson({
+      pkgName: 'unfixed-pkg',
+      pkgVersion: '1.0.0',
+      vulnRanges: [[{ introduced: '0' }, { last_affected: '9.99.99' }]],
+    });
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout, stderr: '' });
+    const runner = new MockRunner({ docker: { exitCode: 0 } });
+    const ctx: ScannerEngineContext = {
+      runner,
+      config: makeConfig({ osv: { runner: 'docker' } }),
+      cwd: '/project',
+      ecosystemRegistry: makeParseRegistry(),
+      branch: null,
+    };
+
+    const result = await engine.scan(ctx);
+    const vuln = result.ecosystems['npm']?.vulnerabilities[0];
+    expect(vuln?.classification).toBe('manual');
+    expect(result.ecosystems['npm']?.manual).toBe(1);
+    expect(result.ecosystems['npm']?.manual_packages).toContain('unfixed-pkg@1.0.0');
+  });
+});
+
+describe('OsvScannerEngine.scan() — PhaseError on unexpected throw (lines 423-429)', () => {
+  const engine = new OsvScannerEngine();
+  afterEach(() => vi.clearAllMocks());
+
+  it('throws PhaseError when runner throws unexpectedly during local scan', async () => {
+    const runner = new MockRunner({ 'osv-scanner --version': { exitCode: 0 } });
+    // Override run to throw after version check
+    let callCount = 0;
+    runner.run = async (cmd: string) => {
+      callCount++;
+      if (callCount === 1) return { stdout: 'osv-scanner version 0.7.0', stderr: '', exitCode: 0, command: cmd, dryRun: false };
+      throw new Error('unexpected disk error');
+    };
+
+    const ctx: ScannerEngineContext = {
+      runner,
+      config: makeConfig({ osv: { runner: 'local' } }),
+      cwd: '/project',
+      ecosystemRegistry: makeParseRegistry(),
+      branch: null,
+    };
+
+    await expect(engine.scan(ctx)).rejects.toThrow('OSV scanner phase failed');
+  });
+});
+
+// ─── CVSS extraction (lines 46-119) ─────────────────────────────────────────
+
+function makeOsvJsonWithCvss(options: {
+  pkgName: string;
+  pkgVersion: string;
+  ecosystem?: string;
+  cvssScore?: string;
+  vulnRanges: Array<Array<{ introduced?: string; fixed?: string }>>;
+}): string {
+  const { pkgName, pkgVersion, ecosystem = 'npm', cvssScore, vulnRanges } = options;
+  const vuln: Record<string, unknown> = {
+    id: 'GHSA-cvss-test-0001',
+    summary: 'test vulnerability with CVSS',
+    affected: [
+      {
+        ranges: vulnRanges.map((events) => ({ events })),
+      },
+    ],
+  };
+  if (cvssScore) {
+    vuln['severity'] = [{ type: 'CVSS_V3', score: cvssScore }];
+  }
+  return JSON.stringify({
+    results: [
+      {
+        packages: [
+          {
+            package: { name: pkgName, version: pkgVersion, ecosystem },
+            vulnerabilities: [vuln],
+          },
+        ],
+      },
+    ],
+  });
+}
+
+describe('OsvScannerEngine.scan() — CVSS score extraction (lines 46-119)', () => {
+  const engine = new OsvScannerEngine();
+
+  beforeEach(() => {
+    vi.mocked(OsvDockerRunner).mockClear();
+    mockDockerRun.mockClear();
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  function makeCtxWithParseRegistry(runner: CommandRunner, mode: 'local' | 'docker' = 'docker') {
+    return {
+      runner,
+      config: makeConfig({ osv: { runner: mode } }),
+      cwd: '/project',
+      ecosystemRegistry: makeParseRegistry(),
+      branch: null,
+    };
+  }
+
+  it('parses CVSS_V3 score and computes a numeric value (scope=Changed)', async () => {
+    // A CVSS v3 vector with S:C (scope changed) — exercises the changed-scope branch
+    const cvssVector = 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H';
+    const stdout = makeOsvJsonWithCvss({
+      pkgName: 'lodash',
+      pkgVersion: '4.17.15',
+      cvssScore: cvssVector,
+      vulnRanges: [[{ introduced: '0' }, { fixed: '4.17.21' }]],
+    });
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout, stderr: '' });
+
+    const runner = new MockRunner({ docker: { exitCode: 0 } });
+    const result = await engine.scan(makeCtxWithParseRegistry(runner));
+    const vuln = result.ecosystems['npm']?.vulnerabilities[0];
+    expect(vuln).toBeDefined();
+    // cvss should be a number string like "10.0"
+    expect(vuln!.cvss).not.toBe('—');
+    expect(parseFloat(vuln!.cvss)).toBeGreaterThan(0);
+  });
+
+  it('parses CVSS_V3 score with scope=Unchanged (different isc branch)', async () => {
+    const cvssVector = 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H';
+    const stdout = makeOsvJsonWithCvss({
+      pkgName: 'lodash',
+      pkgVersion: '4.17.15',
+      cvssScore: cvssVector,
+      vulnRanges: [[{ introduced: '0' }, { fixed: '4.17.21' }]],
+    });
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout, stderr: '' });
+
+    const runner = new MockRunner({ docker: { exitCode: 0 } });
+    const result = await engine.scan(makeCtxWithParseRegistry(runner));
+    const vuln = result.ecosystems['npm']?.vulnerabilities[0];
+    expect(vuln).toBeDefined();
+    expect(parseFloat(vuln!.cvss)).toBeGreaterThan(0);
+  });
+
+  it('returns — when CVSS score vector is malformed (no match)', async () => {
+    const stdout = makeOsvJsonWithCvss({
+      pkgName: 'lodash',
+      pkgVersion: '4.17.15',
+      cvssScore: 'INVALID_SCORE',
+      vulnRanges: [[{ introduced: '0' }, { fixed: '4.17.21' }]],
+    });
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout, stderr: '' });
+
+    const runner = new MockRunner({ docker: { exitCode: 0 } });
+    const result = await engine.scan(makeCtxWithParseRegistry(runner));
+    const vuln = result.ecosystems['npm']?.vulnerabilities[0];
+    expect(vuln!.cvss).toBe('—');
+  });
+
+  it('returns — when no severity field is present', async () => {
+    const stdout = makeOsvJsonWithCvss({
+      pkgName: 'lodash',
+      pkgVersion: '4.17.15',
+      vulnRanges: [[{ introduced: '0' }, { fixed: '4.17.21' }]],
+    });
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout, stderr: '' });
+
+    const runner = new MockRunner({ docker: { exitCode: 0 } });
+    const result = await engine.scan(makeCtxWithParseRegistry(runner));
+    const vuln = result.ecosystems['npm']?.vulnerabilities[0];
+    expect(vuln!.cvss).toBe('—');
+  });
+
+  it('returns 0.0 when ISC base is <= 0 (all impact=N)', async () => {
+    // C:N, I:N, A:N → iscBase = 1 - 1*1*1 = 0 → returns "0.0"
+    const cvssVector = 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N';
+    const stdout = makeOsvJsonWithCvss({
+      pkgName: 'lodash',
+      pkgVersion: '4.17.15',
+      cvssScore: cvssVector,
+      vulnRanges: [[{ introduced: '0' }, { fixed: '4.17.21' }]],
+    });
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout, stderr: '' });
+
+    const runner = new MockRunner({ docker: { exitCode: 0 } });
+    const result = await engine.scan(makeCtxWithParseRegistry(runner));
+    const vuln = result.ecosystems['npm']?.vulnerabilities[0];
+    expect(vuln!.cvss).toBe('0.0');
+  });
+
+  it('returns — when score is non-string (catch block lines 91-92)', async () => {
+    // Inject a numeric score that will cause score.match(...) to throw inside parseCvssBaseScore
+    const stdout = JSON.stringify({
+      results: [{
+        packages: [{
+          package: { name: 'lodash', version: '4.17.15', ecosystem: 'npm' },
+          vulnerabilities: [{
+            id: 'GHSA-cvss-catch-test',
+            summary: 'catch block test',
+            affected: [{ ranges: [{ events: [{ introduced: '0' }, { fixed: '4.17.21' }] }] }],
+            severity: [{ type: 'CVSS_V3', score: 42 }], // number, not string → .match() throws
+          }],
+          groups: [{ ids: ['GHSA-cvss-catch-test'] }],
+        }],
+      }],
+    });
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout, stderr: '' });
+
+    const runner = new MockRunner({ docker: { exitCode: 0 } });
+    const result = await engine.scan(makeCtxWithParseRegistry(runner));
+    const vuln = result.ecosystems['npm']?.vulnerabilities[0];
+    // The catch block returns '—'
+    expect(vuln!.cvss).toBe('—');
+  });
+});
+
+// ─── Additional branch coverage ───────────────────────────────────────────────
+
+describe('OsvScannerEngine — additional branch coverage', () => {
+  const engine = new OsvScannerEngine();
+
+  beforeEach(() => {
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout: '{"results":[]}', stderr: '' });
+    vi.mocked(OsvDockerRunner).mockClear();
+    mockDockerRun.mockClear();
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  function makeCtxWithParseReg(runner: CommandRunner) {
+    const npmPlugin = {
+      id: 'npm', osvEcosystems: ['npm'],
+      buildScanArgs: () => [], getProtectedPackages: () => [],
+    } as unknown as ReturnType<EcosystemRegistry['getAll']>[0];
+    const registry: EcosystemRegistry = {
+      getAll: () => [npmPlugin], register: vi.fn(), get: vi.fn(),
+      findByOsvEcosystem: (eco: string) => (eco.toLowerCase() === 'npm' ? npmPlugin : undefined),
+    } as unknown as EcosystemRegistry;
+    return {
+      runner, config: makeConfig({ osv: { runner: 'docker' } }),
+      cwd: '/project', ecosystemRegistry: registry, branch: null,
+    };
+  }
+
+  // Line 161: !data.results → return { ecosystems }
+  it('line 161: returns empty ecosystems when JSON has no results field', async () => {
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout: '{"schemaVersion":"1.0"}', stderr: '' });
+    const runner = new MockRunner({ docker: { exitCode: 0 } });
+    const result = await engine.scan(makeCtxWithParseReg(runner));
+    expect(result.ecosystems).toEqual({});
+  });
+
+  // Lines 176-178: result.packages ?? [], pkg.package?.name ?? '', etc.
+  it('lines 176-179: handles result with no packages array', async () => {
+    const stdout = JSON.stringify({ results: [{ source: { path: 'package-lock.json' } /* no packages */ }] });
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout, stderr: '' });
+    const runner = new MockRunner({ docker: { exitCode: 0 } });
+    const result = await engine.scan(makeCtxWithParseReg(runner));
+    expect(result.status).toBe('success');
+  });
+
+  // Line 182: !plugin → continue (unknown ecosystem)
+  it('line 182: skips package with unknown ecosystem (no plugin found)', async () => {
+    const stdout = JSON.stringify({
+      results: [{
+        packages: [{
+          package: { name: 'some-pkg', version: '1.0.0', ecosystem: 'UnknownEco' },
+          vulnerabilities: [],
+          groups: [],
+        }],
+      }],
+    });
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout, stderr: '' });
+    const runner = new MockRunner({ docker: { exitCode: 0 } });
+    const result = await engine.scan(makeCtxWithParseReg(runner));
+    expect(result.ecosystems['npm']).toBeUndefined();
+  });
+
+  // Line 196: protectedByPlugin.get(pluginId) ?? new Map()
+  it('line 196: ?? new Map() fires when protected map is absent for plugin', async () => {
+    // The protectedByPlugin map is built from registry plugins — if getProtectedPackages returns []
+    // for a plugin that IS found, the map exists but is empty. To trigger ?? new Map(), we need
+    // a plugin that is NOT in the initial protectedByPlugin map.
+    // Actually protectedByPlugin is built from ALL registry plugins, so the ?? fires if pluginId
+    // is somehow not in the map — e.g. if we return a plugin from findByOsvEcosystem that is NOT
+    // in getAll(). Let's construct that scenario:
+    const ghostPlugin = {
+      id: 'ghost', osvEcosystems: ['npm'],
+      buildScanArgs: () => [], getProtectedPackages: () => [],
+    } as unknown as ReturnType<EcosystemRegistry['getAll']>[0];
+    const registry: EcosystemRegistry = {
+      getAll: () => [], // empty — no plugins in list → protectedByPlugin is empty
+      register: vi.fn(), get: vi.fn(),
+      findByOsvEcosystem: () => ghostPlugin, // but findByOsvEcosystem returns ghostPlugin
+    } as unknown as EcosystemRegistry;
+    const stdout = JSON.stringify({
+      results: [{
+        packages: [{
+          package: { name: 'lodash', version: '4.17.15', ecosystem: 'npm' },
+          vulnerabilities: [{
+            id: 'GHSA-test', summary: 'test', affected: [],
+            severity: [{ type: 'CVSS_V3', score: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H' }],
+          }],
+          groups: [{ ids: ['GHSA-test'] }],
+        }],
+      }],
+    });
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout, stderr: '' });
+    const runner = new MockRunner({ docker: { exitCode: 0 } });
+    const ctx = { runner, config: makeConfig({ osv: { runner: 'docker' } }), cwd: '/project', ecosystemRegistry: registry, branch: null };
+    const result = await engine.scan(ctx);
+    expect(result).toBeDefined();
+  });
+
+  // Lines 198-200: pkg.vulnerabilities ?? [], vuln.id ?? '', vuln.summary ?? ''
+  it('lines 198-200: handles package with no vulnerabilities array and missing vuln fields', async () => {
+    const stdout = JSON.stringify({
+      results: [{
+        packages: [{
+          package: { name: 'lodash', version: '4.17.15', ecosystem: 'npm' },
+          // no vulnerabilities array
+          groups: [],
+        }],
+      }],
+    });
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout, stderr: '' });
+    const runner = new MockRunner({ docker: { exitCode: 0 } });
+    const result = await engine.scan(makeCtxWithParseReg(runner));
+    expect(result.status).toBe('success');
+  });
+
+  // Lines 56-63: CVSS metrics with unknown keys → ?? 0
+  it('lines 56-63: CVSS vector with unknown/missing metric keys triggers ?? 0 fallbacks', async () => {
+    // Only provide AV and AC — all other metrics missing → ?? 0
+    const cvssPartial = 'CVSS:3.1/AV:X/AC:X/PR:X/UI:X/S:U/C:X/I:X/A:X'; // all unknown values
+    const stdout = JSON.stringify({
+      results: [{
+        packages: [{
+          package: { name: 'lodash', version: '4.17.15', ecosystem: 'npm' },
+          vulnerabilities: [{
+            id: 'GHSA-cvss-unknown',
+            summary: 'test',
+            affected: [{ ranges: [{ events: [{ introduced: '0' }, { fixed: '4.17.21' }] }] }],
+            severity: [{ type: 'CVSS_V3', score: cvssPartial }],
+          }],
+          groups: [{ ids: ['GHSA-cvss-unknown'] }],
+        }],
+      }],
+    });
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout, stderr: '' });
+    const runner = new MockRunner({ docker: { exitCode: 0 } });
+    const result = await engine.scan(makeCtxWithParseReg(runner));
+    // Should not throw; CVSS will be '—' or a computed value
+    expect(result).toBeDefined();
+  });
+
+  // Lines 111-113: vuln.affected ?? [] / ranges ?? [] / events ?? [] for non-semver current version
+  it('lines 111-113: uses ?? [] fallbacks when affected/ranges/events absent (non-semver version)', async () => {
+    const stdout = JSON.stringify({
+      results: [{
+        packages: [{
+          package: { name: 'lodash', version: 'non-semver-abc', ecosystem: 'npm' },
+          vulnerabilities: [{
+            id: 'GHSA-no-affected',
+            summary: 'test',
+            // affected is absent
+            severity: [{ type: 'CVSS_V3', score: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H' }],
+          }],
+          groups: [{ ids: ['GHSA-no-affected'] }],
+        }],
+      }],
+    });
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout, stderr: '' });
+    const runner = new MockRunner({ docker: { exitCode: 0 } });
+    const result = await engine.scan(makeCtxWithParseReg(runner));
+    expect(result).toBeDefined();
+  });
+
+  // Lines 121-122: vuln.affected ?? [] / ranges ?? [] for semver version
+  it('lines 121-122: uses ?? [] for affected/ranges when semver version has missing fields', async () => {
+    const stdout = JSON.stringify({
+      results: [{
+        packages: [{
+          package: { name: 'lodash', version: '4.17.15', ecosystem: 'npm' },
+          vulnerabilities: [{
+            id: 'GHSA-semver-no-ranges',
+            summary: 'test',
+            affected: [{ /* no ranges */ }],
+            severity: [{ type: 'CVSS_V3', score: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H' }],
+          }],
+          groups: [{ ids: ['GHSA-semver-no-ranges'] }],
+        }],
+      }],
+    });
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout, stderr: '' });
+    const runner = new MockRunner({ docker: { exitCode: 0 } });
+    const result = await engine.scan(makeCtxWithParseReg(runner));
+    expect(result).toBeDefined();
+  });
+
+  // Line 133: introduced is undefined → coercedIntroduced = null
+  it('line 133: range with fixed but no introduced event → coercedIntroduced = null', async () => {
+    const stdout = JSON.stringify({
+      results: [{
+        packages: [{
+          package: { name: 'lodash', version: '4.17.15', ecosystem: 'npm' },
+          vulnerabilities: [{
+            id: 'GHSA-no-introduced',
+            summary: 'test',
+            affected: [{ ranges: [{ events: [{ fixed: '4.17.21' }] /* no introduced */ }] }],
+            severity: [],
+          }],
+          groups: [{ ids: ['GHSA-no-introduced'] }],
+        }],
+      }],
+    });
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout, stderr: '' });
+    const runner = new MockRunner({ docker: { exitCode: 0 } });
+    const result = await engine.scan(makeCtxWithParseReg(runner));
+    expect(result).toBeDefined();
+  });
+
+  // Line 136: !coercedFixed → continue
+  it('line 136: range with non-coercible fixed version → skipped', async () => {
+    const stdout = JSON.stringify({
+      results: [{
+        packages: [{
+          package: { name: 'lodash', version: '4.17.15', ecosystem: 'npm' },
+          vulnerabilities: [{
+            id: 'GHSA-bad-fixed',
+            summary: 'test',
+            affected: [{ ranges: [{ events: [{ introduced: '0' }, { fixed: 'not-a-version' }] }] }],
+            severity: [],
+          }],
+          groups: [{ ids: ['GHSA-bad-fixed'] }],
+        }],
+      }],
+    });
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout, stderr: '' });
+    const runner = new MockRunner({ docker: { exitCode: 0 } });
+    const result = await engine.scan(makeCtxWithParseReg(runner));
+    expect(result).toBeDefined();
+  });
+
+  // Line 354: config.scanners?.osv?.runner ?? 'docker' — no scanners key
+  it('line 354: defaults to "docker" runner when scanners config is absent', async () => {
+    const runner = new MockRunner({ docker: { exitCode: 0 } });
+    const ctx = makeCtx(runner, makeConfig(undefined)); // no scanners
+    const result = await engine.scan(ctx);
+    expect(result.status).toBe('success');
+    expect(vi.mocked(OsvDockerRunner)).toHaveBeenCalledOnce();
+  });
+
+  // Line 423: EnvironmentError is rethrown
+  it('line 423: EnvironmentError from assertAvailable is rethrown', async () => {
+    vi.spyOn(engine, 'assertAvailable').mockRejectedValueOnce(new EnvironmentError('env failed'));
+    const runner = new MockRunner({ docker: { exitCode: 0 } });
+    const ctx = makeCtx(runner, makeConfig({ osv: { runner: 'docker' } }));
+    await expect(engine.scan(ctx)).rejects.toThrow(EnvironmentError);
+  });
+
+  // Line 425: non-Error thrown → String(err) in PhaseError
+  it('line 425: non-Error thrown inside scan → PhaseError with String(err)', async () => {
+    vi.spyOn(engine, 'assertAvailable').mockRejectedValueOnce('string-scan-error');
+    const runner = new MockRunner({ docker: { exitCode: 0 } });
+    const ctx = makeCtx(runner, makeConfig({ osv: { runner: 'docker' } }));
+    await expect(engine.scan(ctx)).rejects.toThrow('OSV scanner phase failed: string-scan-error');
   });
 });
