@@ -13,7 +13,10 @@
       "Bash(rtk git *)",
       "Bash(rtk vitest *)",
       "Bash(rtk tsc *)",
-      "mcp__agent-memory-store__write_context"
+      "mcp__agent-memory-store__write_context",
+      "mcp__agent-memory-store__search_context",
+      "mcp__agent-memory-store__list_context",
+      "Bash(rtk npm *)"
     ]
   },
   "outputStyle": "Explanatory"

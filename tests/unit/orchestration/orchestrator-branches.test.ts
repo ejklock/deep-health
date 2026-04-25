@@ -57,7 +57,25 @@ describe('runOrchestrator() — branch coverage', () => {
         verbose: false,
         scannerRegistry: emptyRegistry,
       }),
-    ).rejects.toThrow('OSV scanner engine is not registered');
+    ).rejects.toThrow(/Primary scanner engine "osv" is not registered/);
+  });
+
+  it('throws when a custom primary engine is configured but not registered', async () => {
+    const emptyRegistry = new ScannerEngineRegistry();
+    const configWithCustomPrimary: ProjectConfig = {
+      ...minimalConfig,
+      scanners: { primary: 'custom-engine' },
+    } as unknown as ProjectConfig;
+
+    await expect(
+      runOrchestrator(makeRunner(), configWithCustomPrimary, {
+        configPath: 'project-config.yml',
+        cwd: '/proj',
+        dryRun: false,
+        verbose: false,
+        scannerRegistry: emptyRegistry,
+      }),
+    ).rejects.toThrow(/Primary scanner engine "custom-engine" is not registered/);
   });
 
   it('returns skipped status when scan phase is excluded from phases list', async () => {

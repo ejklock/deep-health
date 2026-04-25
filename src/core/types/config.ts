@@ -304,6 +304,8 @@ export interface PipRunnerConfig {
 export interface ScannersConfig {
   sonarqube?: SonarQubeConfig;
   osv?: OsvScannerConfig;
+  /** Engine id to use as Gate A source; defaults to 'osv' when omitted. */
+  primary?: string;
   npm?: NpmRunnerConfig;
   pip?: PipRunnerConfig;
   composer?: ComposerRunnerConfig;

@@ -14,13 +14,14 @@ export const OSV_ENGINE_ID = 'osv' as const;
  * The result of aggregating scan output from one or more scanner engines.
  *
  * The `primary` field points to the canonical result used for Gate A validation
- * and downstream update orchestration. It is always driven by the OSV engine.
- * Additional engines contribute their results to `engineResults` for reporting.
+ * and downstream update orchestration. It is driven by the configured primary engine
+ * (defaults to OSV). Additional engines contribute their results to `engineResults`
+ * for reporting.
  */
 export interface AggregatedScanResult {
   /**
    * Canonical result consumed by Gate A and the update loop.
-   * Shape mirrors ScanResultJson; populated from the primary engine (OSV).
+   * Shape mirrors ScanResultJson; populated from the configured primary engine.
    */
   primary: ScanResultJson;
 
@@ -91,9 +92,10 @@ function mergeEcosystems(
 /**
  * Aggregate a set of per-engine scan results into a single AggregatedScanResult.
  *
- * The OSV engine result (id === OSV_ENGINE_ID) is always used as the primary,
- * regardless of registration order or position in `engineResults`.
- * Throws if no OSV result is present — the orchestrator must ensure OSV ran.
+ * The primary engine result (id === primaryEngineId, defaults to OSV_ENGINE_ID) is
+ * always used as the primary, regardless of registration order or position in
+ * `engineResults`. Throws if no primary engine result is present — the orchestrator
+ * must ensure the primary engine ran successfully.
  *
  * Warnings are passed through from the caller — engines that fail non-fatally
  * emit an EngineWarning instead of throwing.
@@ -101,6 +103,7 @@ function mergeEcosystems(
 export function aggregateScanResults(
   engineResults: Array<{ engineId: string; result: ScanResultJson }>,
   warnings: EngineWarning[] = [],
+  primaryEngineId: string = OSV_ENGINE_ID,
 ): AggregatedScanResult {
   if (engineResults.length === 0) {
     throw new Error('aggregateScanResults: at least one engine result is required');
@@ -111,13 +114,13 @@ export function aggregateScanResults(
     byId[engineId] = result;
   }
 
-  // Primary is always OSV — selected explicitly by engine id, never by array position.
-  const primaryRaw = byId[OSV_ENGINE_ID];
+  // Primary is selected by primaryEngineId — never by array position.
+  const primaryRaw = byId[primaryEngineId];
   if (!primaryRaw) {
     throw new Error(
-      `aggregateScanResults: OSV engine result is required but was not found. ` +
+      `aggregateScanResults: primary engine result ("${primaryEngineId}") not found. ` +
       `Received engine ids: [${engineResults.map((e) => e.engineId).join(', ')}]. ` +
-      `Ensure the OSV engine ran successfully before calling aggregateScanResults.`,
+      `Ensure the primary engine ran successfully before calling aggregateScanResults.`,
     );
   }
 

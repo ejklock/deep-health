@@ -54,9 +54,12 @@ export { emptyEcosystem } from '@core/types/scan';
 export { SonarQubeEngine } from './sonarqube-engine';
 
 /**
- * OSV-only vulnerability scan.
+ * Single-engine vulnerability scan using the configured primary scanner.
  *
- * This function is intentionally scoped to OSV (osv-scanner) only.
+ * The primary engine is resolved from `config.scanners?.primary` (defaults to
+ * OSV_ENGINE_ID when omitted). This allows callers to substitute a different
+ * primary engine via config without changing calling code.
+ *
  * It is used by the fix workflow (fix.ts) for the before/after vulnerability snapshots
  * that drive Gate A and the executive diff report.
  *
@@ -83,14 +86,15 @@ export async function runScanner(
   if (scannerRegistry === defaultScannerRegistry) {
     bootstrapDefaultEngines(scannerRegistry);
   }
-  const osvEngine = scannerRegistry.get(OSV_ENGINE_ID);
-  if (!osvEngine) {
+  const primaryId = config.scanners?.primary ?? OSV_ENGINE_ID;
+  const primaryEngine = scannerRegistry.get(primaryId);
+  if (!primaryEngine) {
     throw new Error(
-      `OSV scanner engine ("${OSV_ENGINE_ID}") is not registered in the scanner registry. ` +
-      'Register an OsvScannerEngine before calling runScanner.',
+      `Primary scanner engine ("${primaryId}") is not registered in the scanner registry. ` +
+      `Register a scanner engine with id "${primaryId}" before calling runScanner.`,
     );
   }
   // Detect git branch — never throws; null means "unknown / not applicable"
   const branch = await detectGitBranch(cwd, runner);
-  return osvEngine.scan({ runner, config, cwd, ecosystemRegistry: registry, branch });
+  return primaryEngine.scan({ runner, config, cwd, ecosystemRegistry: registry, branch });
 }

@@ -160,7 +160,7 @@ function resolveOnFailure(
 /**
  * Run all registered scanner engines sequentially.
  *
- * - The OSV engine (id === OSV_ENGINE_ID) is the primary — its result drives Gate A.
+ * - The primary engine (id === primaryEngineId) drives Gate A.
  *   Primary classification is by engine id, not by registration order.
  * - Subsequent engines (e.g. SonarQube) are secondary:
  *   - If they fail (throw OR return status='error') and on_failure='warn':
@@ -173,6 +173,7 @@ async function runAllEngines(
   engineRegistry: ScannerEngineRegistry,
   ctx: ScannerEngineContext,
   config: ProjectConfig,
+  primaryEngineId: string,
 ): Promise<{
   engineEntries: Array<{ engineId: string; result: ScanResultJson }>;
   warnings: EngineWarning[];
@@ -183,7 +184,7 @@ async function runAllEngines(
 
   for (const engine of engines) {
     // Primary classification is by engine id — not by registration order.
-    const isPrimary = engine.id === OSV_ENGINE_ID;
+    const isPrimary = engine.id === primaryEngineId;
 
     let result: ScanResultJson;
     try {
@@ -610,12 +611,12 @@ export async function runOrchestrator(
     bootstrapDefaultEngines(engineRegistry);
   }
 
-  // OSV disable guard: if OSV engine is not in registry, block update/fix flow
-  if (!engineRegistry.has("osv")) {
+  const primaryEngineId = config.scanners?.primary ?? OSV_ENGINE_ID;
+  if (!engineRegistry.has(primaryEngineId)) {
     throw new Error(
-      "OSV scanner engine is not registered. " +
-        "The OSV engine is required for automatic update/fix flow. " +
-        'Register an OsvScannerEngine with id "osv" before running the orchestrator.',
+      `Primary scanner engine "${primaryEngineId}" is not registered. ` +
+      `Register an engine with id "${primaryEngineId}" before running the orchestrator. ` +
+      `Available engines: [${engineRegistry.getAll().map((e) => e.id).join(', ')}]`,
     );
   }
 
@@ -639,14 +640,15 @@ export async function runOrchestrator(
     engineRegistry,
     ctx,
     config,
+    primaryEngineId,
   );
   result.warnings = warnings;
 
-  // Aggregate: primary is always first engine (OSV); secondary results go into engineResults
-  const aggregated = aggregateScanResults(engineEntries, warnings);
+  // Aggregate: primary engine result drives Gate A; secondary results go into engineResults
+  const aggregated = aggregateScanResults(engineEntries, warnings, primaryEngineId);
   result.aggregated = aggregated;
 
-  // Gate A always uses the OSV (primary) result
+  // Gate A always uses the primary engine result
   const scanResult = aggregated.primary;
   result.scan = scanResult;
 

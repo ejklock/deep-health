@@ -1322,7 +1322,7 @@ describe('runOrchestrator — primary-by-engine-id (registry-order independence)
         verbose: false,
         scannerRegistry: reg,
       }),
-    ).rejects.toThrow(/OSV scanner engine is not registered/);
+    ).rejects.toThrow(/Primary scanner engine "osv" is not registered/);
   });
 
   // ─── npm validation failure diagnostics ──────────────────────────────────

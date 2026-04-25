@@ -5,12 +5,14 @@
  * - OSV_ENGINE_ID is the canonical constant ('osv')
  * - Primary is always selected by engine id, never by array position
  * - Registry-order independence: OSV registered last still becomes primary
- * - Throws loudly when OSV result is missing from engineResults
+ * - Throws loudly when primary engine result is missing from engineResults
  * - Throws when engineResults is empty
- * - Ecosystem merging is driven by OSV result metadata (agent, $schema, branch)
+ * - Ecosystem merging is driven by primary result metadata (agent, $schema, branch)
  * - Secondary engine ecosystems are merged into primary ecosystems
  * - Warnings are passed through unchanged
  * - engineResults map contains all engine results indexed by id
+ * - primaryEngineId parameter selects a non-OSV engine as primary
+ * - Backward compat: omitting primaryEngineId uses OSV as primary
  */
 import { describe, it, expect } from 'vitest';
 import { aggregateScanResults, OSV_ENGINE_ID } from '@modules/scanner/aggregator';
@@ -79,14 +81,14 @@ describe('aggregateScanResults — guard clauses', () => {
     );
   });
 
-  it('throws loudly when OSV result is absent', () => {
+  it('throws loudly when primary engine result is absent (default: osv)', () => {
     const entries = [
       { engineId: 'sonarqube', result: makeSecondaryResult('sonarqube') },
       { engineId: 'custom-engine', result: makeSecondaryResult('custom-engine') },
     ];
 
     expect(() => aggregateScanResults(entries)).toThrow(
-      /OSV engine result is required but was not found/,
+      /primary engine result \("osv"\) not found/,
     );
   });
 
@@ -375,6 +377,65 @@ describe('aggregateScanResults — status propagation', () => {
     ];
     const aggregated = aggregateScanResults(entries);
     expect(aggregated.primary.status).toBe('error');
+  });
+});
+
+// ─── aggregateScanResults — primaryEngineId parameter ────────────────────────
+
+describe('aggregateScanResults — primaryEngineId parameter', () => {
+  it('backward compat: omitting primaryEngineId uses OSV as primary', () => {
+    const osvResult = makeOsvResult({ branch: 'main' });
+    const entries = [
+      { engineId: 'osv', result: osvResult },
+      { engineId: 'sonarqube', result: makeSecondaryResult('sonarqube') },
+    ];
+
+    const aggregated = aggregateScanResults(entries);
+
+    expect(aggregated.primary.agent).toBe('osv');
+    expect(aggregated.primary.branch).toBe('main');
+  });
+
+  it('uses a non-OSV engine as primary when primaryEngineId is specified', () => {
+    const snykResult = makeSecondaryResult('snyk', { branch: 'feature/snyk-scan' });
+    const osvResult = makeOsvResult();
+    const entries = [
+      { engineId: 'osv', result: osvResult },
+      { engineId: 'snyk', result: snykResult },
+    ];
+
+    const aggregated = aggregateScanResults(entries, [], 'snyk');
+
+    expect(aggregated.primary.agent).toBe('snyk');
+    expect(aggregated.primary.branch).toBe('feature/snyk-scan');
+  });
+
+  it('throws with helpful message containing the engine id when primaryEngineId is not found', () => {
+    const entries = [
+      { engineId: 'osv', result: makeOsvResult() },
+      { engineId: 'sonarqube', result: makeSecondaryResult('sonarqube') },
+    ];
+
+    expect(() => aggregateScanResults(entries, [], 'missing-engine')).toThrow(
+      /primary engine result \("missing-engine"\) not found/,
+    );
+  });
+
+  it('error message when primaryEngineId is missing includes received engine ids', () => {
+    const entries = [
+      { engineId: 'osv', result: makeOsvResult() },
+    ];
+
+    let caught: Error | undefined;
+    try {
+      aggregateScanResults(entries, [], 'ghost-engine');
+    } catch (err) {
+      caught = err as Error;
+    }
+
+    expect(caught).toBeDefined();
+    expect(caught!.message).toContain('ghost-engine');
+    expect(caught!.message).toContain('osv');
   });
 });
 

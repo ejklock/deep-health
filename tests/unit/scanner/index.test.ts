@@ -124,7 +124,7 @@ describe('scanner module index: bootstrap + runScanner', () => {
         makeEcosystemRegistry(),
         registry as any,
       ),
-    ).rejects.toThrow('OSV scanner engine ("osv") is not registered in the scanner registry');
+    ).rejects.toThrow('Primary scanner engine ("osv") is not registered in the scanner registry');
   });
 
   it('runScanner does not auto-bootstrap a custom injected scannerRegistry', async () => {

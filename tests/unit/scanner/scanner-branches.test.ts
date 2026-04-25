@@ -43,7 +43,7 @@ describe('runScanner() — branches', () => {
   it('throws when OSV engine is not registered in the provided registry', async () => {
     const emptyRegistry = new ScannerEngineRegistry();
     await expect(runScanner(makeRunner(), minimalConfig, '/cwd', undefined, emptyRegistry))
-      .rejects.toThrow('OSV scanner engine');
+      .rejects.toThrow('Primary scanner engine');
   });
 
   it('bootstraps default engines when using defaultScannerRegistry (lines 83-85)', async () => {

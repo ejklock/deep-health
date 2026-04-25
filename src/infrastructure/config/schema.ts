@@ -225,6 +225,7 @@ const ScannersConfigSchema = z
   .object({
     sonarqube: SonarQubeConfigSchema.optional(),
     osv: OsvScannerConfigSchema.optional(),
+    primary: z.string().optional(),
     npm: NpmRunnerConfigSchema.optional(),
     pip: PipRunnerConfigSchema.optional(),
     composer: ComposerRunnerConfigSchema.optional(),
