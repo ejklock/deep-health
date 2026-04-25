@@ -218,8 +218,13 @@ export async function runFixCommand(
 ): Promise<number> {
   const { runner } = ctx;
 
-  const useBranch = (opts.openPr || opts.createBranch) && !opts.dryRun;
-  const branchPrefix = opts.branchPrefix ?? 'fix/deep-health-';
+  // Resolve effective workflow options: CLI flags take precedence over config,
+  // config takes precedence over hardcoded defaults.
+  const wf = ctx.config.workflow;
+  const effectiveCreateBranch = opts.createBranch ?? wf?.create_branch ?? false;
+  const effectiveOpenPr = opts.openPr ?? wf?.open_pr ?? false;
+  const useBranch = (effectiveOpenPr || effectiveCreateBranch) && !opts.dryRun;
+  const branchPrefix = opts.branchPrefix ?? wf?.branch_prefix ?? 'fix/deep-health-';
 
   if (useBranch) {
     const originalBranch = await detectGitBranch(opts.cwd, runner);
@@ -250,8 +255,9 @@ export async function runFixCommand(
       throw err;
     }
 
-    if (opts.openPr && branchResult?.committed) {
-      await openPullRequest(runner, opts.cwd, branchResult.branch, opts.prTitle, ctx);
+    if (effectiveOpenPr && branchResult?.committed) {
+      const effectivePrTitle = opts.prTitle ?? wf?.pr_title;
+      await openPullRequest(runner, opts.cwd, branchResult.branch, effectivePrTitle, ctx);
     }
 
     return capturedExitCode;

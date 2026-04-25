@@ -316,6 +316,44 @@ export interface SafeUpdatePolicy {
   require_authorization_for_constraint_change: boolean;
 }
 
+/**
+ * Git / PR workflow configuration.
+ *
+ * Controls whether `deep-health fix` creates a git branch and optionally opens
+ * a pull request after applying updates.  All fields are optional — when absent
+ * the CLI defaults to running in-place (no branch, no PR).
+ *
+ * CLI flags (`--create-branch`, `--open-pr`, etc.) always override these values,
+ * so CI pipelines can override per-invocation without touching the config file.
+ */
+export interface WorkflowConfig {
+  /**
+   * When true, creates a new git branch before applying any changes and commits
+   * the result on success.  The branch is deleted and the original branch is
+   * restored if the pipeline fails.
+   * Default: false.
+   */
+  create_branch?: boolean;
+  /**
+   * When true, pushes the fix branch and opens a GitHub pull request via `gh`
+   * after a successful fix run.  Implies `create_branch: true`.
+   * Requires the `gh` CLI to be installed and authenticated.
+   * Default: false.
+   */
+  open_pr?: boolean;
+  /**
+   * Prefix used when generating the branch name.
+   * The full branch name is: `<branch_prefix><ISO-timestamp>`.
+   * Default: 'fix/deep-health-'.
+   */
+  branch_prefix?: string;
+  /**
+   * Pull request title.  When absent, a default title is generated from the
+   * project name.
+   */
+  pr_title?: string;
+}
+
 export interface ProjectConfig {
   /**
    * Schema version for forward-compatibility detection.
@@ -338,4 +376,5 @@ export interface ProjectConfig {
   cloud_storage?: CloudStorageConfig;
   scanners?: ScannersConfig;
   outputs?: OutputsConfig;
+  workflow?: WorkflowConfig;
 }

@@ -66,13 +66,27 @@ describe('ComposerDockerRunner._buildDockerArgs', () => {
     expect(args).toContain('/project');
   });
 
-  it('uses sh -lc to wrap command tokens', () => {
-    const runner = new ComposerDockerRunner({ projectDir: '/my/project', image: 'php:8.2-cli' });
+  it('uses sh -lc to wrap command tokens (non-php-cli image)', () => {
+    // composer:2 does not trigger the bootstrap preamble
+    const runner = new ComposerDockerRunner({ projectDir: '/my/project', image: 'composer:2' });
     const args = runner._buildDockerArgs(['php', '-v']);
     const shIndex = args.indexOf('sh');
     expect(shIndex).toBeGreaterThan(0);
     expect(args[shIndex + 1]).toBe('-lc');
     expect(args[shIndex + 2]).toBe('php -v');
+  });
+
+  it('prepends composer bootstrap when image is php:*-cli', () => {
+    // php:8.2-cli does not bundle composer — bootstrap installs it on-the-fly
+    const runner = new ComposerDockerRunner({ projectDir: '/my/project', image: 'php:8.2-cli' });
+    const args = runner._buildDockerArgs(['composer', 'install']);
+    const shIndex = args.indexOf('sh');
+    expect(shIndex).toBeGreaterThan(0);
+    expect(args[shIndex + 1]).toBe('-lc');
+    const shellCmd = args[shIndex + 2];
+    expect(shellCmd).toContain('getcomposer.org/installer');
+    expect(shellCmd).toContain('/usr/local/bin');
+    expect(shellCmd).toMatch(/&&\s*composer install$/);
   });
 
   it('falls back to COMPOSER_DEFAULT_IMAGE when no image is specified', () => {

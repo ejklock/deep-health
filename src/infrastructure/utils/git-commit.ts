@@ -43,10 +43,17 @@ export async function createBranchAndCommit(
   try {
     await fn();
   } catch (err) {
-    // Pipeline failed — roll back to original branch
+    // Pipeline failed — switch back to original branch and delete the empty fix branch
     logger.warn(`Fix pipeline failed — rolling back to ${originalBranch ?? 'previous state'}`);
     if (originalBranch) {
       await runner.runArgs('git', ['checkout', originalBranch], { cwd });
+      // Delete the fix branch; it has no commits so force-delete is safe
+      const deleteResult = await runner.runArgs('git', ['branch', '-D', branchName], { cwd });
+      if (deleteResult.exitCode === 0) {
+        logger.info(`Deleted empty branch: ${branchName}`);
+      } else {
+        logger.warn(`Could not delete branch ${branchName}: ${deleteResult.stderr || deleteResult.stdout}`);
+      }
     }
     throw err;
   }

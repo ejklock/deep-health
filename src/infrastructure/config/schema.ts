@@ -232,6 +232,32 @@ const ScannersConfigSchema = z
   })
   .strict();
 
+const WorkflowConfigSchema = z
+  .object({
+    /**
+     * Create a git branch before applying fixes, commit on success, and roll
+     * back (delete branch + restore original) on failure.
+     * Default: false.
+     */
+    create_branch: z.boolean().optional(),
+    /**
+     * Push the fix branch and open a GitHub PR via the `gh` CLI after a
+     * successful run.  Implies create_branch.  Requires `gh` installed and
+     * authenticated.
+     * Default: false.
+     */
+    open_pr: z.boolean().optional(),
+    /**
+     * Prefix for the generated branch name.
+     * Full name: <branch_prefix><ISO-timestamp>.
+     * Default: 'fix/deep-health-'.
+     */
+    branch_prefix: z.string().optional(),
+    /** Pull request title override. Auto-generated when absent. */
+    pr_title: z.string().optional(),
+  })
+  .strict();
+
 const CloudStorageConfigSchema = z
   .object({
     provider: z.enum(["google_drive"]),
@@ -281,6 +307,7 @@ export const ProjectConfigSchema = z
     cloud_storage: CloudStorageConfigSchema.optional(),
     scanners: ScannersConfigSchema.optional(),
     outputs: OutputsConfigSchema.optional(),
+    workflow: WorkflowConfigSchema.optional(),
   })
   .strict()
   .superRefine((data, ctx) => {

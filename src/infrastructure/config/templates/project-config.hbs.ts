@@ -173,6 +173,13 @@ scanners:
 {{/if}}
 {{/if}}
 
+# workflow:                               # optional — git/PR automation for fix runs
+#   create_branch: false                 # create a branch + commit before applying fixes
+#   open_pr: false                       # push branch and open a GitHub PR (implies create_branch)
+#                                        #   requires the gh CLI installed and authenticated
+#   branch_prefix: 'fix/deep-health-'   # prefix for the generated branch name
+#   pr_title: 'fix: apply safe dependency updates'  # custom PR title
+
 # cloud_storage:                         # optional — upload reports to cloud storage after generation
 #   provider: google_drive
 #   folder_id: 'YOUR_GOOGLE_DRIVE_FOLDER_ID'   # set automatically by 'deep-health cloud-setup'

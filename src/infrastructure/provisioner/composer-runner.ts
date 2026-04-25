@@ -8,6 +8,15 @@ import { COMPOSER_DEFAULT_IMAGE } from './php-profiles';
 
 const execFileAsync = promisify(execFile);
 
+// Bootstrap command injected when the resolved image is a bare `php:*-cli` image
+// (which does not bundle composer). Downloads and installs composer into the
+// container's PATH before any composer command runs.
+// Using the official installer: https://getcomposer.org/download/
+const COMPOSER_BOOTSTRAP =
+  `php -r "copy('https://getcomposer.org/installer','/tmp/cs.php');" ` +
+  `&& php /tmp/cs.php --quiet --install-dir=/usr/local/bin --filename=composer ` +
+  `&& rm -f /tmp/cs.php`;
+
 // ─── ComposerDockerRunnerOptions ─────────────────────────────────────────────
 
 export interface ComposerDockerRunnerOptions {
@@ -224,10 +233,21 @@ export class ComposerDockerRunner implements EphemeralContainerRunner<string[]> 
   // ─── Internal helpers ─────────────────────────────────────────────────────
 
   /**
+   * Returns true when the resolved image is a bare `php:*-cli` image that does
+   * not bundle composer. In that case the COMPOSER_BOOTSTRAP preamble is injected
+   * before every command so `composer` is available on PATH.
+   */
+  private _isPhpCliImage(): boolean {
+    return /^php:\d/.test(this.image) && this.image.endsWith('-cli');
+  }
+
+  /**
    * Assemble the full `docker run` argument array.
    * Exposed for testability — does not invoke Docker.
    *
    * Commands are passed via `sh -lc` to allow shell-level features.
+   * When using a bare `php:*-cli` image, the COMPOSER_BOOTSTRAP preamble is
+   * prepended to install composer on-the-fly before the actual command runs.
    */
   _buildDockerArgs(cmdTokens: string[]): string[] {
     const args: string[] = ['run', '--rm'];
@@ -244,7 +264,11 @@ export class ComposerDockerRunner implements EphemeralContainerRunner<string[]> 
       args.push('--add-host', 'host.docker.internal:host-gateway');
     }
 
-    args.push(this.image, 'sh', '-lc', cmdTokens.join(' '));
+    const shellCmd = this._isPhpCliImage()
+      ? `${COMPOSER_BOOTSTRAP} && ${cmdTokens.join(' ')}`
+      : cmdTokens.join(' ');
+
+    args.push(this.image, 'sh', '-lc', shellCmd);
 
     return args;
   }
@@ -254,6 +278,8 @@ export class ComposerDockerRunner implements EphemeralContainerRunner<string[]> 
    * Exposed for testability — does not invoke Docker.
    *
    * `command` is passed as a single argv element to `sh -c` — not interpolated.
+   * When using a bare `php:*-cli` image, the COMPOSER_BOOTSTRAP preamble is
+   * prepended so composer is available before the command runs.
    */
   _buildShellDockerArgs(command: string, cwd?: string): string[] {
     const args: string[] = ['run', '--rm'];
@@ -270,8 +296,11 @@ export class ComposerDockerRunner implements EphemeralContainerRunner<string[]> 
     }
 
     args.push(this.image);
-    // command is a SINGLE argv element passed to sh -c — not interpolated
-    args.push('sh', '-c', command);
+    const shellCmd = this._isPhpCliImage()
+      ? `${COMPOSER_BOOTSTRAP} && ${command}`
+      : command;
+    // shellCmd is a SINGLE argv element passed to sh -c — not interpolated
+    args.push('sh', '-c', shellCmd);
 
     return args;
   }
