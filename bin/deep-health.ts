@@ -98,7 +98,11 @@ commonOptions(
     .option(
       "--authorize-breaking <ecosystemId...>",
       "Authorize breaking-change updates for the given ecosystem id(s). Example: --authorize-breaking composer npm",
-    ),
+    )
+    .option("--create-branch", "Create a git branch before applying fixes and commit changes on success")
+    .option("--branch-prefix <prefix>", "Branch name prefix (default: fix/deep-health-)", "fix/deep-health-")
+    .option("--open-pr", "Create a GitHub pull request after fix (implies --create-branch; requires gh CLI)")
+    .option("--pr-title <title>", "Pull request title (default: auto-generated)"),
 ).action(async (opts: FixCommandOptions) => {
   await runCliAction(() => createRunContext(opts).then((ctx) => runFixCommand(ctx, opts)));
 });

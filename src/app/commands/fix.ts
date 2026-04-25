@@ -17,6 +17,10 @@ import {
 } from "@reporting/sonarqube-report";
 import type { RunContext } from "@app/run-context";
 import { writeAuditTrail, resolveCliVersion } from "@app/audit-trail";
+import { createBranchAndCommit, buildBranchName } from "@infra/utils/git-commit";
+import type { CreateBranchResult } from "@infra/utils/git-commit";
+import { detectGitBranch } from "@infra/utils/git-branch";
+import type { CommandRunner } from "@core/types/common";
 
 export interface FixCommandOptions {
   config: string;
@@ -33,25 +37,22 @@ export interface FixCommandOptions {
    * Populated by --authorize-breaking <id...>
    */
   authorizeBreaking?: string[];
+  /** Create a git branch before applying fixes and commit changes on success */
+  createBranch?: boolean;
+  /** Branch name prefix (default: 'fix/deep-health-') */
+  branchPrefix?: string;
+  /** Create a GitHub pull request after fix (implies createBranch; requires gh CLI) */
+  openPr?: boolean;
+  /** Pull request title (default: auto-generated) */
+  prTitle?: string;
 }
 
 /**
- * Runs the full fix workflow: scan + ecosystem updates + reports.
- * Returns an exit code:
- *   0 — success
- *   1 — overall status error
- *
- * Scan architecture note:
- * - `runScanner` (called below as scanAfter) is OSV-ONLY.
- *   It produces the post-fix vulnerability snapshot used for the executive before/after diff.
- * - The before-fix snapshot (`scanBefore`) comes from `result.scan` returned by `runOrchestrator`,
- *   which performs the scan internally as part of Gate A. No standalone pre-fix scan is needed.
- * - SonarQube results come from the orchestrator pipeline (runOrchestrator) via
- *   `result.aggregated.engineResults`. They are NOT included in scanBefore/scanAfter.
- * - runOrchestrator is called exactly once and owns the full SonarQube execution lifecycle
- *   (including managed-mode provisioning). fix.ts never invokes SonarQube directly.
+ * Core fix pipeline: scan + ecosystem updates + reports.
+ * Extracted from runFixCommand so it can be called inside a branch/commit wrapper.
+ * Returns an exit code: 0 = success, 1 = error or pending vulns.
  */
-export async function runFixCommand(
+async function runFixPipeline(
   ctx: RunContext,
   opts: FixCommandOptions,
 ): Promise<number> {
@@ -186,4 +187,133 @@ export async function runFixCommand(
   if (result.overallStatus === "error") return 1; // real crash/failure
   if (result.hasPendingVulns) return 1;           // scan clean-exit, vulns remain
   return 0;
+}
+
+/**
+ * Runs the full fix workflow: scan + ecosystem updates + reports.
+ * Returns an exit code:
+ *   0 — success
+ *   1 — overall status error
+ *
+ * When --create-branch or --open-pr is requested (and not --dry-run):
+ *   - Detects the current branch.
+ *   - Creates a new branch before any mutations.
+ *   - Runs the fix pipeline.
+ *   - Commits all changes on success; rolls back to original branch on failure.
+ *   - If --open-pr: pushes the branch and opens a GitHub pull request via `gh`.
+ *
+ * Scan architecture note:
+ * - `runScanner` (called below as scanAfter) is OSV-ONLY.
+ *   It produces the post-fix vulnerability snapshot used for the executive before/after diff.
+ * - The before-fix snapshot (`scanBefore`) comes from `result.scan` returned by `runOrchestrator`,
+ *   which performs the scan internally as part of Gate A. No standalone pre-fix scan is needed.
+ * - SonarQube results come from the orchestrator pipeline (runOrchestrator) via
+ *   `result.aggregated.engineResults`. They are NOT included in scanBefore/scanAfter.
+ * - runOrchestrator is called exactly once and owns the full SonarQube execution lifecycle
+ *   (including managed-mode provisioning). fix.ts never invokes SonarQube directly.
+ */
+export async function runFixCommand(
+  ctx: RunContext,
+  opts: FixCommandOptions,
+): Promise<number> {
+  const { runner } = ctx;
+
+  const useBranch = (opts.openPr || opts.createBranch) && !opts.dryRun;
+  const branchPrefix = opts.branchPrefix ?? 'fix/deep-health-';
+
+  if (useBranch) {
+    const originalBranch = await detectGitBranch(opts.cwd, runner);
+    const branchName = buildBranchName(branchPrefix);
+
+    let capturedExitCode = 0;
+    let branchResult: CreateBranchResult | null = null;
+
+    try {
+      branchResult = await createBranchAndCommit(
+        runner,
+        opts.cwd,
+        originalBranch,
+        branchName,
+        'fix: apply safe dependency updates [deep-health]',
+        async () => {
+          capturedExitCode = await runFixPipeline(ctx, opts);
+          if (capturedExitCode !== 0) {
+            throw new Error(`__pipeline_exit_${capturedExitCode}`);
+          }
+        },
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '';
+      if (msg.startsWith('__pipeline_exit_')) {
+        return capturedExitCode;
+      }
+      throw err;
+    }
+
+    if (opts.openPr && branchResult?.committed) {
+      await openPullRequest(runner, opts.cwd, branchResult.branch, opts.prTitle, ctx);
+    }
+
+    return capturedExitCode;
+  }
+
+  return runFixPipeline(ctx, opts);
+}
+
+/**
+ * Push the branch and open a GitHub pull request via the `gh` CLI.
+ * Requires the `gh` CLI to be installed and authenticated.
+ * Exits with code 3 if `gh` is not available.
+ */
+async function openPullRequest(
+  runner: CommandRunner,
+  cwd: string,
+  branchName: string,
+  prTitle: string | undefined,
+  ctx: RunContext,
+): Promise<void> {
+  const { config } = ctx;
+  const cliVersion = await resolveCliVersion();
+
+  // Check gh CLI is available
+  const ghCheck = await runner.runArgs('gh', ['--version'], { cwd });
+  if (ghCheck.exitCode !== 0) {
+    process.stderr.write(
+      '[deep-health] --open-pr requires the GitHub CLI (gh). ' +
+      'Install it from https://cli.github.com and run: gh auth login\n',
+    );
+    process.exit(3);
+  }
+
+  // Push branch
+  const pushResult = await runner.runArgs('git', ['push', 'origin', branchName], { cwd });
+  if (pushResult.exitCode !== 0) {
+    throw new Error(`git push failed: ${pushResult.stderr || pushResult.stdout}`);
+  }
+
+  const title = prTitle ?? `fix: apply safe dependency updates for ${config.project.name}`;
+
+  const body = [
+    `## Summary`,
+    ``,
+    `Automated dependency update by deep-health v${cliVersion}.`,
+    ``,
+    `**Project:** ${config.project.client} / ${config.project.name}`,
+    `**Ecosystems:** ${config.ecosystems.map((e) => e.id).join(', ')}`,
+    ``,
+    `🤖 Co-authored with deep-health v${cliVersion}`,
+  ].join('\n');
+
+  const prResult = await runner.runArgs(
+    'gh',
+    ['pr', 'create', '--title', title, '--body', body],
+    { cwd },
+  );
+
+  if (prResult.exitCode !== 0) {
+    throw new Error(`gh pr create failed: ${prResult.stderr || prResult.stdout}`);
+  }
+
+  const prUrl = prResult.stdout.trim();
+  process.stdout.write(`[deep-health] Pull request created: ${prUrl}\n`);
 }
