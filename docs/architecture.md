@@ -272,21 +272,31 @@ flowchart TD
 ```mermaid
 classDiagram
     class ScannerEngine {
+        <<interface>>
         +string id
         +string name
-        +scan(ctx ScannerEngineContext) Promise~ScanResultJson~
+        +assertAvailable(ctx) Promise~void~
+        +scan(ctx) Promise~ScanResultJson~
+    }
+
+    class ExternalScannerAdapter {
+        <<abstract>>
+        +abstract id string
+        +abstract name string
+        +abstract assertAvailable(ctx) Promise~void~
+        +abstract fetchVulnerabilities(ctx) Promise~RawVulnerability[]~
+        +scan(ctx) Promise~ScanResultJson~
+        #buildScanResult(vulns, ctx) ScanResultJson
     }
 
     class OsvScannerEngine {
         +id = "osv"
         +name = "OSV Scanner"
-        +scan(ctx) Promise~ScanResultJson~
     }
 
     class SonarQubeEngine {
         +id = "sonarqube"
         +name = "SonarQube"
-        +scan(ctx) Promise~ScanResultJson~
     }
 
     class ScannerEngineRegistry {
@@ -298,13 +308,14 @@ classDiagram
 
     ScannerEngine <|-- OsvScannerEngine
     ScannerEngine <|-- SonarQubeEngine
+    ScannerEngine <|-- ExternalScannerAdapter
     ScannerEngineRegistry o-- ScannerEngine
 ```
 
 **Primary vs secondary engine:**
 
-- **Primary** = engine with `id === 'osv'`. Its result drives Gate A. Any failure is fatal.
-- **Secondary** = all other engines (e.g. SonarQube). Failures are governed by `on_failure: 'warn' | 'fail'` (default: `'warn'` for SonarQube, `'fail'` for unknown engines).
+- **Primary** = engine whose `id` matches `config.scanners.primary` (defaults to `'osv'` when not configured). Its result drives Gate A. Any failure is fatal.
+- **Secondary** = all other registered engines. Failures are governed by `on_failure: 'warn' | 'fail'` (default: `'warn'` for SonarQube, `'fail'` for unknown engines).
 
 ---
 
@@ -328,6 +339,21 @@ flowchart LR
     COMP_RES --> COMP_VER["Version precedence:\n1. scanners.composer.image\n2. scanners.composer.runtime_version\n3. plugin.inferVersion()\n4. composer:2 (fallback)"]
     COMP_VER --> COMP_DOCKER["ComposerDockerRunner\n→ ComposerContainerCommandRunner"]
 ```
+
+### Validation command routing (Task 3.5)
+
+Container runners now intercept **all** validation commands, not just ecosystem-binary ones:
+
+| Command | Routed to |
+|---|---|
+| `npm test` | Ecosystem container (npm) |
+| `jest --coverage` | Ecosystem container via `runShell()` |
+| `php artisan test` | Ecosystem container via `runShell()` |
+| `pytest -x` | Ecosystem container via `runShell()` |
+| `git status` | Host (always) |
+| `gh pr create` | Host (always) |
+
+`runShell(command)` calls `docker run ... sh -c "<command>"` with the command passed as a **single argv element** — not interpolated into a larger shell string.
 
 ---
 
@@ -510,3 +536,58 @@ In your project's `deep-health.config.json`:
 ```
 
 The `primary` value must match the engine's `id` property. When omitted, the default is `"osv"`. The primary engine's result drives Gate A — any failure is fatal to the pipeline.
+
+---
+
+## Git/PR Workflow
+
+`src/infrastructure/utils/git-commit.ts` provides the transactional branch+commit wrapper used by `fix.ts` when `--create-branch` or `--open-pr` is requested.
+
+```mermaid
+flowchart TD
+    START([fix --create-branch called]) --> DETECT
+    DETECT["detectGitBranch()\nRecord original branch"]
+    DETECT --> CREATE_BR
+    CREATE_BR["git checkout -b fix/deep-health-<timestamp>\n(runArgs — no shell)"]
+    CREATE_BR --> PIPELINE
+    PIPELINE["runFixPipeline()\nScan + update + report"]
+    PIPELINE -- success --> COMMIT
+    PIPELINE -- failure --> ROLLBACK
+    ROLLBACK["git checkout <original>\nRe-throw error"]
+    COMMIT["git add -A\ngit commit -m 'fix: apply safe dependency updates'"]
+    COMMIT --> OPEN_PR{--open-pr\nrequested?}
+    OPEN_PR -- yes --> PUSH["git push origin <branch>"]
+    PUSH --> PR["gh pr create --title ... --body ..."]
+    PR --> URL["Print PR URL to stdout"]
+    OPEN_PR -- no --> DONE([return 0])
+    URL --> DONE
+```
+
+**Key invariant:** `git checkout -b <branchName>` always uses `runner.runArgs('git', ['checkout', '-b', branchName])` — never string interpolation — because branch names are external data that may contain shell metacharacters.
+
+---
+
+## Production Hardening
+
+### Retry with backoff
+
+`src/infrastructure/utils/retry.ts` exports `withRetry<T>(fn, opts)` — wraps all four Docker provisioner `run()` calls. Default: 3 attempts, 1s/2s/4s exponential backoff.
+
+Retry triggers only on transient Docker errors (`docker pull`, `network timeout`, `connection refused`, `exit code 125`). Gate failures and business logic errors are never retried.
+
+### Validation command timeouts
+
+`ValidationCommandConfig.timeout_seconds` defaults to `300` (5 min) when not specified. Commands that hang past the limit are killed and reported as failed.
+
+### Config versioning
+
+`config_version: '1'` is an optional field in `project-config.yml`. Unsupported versions produce a user-friendly error:
+
+```
+Unsupported config_version "2". This version of deep-health supports config_version "1".
+Run "deep-health init --force" to regenerate a compatible config.
+```
+
+### Optional googleapis
+
+`googleapis` is in `optionalDependencies` and excluded from the bundle. Users who don't use Google Drive don't install it. `cloud-setup` and Drive upload show a clear install instruction if the package is absent.

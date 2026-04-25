@@ -118,6 +118,10 @@ Options:
   -v, --verbose                   Verbose output
   --json                          Output results as JSON
   -o, --output <path>             Write report to file
+  --create-branch                 Create a git branch before applying fixes, commit on success
+  --branch-prefix <prefix>        Branch name prefix (default: fix/deep-health-)
+  --open-pr                       Open a GitHub PR after fix (implies --create-branch; requires gh CLI)
+  --pr-title <title>              Pull request title (default: auto-generated)
 ```
 
 ### `executive-report`
@@ -148,47 +152,40 @@ deep-health cloud-setup
 `deep-health init` generates a starter `project-config.yml`. Here is a full annotated example:
 
 ```yaml
+config_version: '1'
+
 project:
   name: 'My Project'
   client: 'Acme Corp'
 
-runtime:
-  php: '8.1'
-  python: '3.11'               # optional — required when using pip ecosystem
-  node: '20.x'
-  package_manager_php: 'composer'
-  package_manager_js: 'npm'
-  package_manager_python: 'pip' # optional — pip | pipenv | poetry (pip default)
-  execution: 'docker'          # docker | local
-  docker_service: 'app'        # docker-compose service name (if using docker)
-  test_command: 'php artisan test --compact'
-  build_commands:
-    frontend: 'npm run build'
-    backend: 'npm run build:backend'
+ecosystems:
+  - id: 'npm'
+    fixer: 'osv'                    # osv | npm-audit | osv-then-audit
+    validationCommands:
+      - name: 'tests'
+        command: 'npm test'
+        timeout_seconds: 120        # optional, default: 300 (5 min)
+    advisors:
+      - name: 'audit'
+        command: 'npm audit --json'
+        format: 'json'
+  - id: 'composer'
+    fixer: 'osv'
+    validationCommands:
+      - name: 'tests'
+        command: 'php artisan test'
 
 # Packages that must never be updated beyond their stated constraint.
 # Any update requiring a constraint change needs explicit --authorize-breaking.
 protected_packages:
-  composer:
-    - package: 'laravel/framework'
-      constraint: '^10.8'
-      reason: 'Major upgrade to Laravel 11 requires a dedicated project'
-    - package: 'livewire/livewire'
-      constraint: '^2.12'
-      reason: 'Livewire 3 has breaking API changes'
-
   npm:
     - package: 'tailwindcss'
       constraint: '^3.3.3'
       reason: 'Tailwind v4 has breaking config and migration requirements'
-
-  pip:
-    - package: 'django'
-      constraint: '>=4.2,<5.0'
-      reason: 'Django 5.x has breaking changes; requires dedicated migration project'
-    - package: 'celery'
-      constraint: '>=5.3,<6.0'
-      reason: 'Confirm broker compatibility before any major version change'
+  composer:
+    - package: 'laravel/framework'
+      constraint: '^10.8'
+      reason: 'Major upgrade to Laravel 11 requires a dedicated project'
 
 safe_update_policy:
   # Patch and minor updates within current constraints are applied automatically
@@ -196,6 +193,36 @@ safe_update_policy:
   allow_patch_and_minor_within_constraints: true
   # Constraint changes always require explicit human authorization.
   require_authorization_for_constraint_change: true
+
+conflict_resolution: 'manual'
+
+# Optional: configure scanner engines
+scanners:
+  primary: 'osv'          # engine id to use as Gate A source (default: 'osv')
+  osv:
+    runner: 'docker'      # docker | local | auto
+  npm:
+    mode: 'docker'        # docker | local | auto
+    runtime_version: '20' # override Node version for Docker image
+  composer:
+    mode: 'docker'
+    runtime_version: '8.2'
+  pip:
+    mode: 'docker'
+    runtime_version: '3.11'
+  sonarqube:
+    enabled: false        # set true to enable SonarQube integration
+
+# Optional: report output
+outputs:
+  formats: ['markdown']
+  dir: 'reports'
+
+# Optional: Google Drive report distribution
+cloud_storage:
+  provider: 'google_drive'
+  folder_id: 'YOUR_FOLDER_ID'
+  require_upload: false   # set true to fail CI when upload fails
 ```
 
 ---
@@ -210,6 +237,30 @@ safe_update_policy:
 | `3` | Configuration error |
 
 These codes make `deep-health` suitable for use in CI/CD pipelines.
+
+---
+
+## Git/PR Workflow
+
+By default, `deep-health fix` mutates the working tree directly. Use `--create-branch` to wrap the fix in a reviewable Git branch:
+
+```bash
+# Create a branch, apply fixes, commit on success
+deep-health fix --create-branch
+
+# Create a branch AND open a GitHub PR (requires gh auth login)
+deep-health fix --open-pr
+
+# Custom branch prefix
+deep-health fix --create-branch --branch-prefix deps/security-fix-
+```
+
+**Branch lifecycle:**
+- Branch is created BEFORE any mutation: `fix/deep-health-<ISO-timestamp>`
+- On success: changes are staged and committed as `fix: apply safe dependency updates [deep-health]`
+- On failure: original branch is restored; no commit is made
+
+**`--open-pr` prerequisites:** [GitHub CLI](https://cli.github.com/) installed and authenticated (`gh auth login`). The PR body includes ecosystem summary and deep-health version attribution.
 
 ---
 
@@ -239,6 +290,8 @@ jobs:
           node-version: '22'
       - run: npm install -g deep-health
       - run: deep-health scan --json --output scan-results.json
+      # To apply fixes and open a PR automatically (requires GITHUB_TOKEN and gh CLI):
+      # - run: deep-health fix --open-pr
       - uses: actions/upload-artifact@v4
         with:
           name: scan-results
@@ -282,10 +335,16 @@ Output goes to `dist/`.
 src/
 ├── app/           # CLI commands and I/O
 ├── core/          # Domain types, gates, and safe-update policy
-├── infrastructure # Config loading, Docker runners, executors
+├── infrastructure/
+│   ├── config/    # Config loading, Zod schema, and init templates
+│   ├── executor/  # Container command runners (npm, pip, composer)
+│   │              # Non-ecosystem validation commands routed via runShell()
+│   ├── provisioner/ # Docker runners with retry backoff (withRetry)
+│   ├── storage/   # Local + Google Drive (optional dependency)
+│   └── utils/     # logger, git-branch, git-commit, retry, docker-platform
 ├── modules/
-│   ├── ecosystem/ # npm and Composer plugins (updaters, fixers, validators)
-│   └── scanner/   # OSV and SonarQube scan engines
+│   ├── ecosystem/ # npm, composer, pip plugins
+│   └── scanner/   # OSV, SonarQube engines; ExternalScannerAdapter base class
 ├── orchestration/ # Main workflow coordinator
 └── reporting/     # HTML report generation (Handlebars + i18n)
 ```
@@ -296,19 +355,16 @@ Ecosystem plugins and scanner engines are registered at runtime, making it strai
 
 ## Security
 
-### SEC-004 — Trust boundary for user-configured command strings
+### SEC-004 — Validation command execution
 
-`deep-health` executes several command strings that are **read directly from `project-config.yml`** and are therefore under full control of the **repository owner**:
+`validationCommands` and advisor commands from `project-config.yml` are now executed **inside the ecosystem's Docker container** (node, php, python) via `sh -c`, not on the host. This means:
 
-| Config field | Used by | Notes |
-|---|---|---|
-| `runtime.test_command` | fix workflow — post-update validation | Shell string; repo-owner controlled |
-| `ecosystems[].validationCommands[]` | fix workflow — per-ecosystem validation | Shell string(s); repo-owner controlled |
-| `ecosystems[].advisors[].command` | advisor step — informational only | Shell string; repo-owner controlled |
+- `jest --coverage`, `php artisan test`, `pytest` — run inside the project's pinned runtime container
+- Only commands starting with `git`, `gh`, or `open` are exempted and run on the host
 
-**Trust boundary:** these strings are treated as trusted configuration supplied by the repository owner (the same person who checks in `project-config.yml`).  They are **not** attacker-controlled in a normal deployment — an attacker who can modify `project-config.yml` already has write access to the repository.
+**Trust boundary:** these strings are authored by the repository owner (same person who checks in `project-config.yml`), not by external sources. Variable data (package names, versions, CVE ids) is never interpolated into validation command strings.
 
-**OAuth browser opener** (`cloud-setup`): the Google OAuth URL is opened via `execFile` with `shell: false`, passing the URL as a discrete `argv` element.  Shell metacharacters in the URL cannot cause command injection because no shell is involved in the spawn.
+**OAuth browser opener** (`cloud-setup`): the Google OAuth URL is opened via `execFile` with `shell: false`, passing the URL as a discrete `argv` element. Shell metacharacters in the URL cannot cause command injection because no shell is involved in the spawn.
 
 > If you use `deep-health` in a context where `project-config.yml` is written by untrusted parties, treat those command strings as untrusted input and review them before running the tool.
 
