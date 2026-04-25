@@ -137,3 +137,52 @@ describe('createGoogleDriveProvider()', () => {
     expect(provider).toBeInstanceOf(GoogleDriveProvider);
   });
 });
+
+describe('GoogleDriveProvider.upload() — googleapis not installed', () => {
+  // This suite re-imports the module with googleapis mocked to throw,
+  // simulating the package being absent (optional dependency not installed).
+  let OriginalGoogleDriveProvider: typeof GoogleDriveProvider;
+
+  beforeEach(async () => {
+    // Stash the real constructor so we can restore the module after this suite.
+    OriginalGoogleDriveProvider = GoogleDriveProvider;
+    vi.resetModules();
+    // Override googleapis to simulate it being absent.
+    vi.doMock('googleapis', () => {
+      throw new Error("Cannot find module 'googleapis'");
+    });
+    vi.doMock('@infra/storage/google-drive-auth', () => ({
+      loadStoredTokens: vi.fn().mockResolvedValue(mockTokens),
+      saveTokens: vi.fn().mockResolvedValue(undefined),
+    }));
+  });
+
+  afterEach(() => {
+    vi.resetModules();
+    // Restore the module-level mock so subsequent suites still work.
+    vi.doMock('googleapis', () => ({
+      google: {
+        auth: { OAuth2: mockOAuth2 },
+        drive: vi.fn(() => ({
+          files: { create: mockFilesCreate },
+        })),
+      },
+    }));
+  });
+
+  it('throws a helpful error message when googleapis is not installed', async () => {
+    const { GoogleDriveProvider: FreshProvider } = await import('@infra/storage/google-drive');
+    const provider = new FreshProvider('folder123', mockTokens);
+    await expect(provider.upload('report.md', '# content')).rejects.toThrow(
+      'Install it with: npm install googleapis',
+    );
+  });
+
+  it('throws an error that mentions the googleapis package name', async () => {
+    const { GoogleDriveProvider: FreshProvider } = await import('@infra/storage/google-drive');
+    const provider = new FreshProvider('folder123', mockTokens);
+    await expect(provider.upload('report.md', '# content')).rejects.toThrow(
+      '"googleapis" package',
+    );
+  });
+});

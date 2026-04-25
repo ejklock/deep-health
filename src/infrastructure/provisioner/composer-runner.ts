@@ -2,6 +2,7 @@ import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { logger } from '../utils/logger';
 import { needsHostGateway, resolvePlatform } from '../utils/docker-platform';
+import { withRetry, isDockerTransientError } from '../utils/retry';
 import type { EphemeralContainerRunner, ContainerRunResult } from './types';
 import { COMPOSER_DEFAULT_IMAGE } from './php-profiles';
 
@@ -140,18 +141,44 @@ export class ComposerDockerRunner implements EphemeralContainerRunner<string[]> 
 
     logger.debug(`ComposerDockerRunner: docker ${dockerArgs.join(' ')}`);
 
+    let containerResult: ContainerRunResult;
     try {
-      const { stdout, stderr } = await execFileAsync('docker', dockerArgs);
-      logger.debug('ComposerDockerRunner: composer container exited 0');
-      return { exitCode: 0, stdout, stderr };
+      containerResult = await withRetry(
+        async (): Promise<ContainerRunResult> => {
+          try {
+            const { stdout, stderr } = await execFileAsync('docker', dockerArgs);
+            logger.debug('ComposerDockerRunner: composer container exited 0');
+            return { exitCode: 0, stdout, stderr };
+          } catch (err: unknown) {
+            const spawnErr = err as {
+              code?: number;
+              stdout?: string;
+              stderr?: string;
+              message?: string;
+            };
+            const exitCode = typeof spawnErr.code === 'number' ? spawnErr.code : 1;
+            const stdout = spawnErr.stdout ?? '';
+            const stderr = spawnErr.stderr ?? spawnErr.message ?? String(err);
+            throw Object.assign(
+              new Error(stderr || `docker exited ${exitCode}`),
+              { stdout, stderr, exitCode },
+            );
+          }
+        },
+        { retryOn: isDockerTransientError },
+      );
     } catch (err: unknown) {
-      const spawnErr = err as { code?: number; stdout?: string; stderr?: string; message?: string };
-      const exitCode = typeof spawnErr.code === 'number' ? spawnErr.code : 1;
-      const stdout = spawnErr.stdout ?? '';
-      const stderr = spawnErr.stderr ?? spawnErr.message ?? String(err);
-      logger.debug(`ComposerDockerRunner: composer container exited ${exitCode}`);
-      return { exitCode, stdout, stderr };
+      const e = err as { exitCode?: number; stdout?: string; stderr?: string; message?: string };
+      logger.debug(
+        `ComposerDockerRunner: composer container exited ${typeof e.exitCode === 'number' ? e.exitCode : 1}`,
+      );
+      containerResult = {
+        exitCode: typeof e.exitCode === 'number' ? e.exitCode : 1,
+        stdout: e.stdout ?? '',
+        stderr: e.stderr ?? e.message ?? String(err),
+      };
     }
+    return containerResult;
   }
 
   // ─── Internal helpers ─────────────────────────────────────────────────────

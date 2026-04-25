@@ -9,6 +9,8 @@ export default `\
 #   Any update requiring a constraint change needs explicit per-package authorization.
 # safe_update_policy: patch/minor updates within existing constraints are auto-safe.
 
+config_version: '1'
+
 project:
   name: '{{projectName}}'
   client: '{{client}}'

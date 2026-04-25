@@ -88,7 +88,7 @@ export async function runValidations(
       stream: true,
       ...(cmd.timeout_seconds !== undefined
         ? { timeout: cmd.timeout_seconds * 1000 }
-        : {}),
+        : { timeout: 300_000 }),  // 5min fallback if schema default doesn't reach here
     });
 
     const passed = successExitCodes.includes(result.exitCode);

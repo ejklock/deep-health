@@ -293,7 +293,7 @@ describe("runValidations", () => {
     );
   });
 
-  it("does not pass timeout property to runner.run when timeout_seconds is not set", async () => {
+  it("passes the 5-minute fallback timeout to runner.run when timeout_seconds is not set", async () => {
     const runner = makeRunner({
       "npm run build": { stdout: "Build complete", exitCode: 0 },
     });
@@ -308,6 +308,9 @@ describe("runValidations", () => {
       string,
       Record<string, unknown>,
     ];
-    expect(callArgs[1]).not.toHaveProperty("timeout");
+    // When timeout_seconds is absent (struct not parsed through Zod), the runner falls back
+    // to a 5-minute (300_000 ms) timeout as a defensive guard. When the struct IS parsed
+    // through Zod, the schema default of 300s is applied before reaching this branch.
+    expect(callArgs[1]).toHaveProperty("timeout", 300_000);
   });
 });

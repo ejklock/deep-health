@@ -10,7 +10,16 @@ export class GoogleDriveProvider implements StorageProvider {
   ) {}
 
   async upload(filename: string, content: string): Promise<UploadResult> {
-    const { google } = await import('googleapis');
+    let googleModule: typeof import('googleapis');
+    try {
+      googleModule = await import('googleapis');
+    } catch {
+      throw new Error(
+        'Google Drive upload requires the "googleapis" package, which is not installed. ' +
+          'Install it with: npm install googleapis',
+      );
+    }
+    const { google } = googleModule;
 
     const oauth2Client = new google.auth.OAuth2(
       process.env['DEEP_HEALTH_GOOGLE_CLIENT_ID'],

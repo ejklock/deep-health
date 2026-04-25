@@ -317,6 +317,11 @@ export interface SafeUpdatePolicy {
 }
 
 export interface ProjectConfig {
+  /**
+   * Schema version for forward-compatibility detection.
+   * Absent means "1" (pre-versioning configs are treated as version 1).
+   */
+  config_version?: string;
   project: {
     name: string;
     client: string;

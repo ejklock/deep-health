@@ -52,6 +52,8 @@ export { aggregateScanResults, OSV_ENGINE_ID } from './aggregator';
 export { OsvScannerEngine } from './osv-engine';
 export { emptyEcosystem } from '@core/types/scan';
 export { SonarQubeEngine } from './sonarqube-engine';
+export { ExternalScannerAdapter } from './external-adapter';
+export type { RawVulnerability } from './external-adapter';
 
 /**
  * Single-engine vulnerability scan using the configured primary scanner.

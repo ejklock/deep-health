@@ -29,7 +29,7 @@ const ValidationCommandConfigSchema = z
   .object({
     name: z.string(),
     command: z.string(),
-    timeout_seconds: z.number().int().positive().optional(),
+    timeout_seconds: z.number().int().positive().optional().default(300),
   })
   .strict();
 
@@ -253,6 +253,13 @@ const SafeUpdatePolicySchema = z
 
 export const ProjectConfigSchema = z
   .object({
+    /**
+     * Schema version for forward-compatibility detection.
+     * - Absent: treated as version "1" (backward compatible with pre-versioning configs).
+     * - "1": current supported version.
+     * - Any other value: rejected with a user-friendly message suggesting `deep-health init --force`.
+     */
+    config_version: z.string().optional(),
     project: z
       .object({
         name: z.string(),
@@ -275,6 +282,17 @@ export const ProjectConfigSchema = z
     scanners: ScannersConfigSchema.optional(),
     outputs: OutputsConfigSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((data, ctx) => {
+    if (data.config_version !== undefined && data.config_version !== "1") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          `Unsupported config_version "${data.config_version}". ` +
+          `This version of deep-health supports config_version "1". ` +
+          `Run "deep-health init --force" to regenerate a compatible config.`,
+      });
+    }
+  });
 
 export type ProjectConfigInput = z.input<typeof ProjectConfigSchema>;

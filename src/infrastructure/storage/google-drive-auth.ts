@@ -79,7 +79,16 @@ export function openBrowser(url: string, platform: NodeJS.Platform = process.pla
 export async function runOAuthFlow(): Promise<StoredTokens> {
   const { clientId, clientSecret } = createOAuth2Client();
 
-  const { google } = await import('googleapis');
+  let googleModule: typeof import('googleapis');
+  try {
+    googleModule = await import('googleapis');
+  } catch {
+    throw new Error(
+      'Google Drive OAuth flow requires the "googleapis" package, which is not installed. ' +
+        'Install it with: npm install googleapis',
+    );
+  }
+  const { google } = googleModule;
 
   // Start local HTTP server on a random port
   const server = createServer();
