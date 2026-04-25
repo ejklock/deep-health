@@ -270,6 +270,13 @@ export interface ComposerRunnerConfig {
    * Phase 2: consumed by the image builder when image_strategy='build'.
    */
   framework_profile?: "none" | "laravel" | "symfony" | "wordpress";
+  /**
+   * When true, passes `--ignore-platform-reqs` to all composer commands.
+   * Defaults to true when mode is 'docker' (the Docker container is not the
+   * production environment — platform extension checks are irrelevant there).
+   * Set to false to enforce strict platform checks even in Docker mode.
+   */
+  ignore_platform_reqs?: boolean;
 }
 
 /** Runner selection for pip commands */

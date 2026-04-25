@@ -218,6 +218,12 @@ const ComposerRunnerConfigSchema = z
     framework_profile: z
       .enum(["none", "laravel", "symfony", "wordpress"])
       .default("none"),
+    /**
+     * When true, passes --ignore-platform-reqs to all composer commands.
+     * Defaults to true in Docker mode (the container is not the production environment).
+     * Set to false to enforce strict platform checks even in Docker.
+     */
+    ignore_platform_reqs: z.boolean().optional(),
   })
   .strict();
 
