@@ -6,6 +6,25 @@ Scans for known vulnerabilities via [OSV Scanner](https://google.github.io/osv-s
 
 ---
 
+## Why this exists
+
+Every month, I had to do the same thing for every client project:
+
+1. Run OSV Scanner manually against each lockfile
+2. Figure out which packages were safe to update without breaking anything
+3. Apply the updates, run the test suite, revert if it broke
+4. Generate three separate reports
+
+It took hours. It was boring. And because it was boring, it sometimes didn't happen.
+
+So I built `deep-health` to do all of it in one command.
+
+Now it runs in CI, opens a PR with safe fixes already validated against the test suite, and delivers the executive report automatically. What used to take an afternoon takes about 15 minutes — most of which is waiting for tests to run.
+
+The tool exists because the problem was real, the existing solutions (Dependabot, Renovate, Snyk) either didn't cover PHP/Composer reliably enough or didn't give me the end-to-end pipeline I needed: scan → fix in an isolated container → validate → revert if broken → report → PR. I needed all of those steps to be automatic and safe. None of the tools I tried did that out of the box.
+
+---
+
 ## How it works
 
 1. **Scan** — runs OSV Scanner against your `composer.lock`, `package-lock.json`, and `requirements.txt` / `Pipfile.lock`
