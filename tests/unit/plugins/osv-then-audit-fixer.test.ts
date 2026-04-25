@@ -792,3 +792,98 @@ describe('osv-then-audit-fixer additional branch coverage', () => {
     expect(result).toBeDefined();
   });
 });
+
+// ─── L23: semverMax best = v (gt true branch) ────────────────────────────────
+describe('applyOsvThenAuditFix — semverMax gt true branch (L23)', () => {
+  beforeEach(() => {
+    mockReadFile.mockReset();
+    vi.clearAllMocks();
+  });
+
+  it('semverMax picks higher version when lower version is iterated first', async () => {
+    // lockfile with react in dependencies (v17, lower first) and packages (v18, higher second)
+    // Set = {'17.0.0', '18.0.0'} → best=17 first, then v=18 → gt=true → best=v (L23 TRUE)
+    const lockfileWithDup = JSON.stringify({
+      name: 'sample', lockfileVersion: 2,
+      dependencies: { react: { version: '17.0.0' } },
+      packages: { '': { name: 'sample', version: '1.0.0' }, 'node_modules/react': { version: '18.0.0' } },
+    });
+    const postAuditLockfile = buildLockfile([{ name: 'react', version: '18.2.0' }]);
+
+    mockReadFile
+      .mockResolvedValueOnce(lockfileWithDup)
+      .mockResolvedValueOnce(postAuditLockfile);
+
+    const scan = buildScan([{ pkg: 'react', version: '18.2.0' }]);
+    const result = await applyOsvThenAuditFix({
+      runner: makeRunner(), cwd: '/project', scanResult: scan, authorizeBreaking: false,
+    });
+    expect(result).toBeDefined();
+  });
+});
+
+// ─── L43: isUpgraded versionBefore undefined → return true (L43) ─────────────
+describe('applyOsvThenAuditFix — package absent from pre-audit lockfile (L43)', () => {
+  beforeEach(() => {
+    mockReadFile.mockReset();
+    vi.clearAllMocks();
+  });
+
+  it('verifies new package when absent from pre-audit lockfile', async () => {
+    // Pre-audit lockfile has OTHER packages (non-empty) but NOT 'newpkg'
+    const preAuditLockfile = buildLockfile([{ name: 'other-dep', version: '1.0.0' }]);
+    const postAuditLockfile = buildLockfile([
+      { name: 'other-dep', version: '1.0.0' },
+      { name: 'newpkg', version: '1.2.0' },
+    ]);
+
+    let callCount = 0;
+    mockReadFile.mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) return preAuditLockfile;
+      return postAuditLockfile;
+    });
+
+    const scan = buildScan([{ pkg: 'newpkg', version: '1.2.0' }]);
+    const result = await applyOsvThenAuditFix({
+      runner: makeRunner(), cwd: '/project', scanResult: scan, authorizeBreaking: false,
+    });
+    // versionsBefore.get('newpkg') = undefined → isUpgraded(undefined, '1.2.0') → return true
+    expect(result.packagesUpdated.some((p) => p.startsWith('newpkg@'))).toBe(true);
+  });
+});
+
+// ─── L142: rootAfter ?? after! right-side (rootAfter undefined) ───────────────
+describe('applyOsvThenAuditFix — rootAfter undefined fallback to after (L142)', () => {
+  beforeEach(() => {
+    mockReadFile.mockReset();
+    vi.clearAllMocks();
+  });
+
+  it('uses after version when package only in nested node_modules path post-audit', async () => {
+    const preAuditLockfile = buildLockfile([{ name: 'nested-pkg', version: '1.0.0' }]);
+    // Post-audit: package ONLY in nested path → collectRootNpmLockfileVersions returns undefined
+    const postAuditLockfile = JSON.stringify({
+      name: 'sample', lockfileVersion: 2,
+      dependencies: { 'nested-pkg': { version: '2.0.0' } }, // gives collectNpmLockfileVersions '2.0.0'
+      packages: {
+        '': { name: 'sample', version: '1.0.0' },
+        'node_modules/parent/node_modules/nested-pkg': { version: '2.0.0' }, // nested only
+      },
+    });
+
+    let callCount = 0;
+    mockReadFile.mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) return preAuditLockfile;
+      return postAuditLockfile;
+    });
+
+    const scan = buildScan([{ pkg: 'nested-pkg', version: '2.0.0' }]);
+    const result = await applyOsvThenAuditFix({
+      runner: makeRunner(), cwd: '/project', scanResult: scan, authorizeBreaking: false,
+    });
+    // rootAfter = undefined (nested only) → rootAfter ?? after! fires → uses 'after'
+    expect(result).toBeDefined();
+  });
+});

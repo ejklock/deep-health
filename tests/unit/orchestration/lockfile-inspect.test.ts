@@ -307,6 +307,46 @@ describe("collectRootNpmLockfileVersions — v1 lockfile (lines 149-160)", () =>
   it("returns empty map for invalid JSON", () => {
     expect(collectRootNpmLockfileVersions("NOT JSON").size).toBe(0);
   });
+
+  it("v2: skips non-object package entry (line 128 true branch)", () => {
+    const content = JSON.stringify({
+      lockfileVersion: 2,
+      packages: {
+        "node_modules/lodash": { version: "4.17.21" },
+        "node_modules/broken": null, // non-object → skip
+      },
+    });
+    const map = collectRootNpmLockfileVersions(content);
+    expect(map.get("lodash")).toBe("4.17.21");
+    expect(map.has("broken")).toBe(false);
+  });
+
+  it("v2: skips entry with non-string version (line 130 true branch)", () => {
+    const content = JSON.stringify({
+      lockfileVersion: 2,
+      packages: {
+        "node_modules/lodash": { version: "4.17.21" },
+        "node_modules/bad-version": { version: 42 }, // number → skip
+      },
+    });
+    const map = collectRootNpmLockfileVersions(content);
+    expect(map.get("lodash")).toBe("4.17.21");
+    expect(map.has("bad-version")).toBe(false);
+  });
+
+  it("v2: skips nested node_modules path (line 135 true branch)", () => {
+    const content = JSON.stringify({
+      lockfileVersion: 2,
+      packages: {
+        "node_modules/lodash": { version: "4.17.21" },
+        "node_modules/a/node_modules/nested": { version: "1.0.0" }, // nested → skip
+      },
+    });
+    const map = collectRootNpmLockfileVersions(content);
+    expect(map.get("lodash")).toBe("4.17.21");
+    expect(map.has("nested")).toBe(false);
+    expect(map.has("a/node_modules/nested")).toBe(false);
+  });
 });
 
 describe("diffRootNpmLockfileVersions (lines 169-186)", () => {

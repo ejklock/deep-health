@@ -6,6 +6,11 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
+// ─── mock child_process so openBrowser() tests never launch a real browser ──
+// vi.mock is hoisted — the factory runs before any imports below.
+const { execFileMock } = vi.hoisted(() => ({ execFileMock: vi.fn() }));
+vi.mock('node:child_process', () => ({ execFile: execFileMock }));
+
 vi.mock('node:fs/promises', async (importActual) => {
   const actual = await importActual<typeof import('node:fs/promises')>();
   return { ...actual };
@@ -102,15 +107,26 @@ describe('createOAuth2Client()', () => {
 });
 
 describe('openBrowser()', () => {
-  it('calls execFile with open on darwin without throwing', () => {
-    expect(() => openBrowser('https://example.com', 'darwin')).not.toThrow();
+  afterEach(() => { vi.clearAllMocks(); });
+
+  it('calls execFile (mocked) with "open" on darwin — no real browser launched', () => {
+    openBrowser('https://example.com', 'darwin');
+    expect(execFileMock).toHaveBeenCalledOnce();
+    const [cmd] = execFileMock.mock.calls[0] as [string];
+    expect(cmd).toBe('open');
   });
 
-  it('calls execFile with start on win32 without throwing', () => {
-    expect(() => openBrowser('https://example.com', 'win32')).not.toThrow();
+  it('calls execFile (mocked) with "start" on win32 — no real browser launched', () => {
+    openBrowser('https://example.com', 'win32');
+    expect(execFileMock).toHaveBeenCalledOnce();
+    const [cmd] = execFileMock.mock.calls[0] as [string];
+    expect(cmd).toBe('start');
   });
 
-  it('calls execFile with xdg-open on linux without throwing', () => {
-    expect(() => openBrowser('https://example.com', 'linux')).not.toThrow();
+  it('calls execFile (mocked) with "xdg-open" on linux — no real browser launched', () => {
+    openBrowser('https://example.com', 'linux');
+    expect(execFileMock).toHaveBeenCalledOnce();
+    const [cmd] = execFileMock.mock.calls[0] as [string];
+    expect(cmd).toBe('xdg-open');
   });
 });

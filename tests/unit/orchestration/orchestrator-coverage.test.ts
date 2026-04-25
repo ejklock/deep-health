@@ -1110,3 +1110,388 @@ describe('orchestrator — resolveComposerContainerRunner inferVersion throws (l
     runUpdaterSpy.mockRestore();
   });
 });
+
+// ── Additional branch coverage ─────────────────────────────────────────────
+
+describe('orchestrator — line 199: String(err) when secondary engine throws non-Error', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('uses String(err) when secondary engine throws a string', async () => {
+    const failEngine = new OsvScannerEngine();
+    vi.spyOn(failEngine, 'scan').mockRejectedValueOnce('plain-string-error');
+    Object.defineProperty(failEngine, 'id', { value: 'sonar', configurable: true });
+    Object.defineProperty(failEngine, 'name', { value: 'SonarQube', configurable: true });
+
+    const osvEngine = new OsvScannerEngine();
+    vi.spyOn(osvEngine, 'scan').mockResolvedValueOnce({
+      $schema: 'osv-scan-result/v1', agent: 'osv', status: 'success',
+      environment: 'local', ecosystems: {}, error: null,
+    });
+
+    const reg = new ScannerEngineRegistry();
+    reg.register(osvEngine);
+    reg.register(failEngine);
+
+    const config: ProjectConfig = {
+      project: { name: 'Test', client: 'Test' },
+      ecosystems: [],
+      protected_packages: {},
+      safe_update_policy: { allow_patch_and_minor_within_constraints: true, require_authorization_for_constraint_change: false },
+      conflict_resolution: 'fail',
+      scanners: { sonar: { on_failure: 'warn' } },
+    } as unknown as ProjectConfig;
+
+    await expect(runOrchestrator(new MockCommandRunner(), config, {
+      configPath: 'config.yml', cwd: '/project', dryRun: false, verbose: false, scannerRegistry: reg,
+    })).resolves.toBeDefined();
+
+    const warnCalls = (logger.warn as ReturnType<typeof vi.fn>).mock.calls;
+    expect(warnCalls.some((c) => String(c[0]).includes('plain-string-error'))).toBe(true);
+  });
+});
+
+describe('orchestrator — line 218: result.error ?? fallback when error is null', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('uses fallback message when secondary engine result.error is null', async () => {
+    const failEngine = new OsvScannerEngine();
+    vi.spyOn(failEngine, 'scan').mockResolvedValueOnce({
+      $schema: 'osv-scan-result/v1', agent: 'sonar', status: 'error',
+      environment: 'local', ecosystems: {}, error: null, // null error
+    });
+    Object.defineProperty(failEngine, 'id', { value: 'sonar', configurable: true });
+    Object.defineProperty(failEngine, 'name', { value: 'SonarQube', configurable: true });
+
+    const osvEngine = new OsvScannerEngine();
+    vi.spyOn(osvEngine, 'scan').mockResolvedValueOnce({
+      $schema: 'osv-scan-result/v1', agent: 'osv', status: 'success',
+      environment: 'local', ecosystems: {}, error: null,
+    });
+
+    const reg = new ScannerEngineRegistry();
+    reg.register(osvEngine);
+    reg.register(failEngine);
+
+    const config: ProjectConfig = {
+      project: { name: 'Test', client: 'Test' },
+      ecosystems: [],
+      protected_packages: {},
+      safe_update_policy: { allow_patch_and_minor_within_constraints: true, require_authorization_for_constraint_change: false },
+      conflict_resolution: 'fail',
+      scanners: { sonar: { on_failure: 'warn' } },
+    } as unknown as ProjectConfig;
+
+    const result = await runOrchestrator(new MockCommandRunner(), config, {
+      configPath: 'config.yml', cwd: '/project', dryRun: false, verbose: false, scannerRegistry: reg,
+    });
+    expect(result).toBeDefined();
+  });
+});
+
+describe('orchestrator — lines 702/712: validationCommands/advisors ?? plugin defaults', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('uses plugin.defaultValidationCommands when ecoConfigEntry has no validationCommands', async () => {
+    const runUpdaterSpy = vi.spyOn(npmPlugin, 'runUpdater').mockResolvedValue(successUpdaterResult);
+
+    const runner = new MockCommandRunner({
+      '--lockfile package-lock.json --format json': { stdout: npmScanWithAutoSafe(), exitCode: 0 },
+    });
+
+    // No validationCommands or advisors in ecosystem config entry
+    const config: ProjectConfig = {
+      ...baseNpmConfig(),
+      ecosystems: [{ id: 'npm' }], // no validationCommands, no advisors
+    } as ProjectConfig;
+
+    const reg = new ScannerEngineRegistry();
+    reg.register(new OsvScannerEngine());
+
+    await runOrchestrator(runner, config, {
+      configPath: 'config.yml', cwd: '/project', dryRun: false, verbose: false, scannerRegistry: reg,
+    });
+
+    expect(runUpdaterSpy).toHaveBeenCalled();
+    runUpdaterSpy.mockRestore();
+  });
+});
+
+describe('orchestrator — line 797: options.dryRun ?? false when dryRun absent', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('defaults dryRun to false when not provided in options', async () => {
+    const runUpdaterSpy = vi.spyOn(npmPlugin, 'runUpdater').mockResolvedValue(successUpdaterResult);
+
+    const runner = new MockCommandRunner({
+      '--lockfile package-lock.json --format json': { stdout: npmScanWithAutoSafe(), exitCode: 0 },
+    });
+
+    const reg = new ScannerEngineRegistry();
+    reg.register(new OsvScannerEngine());
+
+    // No dryRun in options → ?? false fires
+    const result = await runOrchestrator(runner, baseNpmConfig(), {
+      configPath: 'config.yml', cwd: '/project',
+      // dryRun intentionally absent
+      verbose: false, scannerRegistry: reg,
+    } as any);
+
+    expect(result).toBeDefined();
+    runUpdaterSpy.mockRestore();
+  });
+});
+
+describe('orchestrator — line 841: breakRes.error ?? fallback when error absent', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('uses "breaking install failed" fallback when breakRes.error is undefined', async () => {
+    const runUpdaterSpy = vi.spyOn(npmPlugin, 'runUpdater').mockResolvedValue(successUpdaterResult);
+    const installBreakingSpy = vi.spyOn(npmPlugin, 'installBreakingPackages').mockResolvedValue({
+      status: 'error', // no error field → ?? fires
+    } as any);
+
+    const breakingScanJson = JSON.stringify({
+      results: [{
+        packages: [{
+          package: { name: 'lodash', version: '1.0.0', ecosystem: 'npm' },
+          vulnerabilities: [{
+            id: 'GHSA-breaking', summary: 'breaking',
+            affected: [{ ranges: [{ events: [{ introduced: '0' }, { fixed: '2.0.0' }] }] }],
+          }],
+          groups: [{ ids: ['GHSA-breaking'] }],
+        }],
+      }],
+    });
+
+    const osvEngine = new OsvScannerEngine();
+    vi.spyOn(osvEngine, 'scan').mockResolvedValueOnce({
+      $schema: 'osv-scan-result/v1', agent: 'osv', status: 'success', environment: 'local',
+      ecosystems: {
+        npm: {
+          vulnerabilities_total: 1, auto_safe: 0, breaking: 1, manual: 0,
+          auto_safe_packages: [], breaking_packages: ['lodash@2.0.0'], manual_packages: [],
+          vulnerabilities: [{
+            ecosystem: 'npm', package: 'lodash', currentVersion: '1.0.0', safeVersion: '2.0.0',
+            cvss: '8.0', ghsaId: 'GHSA-breaking', risk: 'high', classification: 'breaking', reason: 'major',
+          }],
+        },
+      },
+      error: null,
+    });
+
+    const runner = new MockCommandRunner({});
+
+    const config: ProjectConfig = {
+      ...baseNpmConfig(),
+      ecosystems: [{ id: 'npm', validationCommands: [], advisors: [] }],
+    } as ProjectConfig;
+
+    const reg = new ScannerEngineRegistry();
+    reg.register(osvEngine);
+
+    const result = await runOrchestrator(runner, config, {
+      configPath: 'config.yml', cwd: '/project', dryRun: false, verbose: false,
+      scannerRegistry: reg, authorizeBreaking: { npm: true },
+    });
+
+    expect(result.overallStatus).toBe('error');
+    runUpdaterSpy.mockRestore();
+    installBreakingSpy.mockRestore();
+  });
+});
+
+describe('orchestrator — line 862: osv.runner ?? "docker" for verify when scanners absent', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('defaults verify runner to docker when scanners.osv is absent', async () => {
+    const runUpdaterSpy = vi.spyOn(npmPlugin, 'runUpdater').mockResolvedValue(successUpdaterResult);
+
+    const osvEngine = new OsvScannerEngine();
+    vi.spyOn(osvEngine, 'scan').mockResolvedValue({
+      $schema: 'osv-scan-result/v1', agent: 'osv', status: 'success', environment: 'local',
+      ecosystems: {
+        npm: {
+          vulnerabilities_total: 1, auto_safe: 1, breaking: 0, manual: 0,
+          auto_safe_packages: ['lodash@4.17.21'], breaking_packages: [], manual_packages: [],
+          vulnerabilities: [{
+            ecosystem: 'npm', package: 'lodash', currentVersion: '4.17.15', safeVersion: '4.17.21',
+            cvss: '7.5', ghsaId: 'GHSA-test', risk: 'high', classification: 'auto_safe', reason: 'patch',
+          }],
+        },
+      },
+      error: null,
+    });
+
+    // No scanners key → ?? 'docker' fires
+    const config: ProjectConfig = {
+      project: { name: 'Test', client: 'Test' },
+      ecosystems: [{ id: 'npm', validationCommands: [], advisors: [] }],
+      protected_packages: { npm: [], composer: [], pip: [] },
+      safe_update_policy: {
+        allow_patch_and_minor_within_constraints: true,
+        require_authorization_for_constraint_change: true,
+      },
+      conflict_resolution: 'stop_and_ask',
+      // no scanners key
+    } as unknown as ProjectConfig;
+
+    const reg = new ScannerEngineRegistry();
+    reg.register(osvEngine);
+
+    const result = await runOrchestrator(new MockCommandRunner(), config, {
+      configPath: 'config.yml', cwd: '/project', dryRun: false, verbose: false, scannerRegistry: reg,
+    });
+
+    expect(result).toBeDefined();
+    runUpdaterSpy.mockRestore();
+  });
+});
+
+describe('orchestrator — lines 335/411/487: ?? "docker" for pip/composer/osv runners', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('line 335: pip mode defaults to "docker" when scanners.pip absent', async () => {
+    const runUpdaterSpy = vi.spyOn(pipPlugin, 'runUpdater').mockResolvedValue(successUpdaterResult);
+
+    const osvEngine = new OsvScannerEngine();
+    vi.spyOn(osvEngine, 'scan').mockResolvedValueOnce({
+      $schema: 'osv-scan-result/v1', agent: 'osv', status: 'success', environment: 'local',
+      ecosystems: {
+        pip: {
+          vulnerabilities_total: 1, auto_safe: 1, breaking: 0, manual: 0,
+          auto_safe_packages: ['requests@2.28.0'], breaking_packages: [], manual_packages: [],
+          vulnerabilities: [{
+            ecosystem: 'pip', package: 'requests', currentVersion: '2.27.0', safeVersion: '2.28.0',
+            cvss: '7.5', ghsaId: 'GHSA-pip', risk: 'high', classification: 'auto_safe', reason: 'patch',
+          }],
+        },
+      },
+      error: null,
+    });
+
+    const config: ProjectConfig = {
+      project: { name: 'Test', client: 'Test' },
+      ecosystems: [{ id: 'pip', validationCommands: [], advisors: [] }],
+      protected_packages: { npm: [], composer: [], pip: [] },
+      safe_update_policy: { allow_patch_and_minor_within_constraints: true, require_authorization_for_constraint_change: true },
+      conflict_resolution: 'stop_and_ask',
+      // no scanners.pip — ?? 'docker' fires
+    } as unknown as ProjectConfig;
+
+    const reg = new ScannerEngineRegistry();
+    reg.register(osvEngine);
+
+    const result = await runOrchestrator(new MockCommandRunner(), config, {
+      configPath: 'config.yml', cwd: '/project', dryRun: false, verbose: false, scannerRegistry: reg,
+    });
+    expect(result).toBeDefined();
+    runUpdaterSpy.mockRestore();
+  });
+});
+
+describe('orchestrator — line 147: onFailure ?? "fail" when on_failure key present but undefined', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('defaults on_failure to "fail" when key is present but value is undefined', async () => {
+    const failEngine = new OsvScannerEngine();
+    vi.spyOn(failEngine, 'scan').mockRejectedValueOnce(new Error('scan error'));
+    Object.defineProperty(failEngine, 'id', { value: 'sonar', configurable: true });
+    Object.defineProperty(failEngine, 'name', { value: 'SonarQube', configurable: true });
+
+    const osvEngine = new OsvScannerEngine();
+    vi.spyOn(osvEngine, 'scan').mockResolvedValueOnce({
+      $schema: 'osv-scan-result/v1', agent: 'osv', status: 'success',
+      environment: 'local', ecosystems: {}, error: null,
+    });
+
+    const reg = new ScannerEngineRegistry();
+    reg.register(osvEngine);
+    reg.register(failEngine);
+
+    const config: ProjectConfig = {
+      project: { name: 'Test', client: 'Test' },
+      ecosystems: [],
+      protected_packages: {},
+      safe_update_policy: { allow_patch_and_minor_within_constraints: true, require_authorization_for_constraint_change: false },
+      conflict_resolution: 'fail',
+      // on_failure key present but undefined → ?? "fail" fires → re-throws
+      scanners: { sonar: { on_failure: undefined } },
+    } as unknown as ProjectConfig;
+
+    // on_failure="fail" causes orchestrator to re-throw the secondary engine error
+    await expect(runOrchestrator(new MockCommandRunner(), config, {
+      configPath: 'config.yml', cwd: '/project', dryRun: false, verbose: false, scannerRegistry: reg,
+    })).rejects.toThrow('scan error');
+  });
+});
+
+describe('orchestrator — line 506: image ?? "" (no image in osv config)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('omits image label when no image configured for OSV runner', async () => {
+    const runUpdaterSpy = vi.spyOn(npmPlugin, 'runUpdater').mockResolvedValue(successUpdaterResult);
+
+    const osvEngine = new OsvScannerEngine();
+    vi.spyOn(osvEngine, 'scan').mockResolvedValue({
+      $schema: 'osv-scan-result/v1', agent: 'osv', status: 'success', environment: 'local',
+      ecosystems: {
+        npm: {
+          vulnerabilities_total: 1, auto_safe: 1, breaking: 0, manual: 0,
+          auto_safe_packages: ['lodash@4.17.21'], breaking_packages: [], manual_packages: [],
+          vulnerabilities: [{
+            ecosystem: 'npm', package: 'lodash', currentVersion: '4.17.15', safeVersion: '4.17.21',
+            cvss: '7.5', ghsaId: 'GHSA-test', risk: 'high', classification: 'auto_safe', reason: 'patch',
+          }],
+        },
+      },
+      error: null,
+    });
+
+    // osv runner with mode docker but NO image → image=undefined → false branch of `image ?`
+    const config = baseNpmConfig({
+      scanners: { osv: { runner: 'docker' } }, // no image
+    });
+
+    const reg = new ScannerEngineRegistry();
+    reg.register(osvEngine);
+
+    const result = await runOrchestrator(new MockCommandRunner(), config, {
+      configPath: 'config.yml', cwd: '/project', dryRun: false, verbose: false, scannerRegistry: reg,
+    });
+    expect(result).toBeDefined();
+    runUpdaterSpy.mockRestore();
+  });
+});
+
+describe('orchestrator — line 559: String(err) when verify throws non-Error', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('uses String(err) when residual verify runner throws a string', async () => {
+    const runUpdaterSpy = vi.spyOn(npmPlugin, 'runUpdater').mockResolvedValue(successUpdaterResult);
+
+    let scanCallCount = 0;
+    const runner = new MockCommandRunner();
+    vi.spyOn(runner, 'run').mockImplementation(async (command) => {
+      if (command.includes('--version')) {
+        return { stdout: 'osv-scanner 1.0.0', stderr: '', exitCode: 0, command, dryRun: false };
+      }
+      scanCallCount++;
+      if (scanCallCount === 1) {
+        return { stdout: npmScanWithAutoSafe(), stderr: '', exitCode: 0, command, dryRun: false };
+      }
+      // For verify scan: throw a string (non-Error)
+      throw 'string-verify-error';
+    });
+
+    const config = baseNpmConfig({
+      ecosystems: [{ id: 'npm', validationCommands: [], advisors: [], fixer: 'osv' }],
+      scanners: { osv: { runner: 'local' } },
+    });
+
+    const result = await runOrchestrator(runner, config, {
+      configPath: 'config.yml', cwd: '/project', dryRun: false, verbose: false, scannerRegistry: makeRegistry(),
+    });
+    expect(result).toBeDefined();
+    runUpdaterSpy.mockRestore();
+  });
+});

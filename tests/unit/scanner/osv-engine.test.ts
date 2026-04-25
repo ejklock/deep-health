@@ -1108,4 +1108,42 @@ describe('OsvScannerEngine — additional branch coverage', () => {
     const ctx = makeCtx(runner, makeConfig({ osv: { runner: 'docker' } }));
     await expect(engine.scan(ctx)).rejects.toThrow('OSV scanner phase failed: string-scan-error');
   });
+
+  // Lines 177-179: pkg.package?.name/version/ecosystem null → ?? '' fires
+  it('lines 177-179: pkg.package fields null → ?? "" fallback fires', async () => {
+    const jsonWithNullFields = JSON.stringify({
+      results: [{
+        packages: [{
+          package: { name: null, version: null, ecosystem: 'npm' },
+          vulnerabilities: [],
+          groups: [],
+        }],
+      }],
+    });
+    const runner = new MockRunner({ '--lockfile': { stdout: jsonWithNullFields, exitCode: 0 } });
+    const ctx = makeCtx(runner, makeConfig({ osv: { runner: 'local' } }));
+    const result = await engine.scan(ctx);
+    expect(result.status).toBe('success');
+  });
+
+  // Lines 199-200: vuln.id/summary null → ?? '' fires
+  it('lines 199-200: vuln.id and vuln.summary null → ?? "" fallback fires', async () => {
+    const jsonWithNullVulnFields = JSON.stringify({
+      results: [{
+        packages: [{
+          package: { name: 'lodash', version: '4.17.15', ecosystem: 'npm' },
+          vulnerabilities: [{
+            id: null,
+            summary: null,
+            affected: [{ ranges: [{ events: [{ introduced: '0' }, { fixed: '4.17.21' }] }] }],
+          }],
+          groups: [{ ids: [null] }],
+        }],
+      }],
+    });
+    const runner = new MockRunner({ '--lockfile': { stdout: jsonWithNullVulnFields, exitCode: 0 } });
+    const ctx = makeCtx(runner, makeConfig({ osv: { runner: 'local' } }));
+    const result = await engine.scan(ctx);
+    expect(result.status).toBe('success');
+  });
 });

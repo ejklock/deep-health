@@ -631,3 +631,54 @@ describe('generateExecutiveReport() — buildAdvisorExecSection full branch cove
     expect(typeof result).toBe('string');
   });
 });
+
+describe('generateExecutiveReport() — pendingByPkg and allVulnsBefore branch coverage', () => {
+  const pendingScan: ScanResultJson = {
+    agent: 'osv-scanner', status: 'success', environment: 'local',
+    ecosystems: {
+      npm: {
+        vulnerabilities_total: 1, auto_safe: 0, breaking: 1, manual: 0,
+        vulnerabilities: [{
+          ghsaId: 'GHSA-pending', cvss: 'N/A', package: 'lodash', ecosystem: 'npm',
+          currentVersion: '4.17.0', safeVersion: null, classification: 'breaking', risk: 'critical',
+          reason: 'major',
+        }],
+      },
+    },
+    error: null,
+  };
+
+  it('covers maxCvss stays "0" path (unparseable CVSS) → cvssDisplay empty string', () => {
+    // cvss = 'N/A' → parseFloat('N/A') = NaN → condition false → max stays '0' → cvssDisplay = ''
+    const result = generateExecutiveReport({
+      ...baseOpts,
+      scanBefore: pendingScan,
+      scanAfter: pendingScan, // still pending → pendingByPkg has entry with cvss='N/A'
+    });
+    expect(typeof result).toBe('string');
+  });
+
+  it('covers unknown ecosystem → ecoLabel falls back to v.ecosystem', () => {
+    const unknownEcoScan: ScanResultJson = {
+      agent: 'osv-scanner', status: 'success', environment: 'local',
+      ecosystems: {
+        'unknown-eco': {
+          vulnerabilities_total: 1, auto_safe: 0, breaking: 1, manual: 0,
+          vulnerabilities: [{
+            ghsaId: 'GHSA-unk', cvss: 'N/A', package: 'some-pkg', ecosystem: 'unknown-eco',
+            currentVersion: '1.0.0', safeVersion: null, classification: 'breaking', risk: 'high',
+            reason: 'major',
+          }],
+        },
+      },
+      error: null,
+    };
+    // plugin is null for 'unknown-eco' → plugin?.reportLabel ?? v.ecosystem fires
+    const result = generateExecutiveReport({
+      ...baseOpts,
+      scanBefore: unknownEcoScan,
+      scanAfter: unknownEcoScan,
+    });
+    expect(typeof result).toBe('string');
+  });
+});

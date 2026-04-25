@@ -157,4 +157,12 @@ describe('LocalExecutor.runArgs()', () => {
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toBe('runArgs string error');
   });
+
+  it('uses process.env when options.env is absent (line 80 false branch)', async () => {
+    mockExeca.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 } as any);
+    const executor = new LocalExecutor();
+    // runArgs with no env option → options.env is undefined → false branch fires
+    const result = await executor.runArgs('npm', ['install'], {});
+    expect(result.exitCode).toBe(0);
+  });
 });
