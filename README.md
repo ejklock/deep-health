@@ -1,8 +1,8 @@
 # deep-health
 
-Vulnerability scanning and safe dependency update CLI for PHP (Composer), Node.js (npm), and Python (pip) projects.
+One command that scans for vulnerabilities, applies safe dependency updates, runs your tests to confirm nothing broke, reverts if it did, and generates an executive report — all inside isolated Docker containers, with no local tool installation required beyond Docker itself.
 
-Scans for known vulnerabilities via [OSV Scanner](https://google.github.io/osv-scanner/), applies safe patch/minor updates within your declared constraints, and generates an executive HTML report — all without requiring any local tool installation beyond Docker.
+Supports PHP (Composer), Node.js (npm), and Python (pip). Powered by [OSV Scanner](https://google.github.io/osv-scanner/) under the hood.
 
 ---
 
