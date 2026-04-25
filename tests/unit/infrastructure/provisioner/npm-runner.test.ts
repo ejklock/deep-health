@@ -115,6 +115,34 @@ describe('NpmDockerRunner.run() — catch branch edge cases', () => {
   });
 });
 
+describe('NpmDockerRunner._buildShellDockerArgs()', () => {
+  it('routes to sh -c with command as single argv element', () => {
+    const runner = new NpmDockerRunner({ projectDir: '/myproject' });
+    const args = runner._buildShellDockerArgs('jest --coverage', '/myproject');
+    const last3 = args.slice(-3);
+    expect(last3).toEqual(['sh', '-c', 'jest --coverage']);
+  });
+
+  it('mounts the provided cwd as /project', () => {
+    const runner = new NpmDockerRunner({ projectDir: '/defaultdir' });
+    const args = runner._buildShellDockerArgs('jest --coverage', '/myproject');
+    expect(args.join(' ')).toContain('/myproject:/project');
+  });
+
+  it('passes compound shell command as a single argv element (not split)', () => {
+    const runner = new NpmDockerRunner({ projectDir: '/p' });
+    const args = runner._buildShellDockerArgs('echo hello world && ls');
+    const last3 = args.slice(-3);
+    expect(last3).toEqual(['sh', '-c', 'echo hello world && ls']);
+  });
+
+  it('falls back to projectDir when no cwd provided', () => {
+    const runner = new NpmDockerRunner({ projectDir: '/defaultdir' });
+    const args = runner._buildShellDockerArgs('jest');
+    expect(args.join(' ')).toContain('/defaultdir:/project');
+  });
+});
+
 describe('NpmDockerRunner.runStreaming() — null close code (line 122)', () => {
   it('uses exitCode=1 when close event fires with null code', async () => {
     const mockSpawn = vi.mocked(spawn) as unknown as Mock;

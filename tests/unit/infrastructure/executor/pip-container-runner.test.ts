@@ -145,6 +145,83 @@ describe('PipContainerCommandRunner', () => {
   });
 });
 
+describe('PipContainerCommandRunner — runShell routing', () => {
+  it('run() — non-pip command with runShell support → routed to container.runShell, NOT fallback', async () => {
+    const run = vi.fn<(_: string[]) => Promise<ContainerRunResult>>().mockResolvedValue({
+      stdout: '', stderr: '', exitCode: 0,
+    });
+    const runShell = vi.fn().mockResolvedValue({ exitCode: 0, stdout: 'ok', stderr: '' });
+    const container = { run, runShell } as unknown as EphemeralContainerRunner<string[]>;
+    const fallback = makeFallbackRunner();
+    const runner = new PipContainerCommandRunner({ container, fallback, dryRun: false });
+
+    const result = await runner.run('pytest --tb=short', { cwd: '/project' });
+
+    expect(runShell).toHaveBeenCalledWith('pytest --tb=short', { cwd: '/project' });
+    expect(fallback.run).not.toHaveBeenCalled();
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe('ok');
+  });
+
+  it('run() — git command → stays on fallback even with runShell support', async () => {
+    const run = vi.fn<(_: string[]) => Promise<ContainerRunResult>>().mockResolvedValue({
+      stdout: '', stderr: '', exitCode: 0,
+    });
+    const runShell = vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' });
+    const container = { run, runShell } as unknown as EphemeralContainerRunner<string[]>;
+    const fallback = makeFallbackRunner();
+    const runner = new PipContainerCommandRunner({ container, fallback, dryRun: false });
+
+    await runner.run('git status');
+
+    expect(fallback.run).toHaveBeenCalled();
+    expect(runShell).not.toHaveBeenCalled();
+  });
+
+  it('run() — non-pip command WITHOUT runShell support → falls back to LocalExecutor', async () => {
+    const run = vi.fn<(_: string[]) => Promise<ContainerRunResult>>().mockResolvedValue({
+      stdout: '', stderr: '', exitCode: 0,
+    });
+    const container = { run } as unknown as EphemeralContainerRunner<string[]>;
+    const fallback = makeFallbackRunner();
+    const runner = new PipContainerCommandRunner({ container, fallback, dryRun: false });
+
+    await runner.run('pytest --tb=short');
+
+    expect(fallback.run).toHaveBeenCalled();
+  });
+
+  it('runArgs() — non-pip file with runShell → routed to container.runShell', async () => {
+    const run = vi.fn<(_: string[]) => Promise<ContainerRunResult>>().mockResolvedValue({
+      stdout: '', stderr: '', exitCode: 0,
+    });
+    const runShell = vi.fn().mockResolvedValue({ exitCode: 0, stdout: 'pytest-out', stderr: '' });
+    const container = { run, runShell } as unknown as EphemeralContainerRunner<string[]>;
+    const fallback = makeFallbackRunner();
+    const runner = new PipContainerCommandRunner({ container, fallback, dryRun: false });
+
+    await runner.runArgs('pytest', ['--tb=short', '-v']);
+
+    expect(runShell).toHaveBeenCalledWith('pytest --tb=short -v', { cwd: undefined });
+    expect(fallback.runArgs).not.toHaveBeenCalled();
+  });
+
+  it('runArgs() — gh command → stays on fallback', async () => {
+    const run = vi.fn<(_: string[]) => Promise<ContainerRunResult>>().mockResolvedValue({
+      stdout: '', stderr: '', exitCode: 0,
+    });
+    const runShell = vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' });
+    const container = { run, runShell } as unknown as EphemeralContainerRunner<string[]>;
+    const fallback = makeFallbackRunner();
+    const runner = new PipContainerCommandRunner({ container, fallback, dryRun: false });
+
+    await runner.runArgs('gh', ['pr', 'create']);
+
+    expect(fallback.runArgs).toHaveBeenCalled();
+    expect(runShell).not.toHaveBeenCalled();
+  });
+});
+
 describe('PipContainerCommandRunner — dryRun=true branches', () => {
   it('run() returns early with dryRun result when dryRun=true', async () => {
     const { container } = makeContainerRunner();

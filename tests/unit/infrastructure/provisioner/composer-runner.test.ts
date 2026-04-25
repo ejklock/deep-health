@@ -81,6 +81,34 @@ describe('ComposerDockerRunner.run() — catch branch edge cases', () => {
   });
 });
 
+describe('ComposerDockerRunner._buildShellDockerArgs()', () => {
+  it('routes to sh -c with command as single argv element', () => {
+    const runner = new ComposerDockerRunner({ projectDir: '/myproject' });
+    const args = runner._buildShellDockerArgs('php artisan test', '/myproject');
+    const last3 = args.slice(-3);
+    expect(last3).toEqual(['sh', '-c', 'php artisan test']);
+  });
+
+  it('mounts the provided cwd as /project', () => {
+    const runner = new ComposerDockerRunner({ projectDir: '/defaultdir' });
+    const args = runner._buildShellDockerArgs('php artisan test', '/myproject');
+    expect(args.join(' ')).toContain('/myproject:/project');
+  });
+
+  it('passes compound shell command as a single argv element (not split)', () => {
+    const runner = new ComposerDockerRunner({ projectDir: '/p' });
+    const args = runner._buildShellDockerArgs('echo hello world && ls');
+    const last3 = args.slice(-3);
+    expect(last3).toEqual(['sh', '-c', 'echo hello world && ls']);
+  });
+
+  it('falls back to projectDir when no cwd provided', () => {
+    const runner = new ComposerDockerRunner({ projectDir: '/defaultdir' });
+    const args = runner._buildShellDockerArgs('php artisan test');
+    expect(args.join(' ')).toContain('/defaultdir:/project');
+  });
+});
+
 describe('ComposerDockerRunner.runStreaming() — null close code (line 112)', () => {
   it('uses exitCode=1 when close event fires with null code', async () => {
     const mockSpawn = vi.mocked(spawn) as unknown as Mock;

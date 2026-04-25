@@ -16,6 +16,19 @@ function hasStreaming(c: unknown): c is StreamingContainerRunner {
   return typeof (c as StreamingContainerRunner).runStreaming === 'function';
 }
 
+interface RunShellContainer {
+  runShell(command: string, opts?: { cwd?: string }): Promise<import('@infra/provisioner/types').ContainerRunResult>;
+}
+
+function hasRunShell(c: unknown): c is RunShellContainer {
+  return typeof (c as RunShellContainer).runShell === 'function';
+}
+
+// Commands that must always run on the host — never in the ecosystem container
+function isHostOnlyCommand(bin: string): boolean {
+  return bin === 'git' || bin === 'open' || bin === 'gh';
+}
+
 /**
  * PipContainerCommandRunner — adapts PipDockerRunner (EphemeralContainerRunner<string[]>)
  * to the CommandRunner interface.
@@ -79,6 +92,20 @@ export class PipContainerCommandRunner implements CommandRunner {
       };
     }
 
+    if (hasRunShell(this.container)) {
+      const firstToken = trimmed.split(/\s+/)[0] ?? '';
+      if (!isHostOnlyCommand(firstToken)) {
+        logger.debug(`PipContainerCommandRunner: routing to container shell: ${trimmed}`);
+        const result = await this.container.runShell(trimmed, { cwd: options?.cwd });
+        return {
+          stdout: result.stdout,
+          stderr: result.stderr,
+          exitCode: result.exitCode,
+          command,
+          dryRun: false,
+        };
+      }
+    }
     return this.fallback.run(command, options);
   }
 
@@ -103,6 +130,20 @@ export class PipContainerCommandRunner implements CommandRunner {
       };
     }
 
+    if (hasRunShell(this.container)) {
+      if (!isHostOnlyCommand(file)) {
+        const shellCmd = [file, ...args].join(' ');
+        logger.debug(`PipContainerCommandRunner: routing to container shell: ${shellCmd}`);
+        const result = await this.container.runShell(shellCmd, { cwd: options?.cwd });
+        return {
+          stdout: result.stdout,
+          stderr: result.stderr,
+          exitCode: result.exitCode,
+          command: shellCmd,
+          dryRun: false,
+        };
+      }
+    }
     return this.fallback.runArgs(file, args, options);
   }
 

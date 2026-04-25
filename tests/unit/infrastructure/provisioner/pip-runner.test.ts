@@ -94,6 +94,34 @@ describe('PipDockerRunner.run() — catch branch edge cases', () => {
   });
 });
 
+describe('PipDockerRunner._buildShellDockerArgs()', () => {
+  it('routes to sh -c with command as single argv element', () => {
+    const runner = new PipDockerRunner({ projectDir: '/myproject' });
+    const args = runner._buildShellDockerArgs('pytest --tb=short', '/myproject');
+    const last3 = args.slice(-3);
+    expect(last3).toEqual(['sh', '-c', 'pytest --tb=short']);
+  });
+
+  it('mounts the provided cwd as /project', () => {
+    const runner = new PipDockerRunner({ projectDir: '/defaultdir' });
+    const args = runner._buildShellDockerArgs('pytest', '/myproject');
+    expect(args.join(' ')).toContain('/myproject:/project');
+  });
+
+  it('passes compound shell command as a single argv element (not split)', () => {
+    const runner = new PipDockerRunner({ projectDir: '/p' });
+    const args = runner._buildShellDockerArgs('echo hello world && ls');
+    const last3 = args.slice(-3);
+    expect(last3).toEqual(['sh', '-c', 'echo hello world && ls']);
+  });
+
+  it('falls back to projectDir when no cwd provided', () => {
+    const runner = new PipDockerRunner({ projectDir: '/defaultdir' });
+    const args = runner._buildShellDockerArgs('pytest');
+    expect(args.join(' ')).toContain('/defaultdir:/project');
+  });
+});
+
 describe('PipDockerRunner.runStreaming() — null close code (line 123)', () => {
   it('uses exitCode=1 when close event fires with null code', async () => {
     const mockSpawn = vi.mocked(spawn) as unknown as Mock;

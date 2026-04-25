@@ -25,6 +25,12 @@ export interface ContainerRunResult {
  */
 export interface EphemeralContainerRunner<TArgs = string[]> {
   run(args: TArgs): Promise<ContainerRunResult>;
+  /**
+   * Execute an arbitrary shell command inside the container.
+   * `command` is passed as a single argv element to `sh -c` — not interpolated.
+   * Optional: implemented by npm/pip/composer runners; absent on osv/sonar runners.
+   */
+  runShell?(command: string, opts?: { cwd?: string; timeout?: number }): Promise<ContainerRunResult>;
 }
 
 // ─── ServiceProvisioner contract ────────────────────────────────────────────────

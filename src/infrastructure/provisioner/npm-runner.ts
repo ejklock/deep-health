@@ -192,6 +192,46 @@ export class NpmDockerRunner implements EphemeralContainerRunner<string[]> {
     return containerResult;
   }
 
+  /**
+   * Execute an arbitrary shell command inside the container via `sh -c`.
+   * `command` is a single argv element passed to `sh -c` — not interpolated.
+   */
+  async runShell(command: string, opts?: { cwd?: string }): Promise<ContainerRunResult> {
+    const dockerArgs = this._buildShellDockerArgs(command, opts?.cwd);
+    logger.debug(`NpmDockerRunner (shell): docker ${dockerArgs.join(' ')}`);
+
+    let containerResult: ContainerRunResult;
+    try {
+      containerResult = await withRetry(
+        async (): Promise<ContainerRunResult> => {
+          try {
+            const { stdout, stderr } = await execFileAsync('docker', dockerArgs);
+            return { exitCode: 0, stdout, stderr };
+          } catch (err: unknown) {
+            const spawnErr = err as { code?: number; stdout?: string; stderr?: string; message?: string };
+            const exitCode = typeof spawnErr.code === 'number' ? spawnErr.code : 1;
+            const stdout = spawnErr.stdout ?? '';
+            const stderr = spawnErr.stderr ?? spawnErr.message ?? String(err);
+            throw Object.assign(
+              new Error(stderr || `docker exited ${exitCode}`),
+              { stdout, stderr, exitCode },
+            );
+          }
+        },
+        { retryOn: isDockerTransientError },
+      );
+    } catch (err: unknown) {
+      const e = err as { exitCode?: number; stdout?: string; stderr?: string; message?: string };
+      logger.debug(`NpmDockerRunner (shell): container exited ${typeof e.exitCode === 'number' ? e.exitCode : 1}`);
+      containerResult = {
+        exitCode: typeof e.exitCode === 'number' ? e.exitCode : 1,
+        stdout: e.stdout ?? '',
+        stderr: e.stderr ?? e.message ?? String(err),
+      };
+    }
+    return containerResult;
+  }
+
   // ─── Internal helpers ─────────────────────────────────────────────────────
 
   /**
@@ -217,6 +257,33 @@ export class NpmDockerRunner implements EphemeralContainerRunner<string[]> {
 
     // Entrypoint is npm — pass the subcommand args
     args.push('npm', ...npmArgs);
+
+    return args;
+  }
+
+  /**
+   * Assemble the full `docker run` argument array for an arbitrary shell command.
+   * Exposed for testability — does not invoke Docker.
+   *
+   * `command` is passed as a single argv element to `sh -c` — not interpolated.
+   */
+  _buildShellDockerArgs(command: string, cwd?: string): string[] {
+    const args: string[] = ['run', '--rm'];
+
+    if (this.resolvedPlatform !== undefined) {
+      args.push('--platform', this.resolvedPlatform);
+    }
+
+    args.push('--volume', `${cwd ?? this.projectDir}:/project`);
+    args.push('--workdir', '/project');
+
+    if (needsHostGateway()) {
+      args.push('--add-host', 'host.docker.internal:host-gateway');
+    }
+
+    args.push(this.image);
+    // command is a SINGLE argv element passed to sh -c — not interpolated
+    args.push('sh', '-c', command);
 
     return args;
   }
