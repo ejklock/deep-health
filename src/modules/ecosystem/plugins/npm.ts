@@ -96,8 +96,6 @@ export const npmPlugin: EcosystemPlugin = {
   /** Label used in executive report evidence tables */
   reportLabel: 'npm',
 
-  runtimeContainer: 'npm-docker',
-
   runtimeSpec: {
     defaultImage: 'node:lts',
     resolveImage: resolveNpmDockerImage,

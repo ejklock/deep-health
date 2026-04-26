@@ -71,9 +71,6 @@ export const composerPlugin: EcosystemPlugin = {
 
   postUpdateOsvVerify: 'always',
 
-  /** Declarative tag: composer commands run in a PHP Docker container */
-  runtimeContainer: 'composer-docker' as const,
-
   runtimeSpec: {
     defaultImage: COMPOSER_DEFAULT_IMAGE,
     resolveImage: resolveComposerDockerImage,

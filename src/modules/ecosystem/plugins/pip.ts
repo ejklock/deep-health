@@ -74,8 +74,6 @@ export const pipPlugin: EcosystemPlugin = {
   /** Label used in executive report evidence tables */
   reportLabel: 'Python/pip',
 
-  runtimeContainer: 'pip-docker',
-
   runtimeSpec: {
     defaultImage: PIP_DEFAULT_IMAGE,
     resolveImage: resolvePipDockerImage,

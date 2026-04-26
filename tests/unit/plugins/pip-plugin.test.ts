@@ -192,10 +192,6 @@ describe('pipPlugin shape', () => {
     expect(pipPlugin.osvEcosystems).toContain('PyPI');
   });
 
-  it('has runtimeContainer pip-docker', () => {
-    expect(pipPlugin.runtimeContainer).toBe('pip-docker');
-  });
-
   it('has postUpdateOsvVerify always', () => {
     expect(pipPlugin.postUpdateOsvVerify).toBe('always');
   });

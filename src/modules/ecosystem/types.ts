@@ -91,13 +91,6 @@ export interface EcosystemPlugin {
   runUpdater(ctx: EcosystemUpdaterContext): Promise<UpdateResultJson>;
 
   /**
-   * Declarative tag indicating the container runtime this ecosystem needs.
-   * The orchestrator uses this to resolve an effective CommandRunner.
-   * Undefined means no special runtime wrapping — use the base runner.
-   */
-  readonly runtimeContainer?: 'npm-docker' | 'pip-docker' | 'composer-docker';
-
-  /**
    * Declarative spec for the Ecosystem Runtime Container module.
    * When present, the orchestrator uses it to resolve a containerized CommandRunner;
    * when absent, the plugin runs on the host.

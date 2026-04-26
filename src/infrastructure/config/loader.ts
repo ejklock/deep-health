@@ -10,6 +10,33 @@ import type { EcosystemRegistry } from '@modules/ecosystem/registry';
 export const DEFAULT_CONFIG_PATH = 'project-config.yml';
 
 /**
+ * Detects the legacy `mode` field on any of the three ecosystem scanner blocks
+ * and throws a clear, actionable error before Zod parsing.
+ *
+ * The `mode` field was removed as part of the docker-only runtime migration
+ * (see docs/adr/0001-docker-only-runtime.md). Docker is now the only runtime.
+ */
+function rejectLegacyModeField(raw: unknown): void {
+  if (typeof raw !== 'object' || raw === null) return;
+  const obj = raw as Record<string, unknown>;
+  const scanners = obj.scanners;
+  if (typeof scanners !== 'object' || scanners === null) return;
+  const scannersObj = scanners as Record<string, unknown>;
+  for (const ecosystem of ['npm', 'pip', 'composer']) {
+    const block = scannersObj[ecosystem];
+    if (typeof block === 'object' && block !== null && 'mode' in block) {
+      const value = (block as { mode: unknown }).mode;
+      throw new Error(
+        `Config field 'scanners.${ecosystem}.mode' (value: '${String(value)}') is no longer supported. ` +
+        `Docker is now the only runtime mode. ` +
+        `Remove the 'mode' field from your config. ` +
+        `See docs/adr/0001-docker-only-runtime.md for the rationale.`,
+      );
+    }
+  }
+}
+
+/**
  * Formats a Zod path array into a human-readable dot+bracket string.
  * Array indices are rendered as `[N]`; object keys are separated by `.`.
  *
@@ -125,6 +152,15 @@ export async function loadConfig(
     throw new ConfigLoadError(
       `Invalid YAML in config file: ${absolutePath}\n` +
       `  Hint: Validate your YAML syntax at https://yaml.org/spec/ or use a linter.`,
+      absolutePath,
+    );
+  }
+
+  try {
+    rejectLegacyModeField(parsed);
+  } catch (err) {
+    throw new ConfigLoadError(
+      `${(err as Error).message}`,
       absolutePath,
     );
   }

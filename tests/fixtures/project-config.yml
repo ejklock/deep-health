@@ -41,9 +41,7 @@ safe_update_policy:
 
 conflict_resolution: 'stop_and_ask'
 
-# Integration tests run without Docker — force local runner for OSV and npm
+# Integration tests run without Docker — force local runner for OSV
 scanners:
   osv:
     runner: 'local'
-  npm:
-    mode: 'local'

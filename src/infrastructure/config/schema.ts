@@ -56,14 +56,7 @@ const OsvScannerConfigSchema = z
 const NpmRunnerConfigSchema = z
   .object({
     /**
-     * Runner selection (default: 'docker'):
-     * - 'docker' (default): run npm via an ephemeral Node Docker container.
-     * - 'local': use the locally installed npm binary. ⚠ Emits a warning.
-     * - 'auto': try local npm first; fall back to Docker. ⚠ Deprecated escape hatch — emits a warning.
-     */
-    mode: z.enum(["auto", "local", "docker"]).default("docker"),
-    /**
-     * Docker image to use when mode is 'docker'.
+     * Docker image to use for the npm container.
      * Defaults to a version-resolved image (e.g. 'node:20'), falling back to 'node:lts'.
      * Takes precedence over runtime_version.
      */
@@ -159,14 +152,7 @@ const SonarQubeConfigSchema = z
 const PipRunnerConfigSchema = z
   .object({
     /**
-     * Runner selection (default: 'docker'):
-     * - 'docker' (default): run pip via an ephemeral Python Docker container.
-     * - 'local': use the locally installed pip binary. ⚠ Emits a warning.
-     * - 'auto': try local pip first; fall back to Docker. ⚠ Deprecated escape hatch — emits a warning.
-     */
-    mode: z.enum(["auto", "local", "docker"]).default("docker"),
-    /**
-     * Docker image to use when mode is 'docker'.
+     * Docker image to use for the pip container.
      * Defaults to a version-resolved image (e.g. 'python:3.11-slim'), falling back to 'python:3-slim'.
      * Takes precedence over runtime_version.
      */
@@ -184,14 +170,7 @@ const PipRunnerConfigSchema = z
 const ComposerRunnerConfigSchema = z
   .object({
     /**
-     * Runner selection (default: 'docker'):
-     * - 'docker' (default): run composer via an ephemeral PHP Docker container.
-     * - 'local': use the locally installed composer binary. ⚠ Emits a warning.
-     * - 'auto': try local composer first; fall back to Docker. ⚠ Deprecated escape hatch — emits a warning.
-     */
-    mode: z.enum(["auto", "local", "docker"]).default("docker"),
-    /**
-     * Docker image to use when mode is 'docker'.
+     * Docker image to use for the composer container.
      * Defaults to a version-resolved image (e.g. 'php:8.2-cli'), falling back to 'composer:2'.
      * Takes precedence over runtime_version.
      */
@@ -204,7 +183,7 @@ const ComposerRunnerConfigSchema = z
      */
     runtime_version: z.string().optional(),
     /**
-     * Image provisioning strategy when mode is 'docker'.
+     * Image provisioning strategy.
      * - 'pull' (default): use the resolved base image as-is.
      * - 'build' (Phase 2 — NOT YET IMPLEMENTED): build a custom image with framework PHP extensions.
      */

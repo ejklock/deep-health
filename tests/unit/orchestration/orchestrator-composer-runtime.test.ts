@@ -5,6 +5,7 @@ import { OsvScannerEngine } from '@modules/scanner/osv-engine';
 import type { CommandRunner, CommandResult, CommandRunnerOptions, ExecutionEnv } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
 import { ComposerDockerRunner } from '@infra/provisioner/composer-runner';
+import * as ecosystemRuntime from '@infra/ecosystem-runtime';
 
 class MockCommandRunner implements CommandRunner {
   readonly dryRun: boolean;
@@ -112,10 +113,12 @@ function composerScanWithAutoSafe(): string {
 }
 
 describe('runOrchestrator — composer runtime phase 1', () => {
-  it('runs composer env-check before update in local mode and fails early on env-check error', async () => {
-    const config = baseComposerConfig({
-      scanners: { composer: { mode: 'local' } },
-    });
+  it('runs composer env-check before update and fails early on env-check error', async () => {
+    // Route ecosystem runtime through the host runner so calledCommands is populated.
+    const runtimeSpy = vi.spyOn(ecosystemRuntime, 'resolveEcosystemRuntime')
+      .mockImplementation((_plugin, hostRunner) => Promise.resolve(hostRunner));
+
+    const config = baseComposerConfig();
 
     // composer install (env-check) returns non-zero → updater returns error result → gate throws
     const runner = new MockCommandRunner({
@@ -136,10 +139,15 @@ describe('runOrchestrator — composer runtime phase 1', () => {
 
     expect(runner.calledCommands.some((c) => c.includes('composer install'))).toBe(true);
     expect(runner.calledCommands.some((c) => c.startsWith('composer update'))).toBe(false);
+
+    runtimeSpy.mockRestore();
   });
 
   it('includes composer install detail in environment mismatch error message', async () => {
-    const config = baseComposerConfig({ scanners: { composer: { mode: 'local' } } });
+    const runtimeSpy = vi.spyOn(ecosystemRuntime, 'resolveEcosystemRuntime')
+      .mockImplementation((_plugin, hostRunner) => Promise.resolve(hostRunner));
+
+    const config = baseComposerConfig();
     const runner = new MockCommandRunner({
       '--lockfile composer.lock --format json': { stdout: composerScanWithAutoSafe(), exitCode: 0 },
       'composer audit': { stdout: '', exitCode: 0 },
@@ -155,10 +163,15 @@ describe('runOrchestrator — composer runtime phase 1', () => {
         scannerRegistry: makeRegistry(),
       }),
     ).rejects.toThrow(/Composer environment mismatch/);
+
+    runtimeSpy.mockRestore();
   });
 
   it('dry-run skips composer diagnose and update mutation', async () => {
-    const config = baseComposerConfig({ scanners: { composer: { mode: 'local' } } });
+    const runtimeSpy = vi.spyOn(ecosystemRuntime, 'resolveEcosystemRuntime')
+      .mockImplementation((_plugin, hostRunner) => Promise.resolve(hostRunner));
+
+    const config = baseComposerConfig();
     const runner = new MockCommandRunner(
       {
         '--lockfile composer.lock --format json': { stdout: composerScanWithAutoSafe(), exitCode: 0 },
@@ -178,6 +191,8 @@ describe('runOrchestrator — composer runtime phase 1', () => {
     expect(runner.calledCommands).not.toContain('composer diagnose --no-interaction');
     expect(runner.calledCommands).not.toContain('composer install --no-interaction --no-scripts');
     expect(runner.calledCommands.some((c) => c.startsWith('composer update'))).toBe(false);
+
+    runtimeSpy.mockRestore();
   });
 
   it('docker mode routes env-check through composer container runner (not host fallback)', async () => {
