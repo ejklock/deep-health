@@ -17,7 +17,8 @@
       "mcp__agent-memory-store__search_context",
       "mcp__agent-memory-store__list_context",
       "Bash(rtk npm *)",
-      "Bash(rtk proxy *)"
+      "Bash(rtk proxy *)",
+      "Bash(rtk wc *)"
     ]
   },
   "outputStyle": "Explanatory"
