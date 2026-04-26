@@ -15,11 +15,12 @@
   "scripts": {
     "dev": "tsx bin/deep-health.ts",
     "build": "tsup",
-    "test": "vitest run",
+    "test": "vitest run tests/unit tests/integration",
     "test:watch": "vitest",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
     "test:smoke": "vitest run tests/smoke",
+    "test:all": "vitest run",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit"
