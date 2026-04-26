@@ -1,10 +1,16 @@
 import { EventEmitter } from 'node:events';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { PipDockerRunner, resolvePipDockerImage, PIP_DEFAULT_IMAGE } from '@infra/provisioner/pip-runner';
+import { resolvePipDockerImage, PIP_DEFAULT_IMAGE } from '@infra/provisioner/pip-runner';
+import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
 
 vi.mock('node:child_process', () => ({
   execFile: vi.fn(),
   spawn: vi.fn(),
+}));
+
+vi.mock('@infra/utils/docker-platform', () => ({
+  needsHostGateway: vi.fn().mockReturnValue(false),
+  resolvePlatform: vi.fn().mockReturnValue(undefined),
 }));
 
 import { spawn } from 'node:child_process';
@@ -21,7 +27,16 @@ function makeMockChild() {
   return child;
 }
 
-describe('PipDockerRunner runStreaming', () => {
+function makePipContainer(projectDir = '/tmp/project', image = PIP_DEFAULT_IMAGE) {
+  return new EphemeralEcosystemContainer({
+    runMode: { kind: 'shell-wrap' },
+    projectDir,
+    image,
+    logPrefix: 'pip',
+  });
+}
+
+describe('EphemeralEcosystemContainer runStreaming (pip mode)', () => {
   let stderrSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -43,7 +58,7 @@ describe('PipDockerRunner runStreaming', () => {
       child.emit('close', 0);
     });
 
-    const runner = new PipDockerRunner({ projectDir: '/tmp/project' });
+    const runner = makePipContainer();
     const result = await runner.runStreaming(['pip', 'install', '-U', 'requests']);
 
     expect(result.exitCode).toBe(0);
@@ -62,7 +77,7 @@ describe('PipDockerRunner runStreaming', () => {
       child.emit('error', new Error('spawn docker ENOENT'));
     });
 
-    const runner = new PipDockerRunner({ projectDir: '/tmp/project' });
+    const runner = makePipContainer();
     const result = await runner.runStreaming(['pip', 'install', 'requests']);
 
     expect(result.exitCode).toBe(1);
@@ -104,14 +119,13 @@ describe('resolvePipDockerImage', () => {
   });
 
   it('returns PIP_DEFAULT_IMAGE for "v3.11" (has non-digit prefix in first segment)', () => {
-    // v3.11 → segments: ["v3", "11"] — "v3" is not numeric → default
     expect(resolvePipDockerImage('v3.11')).toBe('python:3-slim');
   });
 });
 
-describe('PipDockerRunner._buildDockerArgs', () => {
+describe('EphemeralEcosystemContainer._buildDockerArgs (pip/shell-wrap mode)', () => {
   it('includes volume mount and workdir', () => {
-    const runner = new PipDockerRunner({ projectDir: '/my/project', image: 'python:3.11-slim' });
+    const runner = makePipContainer('/my/project', 'python:3.11-slim');
     const args = runner._buildDockerArgs(['pip', 'install', 'requests']);
     expect(args).toContain('--volume');
     expect(args).toContain('/my/project:/project');
@@ -120,7 +134,7 @@ describe('PipDockerRunner._buildDockerArgs', () => {
   });
 
   it('uses sh -lc to wrap the command tokens', () => {
-    const runner = new PipDockerRunner({ projectDir: '/my/project', image: 'python:3.11-slim' });
+    const runner = makePipContainer('/my/project', 'python:3.11-slim');
     const args = runner._buildDockerArgs(['pip', 'check']);
     const shIndex = args.indexOf('sh');
     expect(shIndex).toBeGreaterThan(0);
@@ -129,13 +143,13 @@ describe('PipDockerRunner._buildDockerArgs', () => {
   });
 
   it('uses the specified image', () => {
-    const runner = new PipDockerRunner({ projectDir: '/my/project', image: 'python:3.9-slim' });
+    const runner = makePipContainer('/my/project', 'python:3.9-slim');
     const args = runner._buildDockerArgs(['pip', 'list']);
     expect(args).toContain('python:3.9-slim');
   });
 
-  it('falls back to PIP_DEFAULT_IMAGE when no image specified', () => {
-    const runner = new PipDockerRunner({ projectDir: '/my/project' });
+  it('uses PIP_DEFAULT_IMAGE when constructed with default', () => {
+    const runner = makePipContainer('/my/project');
     const args = runner._buildDockerArgs(['pip', 'list']);
     expect(args).toContain(PIP_DEFAULT_IMAGE);
   });
@@ -144,7 +158,7 @@ describe('PipDockerRunner._buildDockerArgs', () => {
 import { execFile } from 'node:child_process';
 const mockExecFilePip = vi.mocked(execFile);
 
-describe('PipDockerRunner.run() (lines 149-166)', () => {
+describe('EphemeralEcosystemContainer.run() (pip mode)', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('returns exitCode 0 with stdout/stderr on success', async () => {
@@ -153,7 +167,7 @@ describe('PipDockerRunner.run() (lines 149-166)', () => {
         cb(null, { stdout: 'pip output', stderr: '' });
       },
     );
-    const runner = new PipDockerRunner({ projectDir: '/project' });
+    const runner = makePipContainer('/project');
     const result = await runner.run(['pip', 'install', '-r', 'requirements.txt']);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe('pip output');
@@ -166,7 +180,7 @@ describe('PipDockerRunner.run() (lines 149-166)', () => {
         cb(err);
       },
     );
-    const runner = new PipDockerRunner({ projectDir: '/project' });
+    const runner = makePipContainer('/project');
     const result = await runner.run(['pip', 'install']);
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toBe('OOMKilled');

@@ -7,7 +7,6 @@ import {
   DockerSonarQubeProvisioner,
   DockerSonarScannerRunner,
   OsvDockerRunner,
-  ComposerDockerRunner,
   resolveComposerDockerImage,
 } from '@infra/provisioner/index';
 
@@ -22,10 +21,6 @@ describe('src/infrastructure/provisioner/index.ts barrel exports', () => {
 
   it('OsvDockerRunner is exported', () => {
     expect(typeof OsvDockerRunner).toBe('function');
-  });
-
-  it('ComposerDockerRunner is exported', () => {
-    expect(typeof ComposerDockerRunner).toBe('function');
   });
 
   it('resolveComposerDockerImage is a function', () => {

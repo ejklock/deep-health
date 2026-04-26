@@ -1,10 +1,11 @@
 /**
  * Coverage for src/infrastructure/provisioner/npm-runner.ts
+ * and EphemeralEcosystemContainer with direct-exec RunMode (npm).
  * Covers:
  *   - resolveNpmDockerImage() branches
- *   - NpmDockerRunner._buildDockerArgs() — all flag branches
- *   - NpmDockerRunner.run() — catch branch edge cases
- *   - NpmDockerRunner.runStreaming() — close with null code
+ *   - EphemeralEcosystemContainer._buildDockerArgs() — direct-exec mode
+ *   - EphemeralEcosystemContainer.run() — catch branch edge cases
+ *   - EphemeralEcosystemContainer.runStreaming() — close with null code
  */
 import { describe, it, expect, vi, type Mock } from 'vitest';
 import { EventEmitter } from 'node:events';
@@ -23,9 +24,22 @@ vi.mock('node:child_process', () => ({
   spawn: vi.fn(),
 }));
 
-import { resolveNpmDockerImage, NpmDockerRunner } from '@infra/provisioner/npm-runner';
+import { resolveNpmDockerImage } from '@infra/provisioner/npm-runner';
+import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
 import { needsHostGateway, resolvePlatform } from '@infra/utils/docker-platform';
 import { execFile, spawn } from 'node:child_process';
+
+const directExecRunMode = { kind: 'direct-exec' as const, binary: 'npm' };
+
+function makeNpmContainer(opts: { projectDir?: string; platform?: string } = {}) {
+  return new EphemeralEcosystemContainer({
+    runMode: directExecRunMode,
+    projectDir: opts.projectDir ?? '/project',
+    image: 'node:lts',
+    logPrefix: 'npm',
+    platform: opts.platform,
+  });
+}
 
 describe('resolveNpmDockerImage()', () => {
   it('returns node:lts when no version given', () => {
@@ -53,9 +67,9 @@ describe('resolveNpmDockerImage()', () => {
   });
 });
 
-describe('NpmDockerRunner._buildDockerArgs()', () => {
+describe('EphemeralEcosystemContainer._buildDockerArgs() — direct-exec mode (npm)', () => {
   it('includes standard docker run args', () => {
-    const runner = new NpmDockerRunner({ projectDir: '/project' });
+    const runner = makeNpmContainer({ projectDir: '/project' });
     const args = runner._buildDockerArgs(['install']);
     expect(args).toContain('run');
     expect(args).toContain('--rm');
@@ -65,23 +79,22 @@ describe('NpmDockerRunner._buildDockerArgs()', () => {
   });
 
   it('includes --platform when resolvePlatform returns a value', async () => {
-    // Re-import the mock after resetting
     vi.mocked(resolvePlatform).mockReturnValueOnce('linux/amd64');
-    const runner = new NpmDockerRunner({ projectDir: '/project', platform: 'linux/amd64' as any });
+    const runner = makeNpmContainer({ projectDir: '/project', platform: 'linux/amd64' });
     const args = runner._buildDockerArgs(['ci']);
     expect(args).toContain('--platform');
     expect(args).toContain('linux/amd64');
   });
 
   it('does not include --platform when not configured', () => {
-    const runner = new NpmDockerRunner({ projectDir: '/project' });
+    const runner = makeNpmContainer({ projectDir: '/project' });
     const args = runner._buildDockerArgs(['install']);
     expect(args).not.toContain('--platform');
   });
 
-  it('includes --add-host when needsHostGateway returns true (line 186-187)', async () => {
+  it('includes --add-host when needsHostGateway returns true', async () => {
     vi.mocked(needsHostGateway).mockReturnValue(true);
-    const runner = new NpmDockerRunner({ projectDir: '/project' });
+    const runner = makeNpmContainer({ projectDir: '/project' });
     const args = runner._buildDockerArgs(['install']);
     vi.mocked(needsHostGateway).mockReturnValue(false);
     const idx = args.indexOf('--add-host');
@@ -90,24 +103,24 @@ describe('NpmDockerRunner._buildDockerArgs()', () => {
   });
 });
 
-describe('NpmDockerRunner.run() — catch branch edge cases', () => {
-  it('uses exitCode=1 and String(err) when spawnErr has no code/stdout/stderr/message (lines 160-162)', async () => {
+describe('EphemeralEcosystemContainer.run() — catch branch edge cases (npm mode)', () => {
+  it('uses exitCode=1 and String(err) when spawnErr has no code/stdout/stderr/message', async () => {
     const mockExecFile = vi.mocked(execFile) as unknown as Mock;
     mockExecFile.mockImplementation((_cmd: string, _args: string[], cb: Function) => {
       cb(Object.assign('string-err', {}));
     });
-    const runner = new NpmDockerRunner({ projectDir: '/p' });
+    const runner = makeNpmContainer({ projectDir: '/p' });
     const result = await runner.run(['install']);
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toBe('string-err');
   });
 
-  it('uses spawnErr.code when it is a number (line 160 true branch)', async () => {
+  it('uses spawnErr.code when it is a number', async () => {
     const mockExecFile = vi.mocked(execFile) as unknown as Mock;
     mockExecFile.mockImplementation((_cmd: string, _args: string[], cb: Function) => {
       cb(Object.assign(new Error('exit'), { code: 2, stdout: 'out', stderr: 'err' }));
     });
-    const runner = new NpmDockerRunner({ projectDir: '/p' });
+    const runner = makeNpmContainer({ projectDir: '/p' });
     const result = await runner.run(['install']);
     expect(result.exitCode).toBe(2);
     expect(result.stdout).toBe('out');
@@ -115,35 +128,35 @@ describe('NpmDockerRunner.run() — catch branch edge cases', () => {
   });
 });
 
-describe('NpmDockerRunner._buildShellDockerArgs()', () => {
+describe('EphemeralEcosystemContainer._buildShellDockerArgs() — npm mode', () => {
   it('routes to sh -c with command as single argv element', () => {
-    const runner = new NpmDockerRunner({ projectDir: '/myproject' });
+    const runner = makeNpmContainer({ projectDir: '/myproject' });
     const args = runner._buildShellDockerArgs('jest --coverage', '/myproject');
     const last3 = args.slice(-3);
     expect(last3).toEqual(['sh', '-c', 'jest --coverage']);
   });
 
   it('mounts the provided cwd as /project', () => {
-    const runner = new NpmDockerRunner({ projectDir: '/defaultdir' });
+    const runner = makeNpmContainer({ projectDir: '/defaultdir' });
     const args = runner._buildShellDockerArgs('jest --coverage', '/myproject');
     expect(args.join(' ')).toContain('/myproject:/project');
   });
 
   it('passes compound shell command as a single argv element (not split)', () => {
-    const runner = new NpmDockerRunner({ projectDir: '/p' });
+    const runner = makeNpmContainer({ projectDir: '/p' });
     const args = runner._buildShellDockerArgs('echo hello world && ls');
     const last3 = args.slice(-3);
     expect(last3).toEqual(['sh', '-c', 'echo hello world && ls']);
   });
 
   it('falls back to projectDir when no cwd provided', () => {
-    const runner = new NpmDockerRunner({ projectDir: '/defaultdir' });
+    const runner = makeNpmContainer({ projectDir: '/defaultdir' });
     const args = runner._buildShellDockerArgs('jest');
     expect(args.join(' ')).toContain('/defaultdir:/project');
   });
 });
 
-describe('NpmDockerRunner.runStreaming() — null close code (line 122)', () => {
+describe('EphemeralEcosystemContainer.runStreaming() — null close code (npm mode)', () => {
   it('uses exitCode=1 when close event fires with null code', async () => {
     const mockSpawn = vi.mocked(spawn) as unknown as Mock;
     const child = new EventEmitter() as any;
@@ -151,9 +164,8 @@ describe('NpmDockerRunner.runStreaming() — null close code (line 122)', () => 
     child.stderr = new EventEmitter();
     mockSpawn.mockReturnValue(child);
 
-    const runner = new NpmDockerRunner({ projectDir: '/p' });
+    const runner = makeNpmContainer({ projectDir: '/p' });
     const resultPromise = runner.runStreaming(['install']);
-    // emit close with null (null code → ?? 1)
     child.emit('close', null);
     const result = await resultPromise;
     expect(result.exitCode).toBe(1);

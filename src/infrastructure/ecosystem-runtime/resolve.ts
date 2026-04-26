@@ -1,12 +1,9 @@
 import type { CommandRunner } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
 import type { EcosystemPlugin } from '@modules/ecosystem/types';
-import type { EphemeralContainerRunner } from '@infra/provisioner/types';
-import { NpmDockerRunner } from '@infra/provisioner/npm-runner';
-import { PipDockerRunner } from '@infra/provisioner/pip-runner';
-import { ComposerDockerRunner } from '@infra/provisioner/composer-runner';
 import { logger } from '../utils/logger';
 import { EcosystemContainerCommandRunner } from './command-runner';
+import { EphemeralEcosystemContainer } from './ephemeral-container';
 
 /**
  * Resolve a containerized CommandRunner for the given ecosystem plugin.
@@ -18,7 +15,6 @@ import { EcosystemContainerCommandRunner } from './command-runner';
  *   4. `spec.resolveImage(undefined)` → `spec.defaultImage` (fallback)
  *
  * @throws {Error} when `plugin.runtimeSpec` is undefined (plugin has no runtime spec)
- * @throws {Error} when `plugin.id` is not one of the known plugin IDs (transitional — removed in PR 2)
  */
 export async function resolveEcosystemRuntime(
   plugin: EcosystemPlugin,
@@ -62,27 +58,14 @@ export async function resolveEcosystemRuntime(
 
   logger.info(`[ecosystem-runtime/${plugin.id}] Using Docker image: ${image}`);
 
-  // ─── Container instantiation (transitional dispatch) ─────────────────────
+  // ─── Container instantiation ──────────────────────────────────────────────
 
-  // TODO(PR 2): collapse these into one EphemeralEcosystemContainer
-  // parameterized by spec.runMode. The switch goes away when there's only
-  // one container class.
-  let container: EphemeralContainerRunner<string[]>;
-  switch (plugin.id) {
-    case 'npm':
-      container = new NpmDockerRunner({ projectDir: cwd, image });
-      break;
-    case 'pip':
-      container = new PipDockerRunner({ projectDir: cwd, image });
-      break;
-    case 'composer':
-      container = new ComposerDockerRunner({ projectDir: cwd, image });
-      break;
-    default:
-      throw new Error(
-        `Unknown plugin id for runtime container instantiation: ${plugin.id}. PR 2 will remove this restriction.`,
-      );
-  }
+  const container = new EphemeralEcosystemContainer({
+    runMode: spec.runMode,
+    projectDir: cwd,
+    image,
+    logPrefix: plugin.id,
+  });
 
   return new EcosystemContainerCommandRunner({
     container,

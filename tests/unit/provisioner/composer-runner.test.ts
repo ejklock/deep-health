@@ -1,11 +1,17 @@
 import { EventEmitter } from 'node:events';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ComposerDockerRunner } from '@infra/provisioner/composer-runner';
+import { COMPOSER_BOOTSTRAP, isPhpCliImage } from '@infra/provisioner/composer-runner';
 import { COMPOSER_DEFAULT_IMAGE } from '@infra/provisioner/php-profiles';
+import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
 
 vi.mock('node:child_process', () => ({
   execFile: vi.fn(),
   spawn: vi.fn(),
+}));
+
+vi.mock('@infra/utils/docker-platform', () => ({
+  needsHostGateway: vi.fn().mockReturnValue(false),
+  resolvePlatform: vi.fn().mockReturnValue(undefined),
 }));
 
 import { spawn } from 'node:child_process';
@@ -22,7 +28,19 @@ function makeMockChild() {
   return child;
 }
 
-describe('ComposerDockerRunner runStreaming', () => {
+function makeComposerContainer(projectDir = '/tmp/project', image = COMPOSER_DEFAULT_IMAGE) {
+  return new EphemeralEcosystemContainer({
+    runMode: {
+      kind: 'shell-wrap',
+      preamble: (img: string) => isPhpCliImage(img) ? COMPOSER_BOOTSTRAP : undefined,
+    },
+    projectDir,
+    image,
+    logPrefix: 'composer',
+  });
+}
+
+describe('EphemeralEcosystemContainer runStreaming (composer mode)', () => {
   let stderrSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -44,7 +62,7 @@ describe('ComposerDockerRunner runStreaming', () => {
       child.emit('close', 0);
     });
 
-    const runner = new ComposerDockerRunner({ projectDir: '/tmp/project' });
+    const runner = makeComposerContainer();
     const result = await runner.runStreaming(['composer', 'install']);
 
     expect(result.exitCode).toBe(0);
@@ -56,9 +74,9 @@ describe('ComposerDockerRunner runStreaming', () => {
   });
 });
 
-describe('ComposerDockerRunner._buildDockerArgs', () => {
+describe('EphemeralEcosystemContainer._buildDockerArgs (composer mode)', () => {
   it('includes volume mount and workdir', () => {
-    const runner = new ComposerDockerRunner({ projectDir: '/my/project', image: 'php:8.2-cli' });
+    const runner = makeComposerContainer('/my/project', 'php:8.2-cli');
     const args = runner._buildDockerArgs(['composer', 'update']);
     expect(args).toContain('--volume');
     expect(args).toContain('/my/project:/project');
@@ -67,8 +85,7 @@ describe('ComposerDockerRunner._buildDockerArgs', () => {
   });
 
   it('uses sh -lc to wrap command tokens (non-php-cli image)', () => {
-    // composer:2 does not trigger the bootstrap preamble
-    const runner = new ComposerDockerRunner({ projectDir: '/my/project', image: 'composer:2' });
+    const runner = makeComposerContainer('/my/project', 'composer:2');
     const args = runner._buildDockerArgs(['php', '-v']);
     const shIndex = args.indexOf('sh');
     expect(shIndex).toBeGreaterThan(0);
@@ -77,8 +94,7 @@ describe('ComposerDockerRunner._buildDockerArgs', () => {
   });
 
   it('prepends composer bootstrap when image is php:*-cli', () => {
-    // php:8.2-cli does not bundle composer — bootstrap installs it on-the-fly
-    const runner = new ComposerDockerRunner({ projectDir: '/my/project', image: 'php:8.2-cli' });
+    const runner = makeComposerContainer('/my/project', 'php:8.2-cli');
     const args = runner._buildDockerArgs(['composer', 'install']);
     const shIndex = args.indexOf('sh');
     expect(shIndex).toBeGreaterThan(0);
@@ -90,7 +106,7 @@ describe('ComposerDockerRunner._buildDockerArgs', () => {
   });
 
   it('falls back to COMPOSER_DEFAULT_IMAGE when no image is specified', () => {
-    const runner = new ComposerDockerRunner({ projectDir: '/my/project' });
+    const runner = makeComposerContainer('/my/project');
     const args = runner._buildDockerArgs(['composer', '--version']);
     expect(args).toContain(COMPOSER_DEFAULT_IMAGE);
   });
@@ -99,7 +115,7 @@ describe('ComposerDockerRunner._buildDockerArgs', () => {
 import { execFile } from 'node:child_process';
 const mockExecFileComposer = vi.mocked(execFile);
 
-describe('ComposerDockerRunner.run() (lines 139-155)', () => {
+describe('EphemeralEcosystemContainer.run() (composer mode)', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('returns exitCode 0 with stdout/stderr on success', async () => {
@@ -108,7 +124,7 @@ describe('ComposerDockerRunner.run() (lines 139-155)', () => {
         cb(null, { stdout: 'Nothing to install', stderr: '' });
       },
     );
-    const runner = new ComposerDockerRunner({ projectDir: '/project' });
+    const runner = makeComposerContainer('/project');
     const result = await runner.run(['composer', 'install']);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe('Nothing to install');
@@ -121,20 +137,18 @@ describe('ComposerDockerRunner.run() (lines 139-155)', () => {
         cb(err);
       },
     );
-    const runner = new ComposerDockerRunner({ projectDir: '/project' });
+    const runner = makeComposerContainer('/project');
     const result = await runner.run(['composer', 'install']);
     expect(result.exitCode).toBe(125);
     expect(result.stderr).toBe('container failed');
   });
 });
 
-describe('ComposerDockerRunner.runStreaming() — spawn error path (lines 122-129)', () => {
+describe('EphemeralEcosystemContainer.runStreaming() — spawn error path (composer mode)', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('resolves with exitCode 1 and error message when spawn emits error', async () => {
-    const child = new EventEmitter() as ReturnType<typeof makeMockChild>;
-    child.stdout = new EventEmitter();
-    child.stderr = new EventEmitter();
+    const child = makeMockChild();
     mockSpawn.mockReturnValue(child as never);
 
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
@@ -143,7 +157,7 @@ describe('ComposerDockerRunner.runStreaming() — spawn error path (lines 122-12
       child.emit('error', new Error('spawn ENOENT'));
     });
 
-    const runner = new ComposerDockerRunner({ projectDir: '/project' });
+    const runner = makeComposerContainer('/project');
     const result = await runner.runStreaming(['composer', 'install']);
 
     expect(result.exitCode).toBe(1);

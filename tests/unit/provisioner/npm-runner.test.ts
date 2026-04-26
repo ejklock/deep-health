@@ -1,10 +1,16 @@
 import { EventEmitter } from 'node:events';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { NpmDockerRunner, resolveNpmDockerImage, NPM_DEFAULT_IMAGE } from '@infra/provisioner/npm-runner';
+import { resolveNpmDockerImage, NPM_DEFAULT_IMAGE } from '@infra/provisioner/npm-runner';
+import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
 
 vi.mock('node:child_process', () => ({
   execFile: vi.fn(),
   spawn: vi.fn(),
+}));
+
+vi.mock('@infra/utils/docker-platform', () => ({
+  needsHostGateway: vi.fn().mockReturnValue(false),
+  resolvePlatform: vi.fn().mockReturnValue(undefined),
 }));
 
 import { spawn } from 'node:child_process';
@@ -21,7 +27,16 @@ function makeMockChild() {
   return child;
 }
 
-describe('NpmDockerRunner runStreaming', () => {
+function makeNpmContainer(projectDir = '/tmp/project') {
+  return new EphemeralEcosystemContainer({
+    runMode: { kind: 'direct-exec', binary: 'npm' },
+    projectDir,
+    image: NPM_DEFAULT_IMAGE,
+    logPrefix: 'npm',
+  });
+}
+
+describe('EphemeralEcosystemContainer runStreaming (npm mode)', () => {
   let stderrSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -43,7 +58,7 @@ describe('NpmDockerRunner runStreaming', () => {
       child.emit('close', 3);
     });
 
-    const runner = new NpmDockerRunner({ projectDir: '/tmp/project' });
+    const runner = makeNpmContainer();
     const result = await runner.runStreaming(['ci']);
 
     expect(result.exitCode).toBe(3);
@@ -63,7 +78,7 @@ describe('NpmDockerRunner runStreaming', () => {
       child.emit('error', new Error('spawn docker ENOENT'));
     });
 
-    const runner = new NpmDockerRunner({ projectDir: '/tmp/project' });
+    const runner = makeNpmContainer();
     const result = await runner.runStreaming(['install']);
 
     expect(result.exitCode).toBe(1);
@@ -108,17 +123,16 @@ describe('resolveNpmDockerImage', () => {
 import { execFile } from 'node:child_process';
 const mockExecFile = vi.mocked(execFile);
 
-describe('NpmDockerRunner.run() (lines 150-166)', () => {
+describe('EphemeralEcosystemContainer.run() (npm mode)', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('returns exitCode 0 with stdout/stderr on success', async () => {
-    // promisify(execFile) resolves with { stdout, stderr }
     (mockExecFile as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (_file: string, _args: string[], cb: (err: null, result: { stdout: string; stderr: string }) => void) => {
         cb(null, { stdout: 'ok', stderr: '' });
       },
     );
-    const runner = new NpmDockerRunner({ projectDir: '/project' });
+    const runner = makeNpmContainer('/project');
     const result = await runner.run(['install']);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe('ok');
@@ -131,7 +145,7 @@ describe('NpmDockerRunner.run() (lines 150-166)', () => {
         cb(err);
       },
     );
-    const runner = new NpmDockerRunner({ projectDir: '/project' });
+    const runner = makeNpmContainer('/project');
     const result = await runner.run(['install']);
     expect(result.exitCode).toBe(2);
     expect(result.stderr).toBe('permission denied');

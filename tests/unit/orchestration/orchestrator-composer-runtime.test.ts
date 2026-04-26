@@ -4,7 +4,7 @@ import { ScannerEngineRegistry } from '@modules/scanner/registry';
 import { OsvScannerEngine } from '@modules/scanner/osv-engine';
 import type { CommandRunner, CommandResult, CommandRunnerOptions, ExecutionEnv } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
-import { ComposerDockerRunner } from '@infra/provisioner/composer-runner';
+import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
 import * as ecosystemRuntime from '@infra/ecosystem-runtime';
 
 class MockCommandRunner implements CommandRunner {
@@ -201,7 +201,7 @@ describe('runOrchestrator — composer runtime phase 1', () => {
     });
 
     const containerRunSpy = vi
-      .spyOn(ComposerDockerRunner.prototype, 'run')
+      .spyOn(EphemeralEcosystemContainer.prototype, 'run')
       .mockResolvedValue({ stdout: '', stderr: 'container diagnose fail', exitCode: 1 });
 
     const runner = new MockCommandRunner({
