@@ -105,6 +105,15 @@ describe('EphemeralEcosystemContainer._buildDockerArgs (composer mode)', () => {
     expect(shellCmd).toMatch(/&&\s*composer install$/);
   });
 
+  it('bootstrap ensures git/unzip are present on php:*-cli images', () => {
+    const runner = makeComposerContainer('/my/project', 'php:8.2-cli');
+    const args = runner._buildDockerArgs(['composer', 'install']);
+    const shellCmd = args[args.indexOf('sh') + 2] as string;
+    expect(shellCmd).toContain('command -v git');
+    expect(shellCmd).toContain('command -v unzip');
+    expect(shellCmd).toContain('apt-get install -y --no-install-recommends git unzip');
+  });
+
   it('falls back to COMPOSER_DEFAULT_IMAGE when no image is specified', () => {
     const runner = makeComposerContainer('/my/project');
     const args = runner._buildDockerArgs(['composer', '--version']);

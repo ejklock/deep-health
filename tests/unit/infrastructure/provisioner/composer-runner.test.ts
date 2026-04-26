@@ -98,6 +98,16 @@ describe('EphemeralEcosystemContainer._buildDockerArgs() — shell-wrap mode (co
     expect(shellCmd).toMatch(/&&\s*composer install$/);
   });
 
+  it('bootstrap installs git/unzip on php:*-cli images, guarded by command -v', () => {
+    const runner = makeComposerContainer({ projectDir: '/p', image: 'php:8.2-cli' });
+    const args = runner._buildDockerArgs(['composer', 'install']);
+    const shellCmd = args[args.indexOf('sh') + 2] as string;
+    expect(shellCmd).toContain('command -v git');
+    expect(shellCmd).toContain('command -v unzip');
+    expect(shellCmd).toContain('apt-get install -y --no-install-recommends git unzip');
+    expect(shellCmd.indexOf('command -v')).toBeLessThan(shellCmd.indexOf('getcomposer.org/installer'));
+  });
+
   it('uses COMPOSER_DEFAULT_IMAGE when image is default', () => {
     const runner = makeComposerContainer({ projectDir: '/my/project' });
     const args = runner._buildDockerArgs(['composer', '--version']);
