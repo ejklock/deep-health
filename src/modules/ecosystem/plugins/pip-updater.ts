@@ -4,9 +4,10 @@ import type { UpdateResultJson, ValidationEntry } from '@core/types/update';
 import type { ScanResultJson } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
 import { PhaseError } from '@core/errors';
-import { backupFiles, restoreFiles } from '@infra/utils/git';
+import { restoreFiles } from '@infra/utils/git';
 import { logger } from '@infra/utils/logger';
 import { runValidations } from '../utils/validation-runner';
+import { beginUpdaterTransaction } from '../utils/updater-transaction';
 
 const PIP_FILES = ['requirements.txt'];
 
@@ -137,7 +138,7 @@ export async function runPipUpdater(
   }
 
   try {
-    const backups = await backupFiles(PIP_FILES, cwd);
+    const tx = await beginUpdaterTransaction({ files: PIP_FILES, base, cwd });
 
     await checkCurrentState(runner, cwd);
 
@@ -150,13 +151,11 @@ export async function runPipUpdater(
       // or pip-tools compile is wired in, and always mutates the Python env.
       // Revert to guarantee the working tree and env match the pre-update state.
       logger.error('pip install -U failed — reverting pip changes...');
-      await revertPipChanges(runner, backups, cwd);
-      return {
-        ...base,
-        status: 'error',
-        validations: [{ name: 'validation', status: 'skipped', detail: 'pip install -U failed — changes reverted' }],
+      return tx.abortWithError({
         error: `pip install -U failed: ${updateResult.stderr}`,
-      };
+        validations: [{ name: 'validation', status: 'skipped', detail: 'pip install -U failed — changes reverted' }],
+        revert: () => revertPipChanges(runner, tx.backups, cwd),
+      });
     }
 
     // Run configured validation commands
@@ -168,20 +167,17 @@ export async function runPipUpdater(
 
     if (!validationResult.allPassed) {
       logger.error('Validations failed — reverting pip updates...');
-      await revertPipChanges(runner, backups, cwd);
-      return {
-        ...base,
-        status: 'error',
-        validations: validationResult.entries,
+      return tx.abortWithError({
         error: 'Validations failed after pip update — changes reverted',
-      };
+        validations: validationResult.entries,
+        revert: () => revertPipChanges(runner, tx.backups, cwd),
+      });
     }
 
-    return {
-      ...base,
+    return tx.success({
       packages_updated: pipEcosystem.auto_safe_packages,
       validations: validationResult.entries,
-    };
+    });
   } catch (err) {
     throw new PhaseError(
       `pip updater phase failed: ${err instanceof Error ? err.message : String(err)}`,

@@ -4,9 +4,10 @@ import type { UpdateResultJson, ValidationEntry } from '@core/types/update';
 import type { ScanResultJson } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
 import { PhaseError } from '@core/errors';
-import { backupFiles, restoreFiles } from '@infra/utils/git';
+import { restoreFiles } from '@infra/utils/git';
 import { logger } from '@infra/utils/logger';
 import { runValidations } from '../utils/validation-runner';
+import { beginUpdaterTransaction } from '../utils/updater-transaction';
 
 const COMPOSER_FILES = ['composer.json', 'composer.lock'];
 
@@ -166,7 +167,7 @@ export async function runComposerUpdater(
     }
     logger.info('[composer env-check] Environment check passed.');
 
-    const backups = await backupFiles(COMPOSER_FILES, cwd);
+    const tx = await beginUpdaterTransaction({ files: COMPOSER_FILES, base, cwd });
 
     await checkCurrentState(runner, cwd);
 
@@ -177,13 +178,11 @@ export async function runComposerUpdater(
       // return non-zero even though the lockfile is already on disk). Revert so
       // the working tree is left byte-identical to the pre-update state.
       logger.error('composer update failed — reverting Composer changes...');
-      await revertComposerChanges(runner, backups, cwd, automationArgs);
-      return {
-        ...base,
-        status: 'error',
-        validations: [{ name: 'validation', status: 'skipped', detail: 'composer update failed — changes reverted' }],
+      return tx.abortWithError({
         error: `composer update failed: ${updateResult.stderr}`,
-      };
+        validations: [{ name: 'validation', status: 'skipped', detail: 'composer update failed — changes reverted' }],
+        revert: () => revertComposerChanges(runner, tx.backups, cwd, automationArgs),
+      });
     }
 
     // Run configured validation commands
@@ -195,20 +194,17 @@ export async function runComposerUpdater(
 
     if (!validationResult.allPassed) {
       logger.error('Validations failed — reverting Composer updates...');
-      await revertComposerChanges(runner, backups, cwd, automationArgs);
-      return {
-        ...base,
-        status: 'error',
-        validations: validationResult.entries,
+      return tx.abortWithError({
         error: 'Validations failed after composer update — changes reverted',
-      };
+        validations: validationResult.entries,
+        revert: () => revertComposerChanges(runner, tx.backups, cwd, automationArgs),
+      });
     }
 
-    return {
-      ...base,
+    return tx.success({
       packages_updated: composerEcosystem.auto_safe_packages,
       validations: validationResult.entries,
-    };
+    });
   } catch (err) {
     throw new PhaseError(
       `Composer updater phase failed: ${err instanceof Error ? err.message : String(err)}`,

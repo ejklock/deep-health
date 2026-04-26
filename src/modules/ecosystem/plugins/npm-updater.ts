@@ -8,6 +8,7 @@ import { emptyEcosystem } from '@core/types/scan';
 import { PhaseError } from '@core/errors';
 import { backupFiles, restoreFiles } from '@infra/utils/git';
 import { logger } from '@infra/utils/logger';
+import { beginUpdaterTransaction } from '../utils/updater-transaction';
 import { FIXER_MAP } from '../fixers/index';
 import { runValidations } from '../utils/validation-runner';
 
@@ -127,29 +128,34 @@ export async function runNpmUpdater(
   }
 
   try {
+    // Advisor files (e.g. yarn.lock) are never mutated by osv-scanner fix, so backing up
+    // here — after the orchestrator's OSV pre-phase — is safe. We still snapshot them so
+    // a postinstall/resolver side-effect during validation can be rolled back.
+    const advisorBackups = await backupFiles(NPM_ADVISOR_FILES, cwd);
     // Use caller-provided backups (e.g. taken before osv-scanner fix) when available.
     // This is required for the 'osv' strategy where the orchestrator runs osv-scanner fix
     // before invoking the updater — at that point files are already mutated, so a backup
     // taken here would capture the post-fix state rather than the pre-fix state.
     const primaryBackups = preFixBackups ?? await backupFiles(NPM_FILES, cwd);
-    // Advisor files (e.g. yarn.lock) are never mutated by osv-scanner fix, so backing up
-    // here — after the orchestrator's OSV pre-phase — is safe. We still snapshot them so
-    // a postinstall/resolver side-effect during validation can be rolled back.
-    const advisorBackups = await backupFiles(NPM_ADVISOR_FILES, cwd);
-    const backups = new Map<string, string>([...primaryBackups, ...advisorBackups]);
+    const tx = await beginUpdaterTransaction({
+      files: NPM_FILES, // unused when preExistingBackups provided, but required by type
+      base,
+      cwd,
+      preExistingBackups: new Map([...primaryBackups, ...advisorBackups]),
+    });
 
     await checkCurrentState(runner, cwd);
 
     // Apply the configured fixer strategy
     const fixerResult = await fixerFn({ runner, cwd, scanResult, authorizeBreaking });
 
+    // When fixer reports a breaking install error, no files were mutated — no revert needed
     if (fixerResult.breakingInstallError) {
-      return {
-        ...base,
-        status: 'error',
-        validations: [{ name: 'validation', status: 'fail', detail: fixerResult.breakingInstallError }],
+      return tx.abortWithError({
         error: fixerResult.breakingInstallError,
-      };
+        validations: [{ name: 'validation', status: 'fail', detail: fixerResult.breakingInstallError }],
+        revert: async () => {},
+      });
     }
 
     // Bootstrap dependencies before running validations
@@ -167,17 +173,11 @@ export async function runNpmUpdater(
           .join('\n');
         logger.error(`npm ci failed before validation:\n${detail}`);
         logger.error('Reverting npm changes...');
-        await revertNpmChanges(runner, backups, cwd, preRunSnapshots);
-        return {
-          ...base,
-          status: 'error',
-          validations: [{
-            name: 'npm ci',
-            status: 'fail',
-            detail,
-          }],
+        return tx.abortWithError({
           error: 'npm ci failed before validation — changes reverted',
-        };
+          validations: [{ name: 'npm ci', status: 'fail', detail }],
+          revert: () => revertNpmChanges(runner, tx.backups, cwd, preRunSnapshots),
+        });
       }
     }
 
@@ -218,11 +218,10 @@ export async function runNpmUpdater(
               '[osv-then-audit] Post-OSV state validates successfully. Audit-fix changes reverted; OSV changes preserved.',
             );
             const osvOnly = osvFixOutcome?.packagesUpdated.map((p) => `${p.name}@${p.versionTo}`) ?? [];
-            return {
-              ...base,
+            return tx.success({
               packages_updated: osvOnly,
               validations: reValidation.entries,
-            };
+            });
           }
           logger.warn(
             '[osv-then-audit] Post-OSV state also failed validation. Performing full revert...',
@@ -235,13 +234,11 @@ export async function runNpmUpdater(
       }
 
       logger.error('Validation failed — reverting npm changes...');
-      await revertNpmChanges(runner, backups, cwd, preRunSnapshots);
-      return {
-        ...base,
-        status: 'error',
-        validations: validationResult.entries,
+      return tx.abortWithError({
         error: 'Validation failed after npm update — changes reverted',
-      };
+        validations: validationResult.entries,
+        revert: () => revertNpmChanges(runner, tx.backups, cwd, preRunSnapshots),
+      });
     }
 
     // When OSV strategy ran, use the applier's evidence; fall back to fixer result
@@ -265,11 +262,10 @@ export async function runNpmUpdater(
           ? osvPackages
           : fixerResult.packagesUpdated;
 
-    return {
-      ...base,
+    return tx.success({
       packages_updated: actualPackagesUpdated,
       validations: validationResult.entries,
-    };
+    });
   } catch (err) {
     throw new PhaseError(
       `npm updater phase failed: ${err instanceof Error ? err.message : String(err)}`,
