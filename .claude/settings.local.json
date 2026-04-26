@@ -18,7 +18,8 @@
       "mcp__agent-memory-store__list_context",
       "Bash(rtk npm *)",
       "Bash(rtk proxy *)",
-      "Bash(rtk wc *)"
+      "Bash(rtk wc *)",
+      "mcp__agent-memory-store__set_state"
     ]
   },
   "outputStyle": "Explanatory"
