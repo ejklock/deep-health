@@ -238,6 +238,16 @@ export class EphemeralEcosystemContainer implements EphemeralContainerRunner<str
   private _buildBaseArgs(cwd?: string): string[] {
     const args: string[] = ['run', '--rm'];
 
+    // Defense in depth (ADR-0002):
+    //   --cap-drop=ALL drops every Linux capability — package managers don't
+    //   need any. A hostile validation command from a compromised
+    //   project-config.yml loses the ability to use raw sockets, ptrace, mount
+    //   filesystems, change ownership, etc.
+    //   --security-opt=no-new-privileges blocks setuid binaries inside the
+    //   container from escalating, even if the image ships one.
+    args.push('--cap-drop=ALL');
+    args.push('--security-opt', 'no-new-privileges');
+
     if (this.resolvedPlatform !== undefined) {
       args.push('--platform', this.resolvedPlatform);
     }
