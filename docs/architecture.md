@@ -16,6 +16,7 @@ graph TD
 
     subgraph orchestration["orchestration/"]
         ORCH["orchestrator.ts<br/>runOrchestrator()"]
+        RUN_ECO_FIX["run-ecosystem-fix.ts<br/>runEcosystemFix()"]
         OSV_FIX["osv-fix-applier.ts"]
         DRY["dry-run-preview.ts"]
         LOCK_INS["lockfile-inspect.ts"]
@@ -27,6 +28,8 @@ graph TD
             NPM_P["NpmPlugin"]
             COMP_P["ComposerPlugin"]
             PIP_P["PipPlugin"]
+            UPDATER_TX["utils/updater-transaction.ts<br/>beginUpdaterTransaction()"]
+            VAL_RUN["utils/validation-runner.ts"]
         end
         subgraph scanner["scanner/"]
             SCAN_REG["ScannerEngineRegistry<br/>(registry.ts)"]
@@ -64,8 +67,16 @@ graph TD
     ORCH --> ECO_REG
     ORCH --> SCAN_REG
     ORCH --> GATE
-    ORCH --> OSV_FIX
     ORCH --> ADVISOR
+    ORCH --> RUN_ECO_FIX
+    RUN_ECO_FIX --> OSV_FIX
+    RUN_ECO_FIX --> GATE
+    NPM_P --> UPDATER_TX
+    COMP_P --> UPDATER_TX
+    PIP_P --> UPDATER_TX
+    NPM_P --> VAL_RUN
+    COMP_P --> VAL_RUN
+    PIP_P --> VAL_RUN
     ECO_REG --> NPM_P
     ECO_REG --> COMP_P
     ECO_REG --> PIP_P
@@ -117,42 +128,53 @@ flowchart TD
     PHASE_PLUGIN -- no --> NEXT_PLUGIN
     PHASE_PLUGIN -- yes --> ADVISORS
 
-    ADVISORS["Run advisors\n(informational, never blocks)"]
-    ADVISORS --> HAS_UPDATES
+    ADVISORS["Run advisors<br/>(informational, never blocks)"]
+    ADVISORS --> RUN_ECO_FIX
 
-    HAS_UPDATES{"auto_safe vulns > 0\nor breaking vulns + authorized?"}
-    HAS_UPDATES -- no --> NEXT_PLUGIN
-    HAS_UPDATES -- yes --> RESOLVE_RUNNER
+    subgraph runEcosystemFix["runEcosystemFix() — src/orchestration/run-ecosystem-fix.ts"]
+        direction TB
+        RUN_ECO_FIX([runEcosystemFix called]) --> HAS_UPDATES
 
-    RESOLVE_RUNNER["Resolve container runner\n(npm-docker / pip-docker / composer-docker)"]
-    RESOLVE_RUNNER --> OSV_STAGING
+        HAS_UPDATES{"auto_safe vulns > 0<br/>or breaking vulns + authorized?"}
+        HAS_UPDATES -- no --> SKIPPED([return: status=skipped])
+        HAS_UPDATES -- yes --> RESOLVE_RUNNER
 
-    OSV_STAGING["OSV staging-fix\n(if strategy=osv or osv-then-audit)"]
-    OSV_STAGING --> DRY_PREVIEW
+        RESOLVE_RUNNER["Resolve effective runner<br/>via Ecosystem Runtime Container"]
+        RESOLVE_RUNNER --> OSV_STAGING
 
-    DRY_PREVIEW["Dry-run preview\n(if --dry-run)"]
-    DRY_PREVIEW --> RUN_UPDATER
+        OSV_STAGING["OSV staging-fix<br/>(if strategy=osv or osv-then-audit)"]
+        OSV_STAGING --> DRY_PREVIEW
 
-    RUN_UPDATER["plugin.runUpdater()"]
-    RUN_UPDATER --> BREAKING
+        DRY_PREVIEW["Dry-run preview<br/>(if --dry-run)"]
+        DRY_PREVIEW --> RUN_UPDATER
 
-    BREAKING{"authorizeBreaking\n+ plugin.installBreakingPackages?"}
-    BREAKING -- yes --> INSTALL_BREAKING["Install breaking packages"]
-    BREAKING -- no --> OSV_VERIFY
-    INSTALL_BREAKING --> OSV_VERIFY
+        RUN_UPDATER["plugin.runUpdater()<br/>via beginUpdaterTransaction"]
+        RUN_UPDATER --> BREAKING
 
-    OSV_VERIFY{"postUpdateOsvVerify\npolicy?"}
-    OSV_VERIFY -- "always or osv-strategy-only\n(when strategy=osv)" --> RUN_VERIFY["Run OSV residual\nverification scan"]
-    OSV_VERIFY -- never --> ECO_GATE
-    RUN_VERIFY --> ECO_GATE
+        BREAKING{"authorizeBreaking<br/>+ plugin.installBreakingPackages?"}
+        BREAKING -- yes --> INSTALL_BREAKING["Install breaking packages"]
+        BREAKING -- no --> OSV_VERIFY
+        INSTALL_BREAKING -- error --> ABORT_BREAKING([return: status=error])
+        INSTALL_BREAKING -- ok --> OSV_VERIFY
 
-    ECO_GATE{"Ecosystem gate\nvalidation (Zod)"}
-    ECO_GATE -- fail --> GATE_ERR2([throw GateValidationError])
-    ECO_GATE -- pass --> CHECK_ERR
+        OSV_VERIFY{"postUpdateOsvVerify<br/>policy?"}
+        OSV_VERIFY -- "always or osv-strategy-only<br/>(when strategy=osv)" --> RUN_VERIFY["Run OSV residual<br/>verification scan"]
+        OSV_VERIFY -- never --> ECO_GATE
+        RUN_VERIFY --> ECO_GATE
 
-    CHECK_ERR{"updateResult.status\n= error?"}
-    CHECK_ERR -- yes --> PIPELINE_STOP([stop pipeline, set overallStatus=error])
-    CHECK_ERR -- no --> NEXT_PLUGIN
+        ECO_GATE{"Ecosystem gate<br/>validation (Zod)"}
+        ECO_GATE -- fail --> GATE_ERR2([throw GateValidationError])
+        ECO_GATE -- pass --> SUCCESS_OR_ERR
+
+        SUCCESS_OR_ERR{"updateResult.status<br/>= error?"}
+        SUCCESS_OR_ERR -- yes --> RET_ERR([return: status=error])
+        SUCCESS_OR_ERR -- no --> RET_SUCCESS([return: status=success])
+    end
+
+    SKIPPED --> NEXT_PLUGIN
+    RET_SUCCESS --> NEXT_PLUGIN
+    RET_ERR --> PIPELINE_STOP([stop pipeline, set overallStatus=error])
+    ABORT_BREAKING --> PIPELINE_STOP
 
     NEXT_PLUGIN{more\nplugins?}
     NEXT_PLUGIN -- yes --> PHASE_PLUGIN
@@ -191,21 +213,21 @@ classDiagram
 
     class NpmPlugin {
         +id = "npm"
-        +runtimeContainer = "npm-docker"
+        +runtimeSpec.runMode = direct-exec
         +supportedFixers = ["osv", "npm-audit", "osv-then-audit"]
         +postUpdateOsvVerify = "osv-strategy-only"
     }
 
     class ComposerPlugin {
         +id = "composer"
-        +runtimeContainer = "composer-docker"
+        +runtimeSpec.runMode = shell-wrap
         +supportedFixers = ["osv"]
         +postUpdateOsvVerify = "always"
     }
 
     class PipPlugin {
         +id = "pip"
-        +runtimeContainer = "pip-docker"
+        +runtimeSpec.runMode = shell-wrap
         +supportedFixers = ["osv"]
         +postUpdateOsvVerify = "always"
     }
@@ -231,6 +253,52 @@ classDiagram
 3. Register the plugin in `src/modules/ecosystem/index.ts`.
 
 No new files in `infrastructure/`, no orchestrator edits. The unified runtime module reads `runtimeSpec` and wires the entire container chain.
+
+---
+
+## Per-Ecosystem Fix Flow (`runEcosystemFix`)
+
+`src/orchestration/run-ecosystem-fix.ts` encapsulates the per-plugin sub-pipeline that the orchestrator dispatches to once per active plugin. The orchestrator owns: phase filtering, advisors, fan-out across plugins, and result aggregation. Everything between "we're about to run plugin X" and "X returned an outcome" lives in `runEcosystemFix`.
+
+```ts
+export type RunEcosystemFixOutcome =
+  | { status: 'skipped'; reason: 'no-updates' }
+  | { status: 'success'; updateResult: UpdateResultJson; residualVerification?: ResidualVerification }
+  | { status: 'error'; updateResult: UpdateResultJson };
+```
+
+**Why the seam exists:** before this extraction, the orchestrator's plugin loop body was ~193 lines mixing 15 distinct concerns. Tests of any single concern required full orchestrator setup (registry, scanner engines, Gate A wiring). After extraction, `runEcosystemFix` is testable directly with fake plugins — no scanner, no orchestrator. See `tests/unit/orchestration/run-ecosystem-fix.test.ts`.
+
+**Throws** `GateValidationError` when the ecosystem gate fails. Otherwise always returns an outcome — including the breaking-install short-circuit, which returns `'error'` without running residual verification or gate validation (mirroring legacy semantics).
+
+---
+
+## Updater Transaction (`beginUpdaterTransaction`)
+
+`src/modules/ecosystem/utils/updater-transaction.ts` concentrates the duplicated revert/result-building boilerplate that previously lived in three updaters (`npm-updater.ts`, `composer-updater.ts`, `pip-updater.ts`).
+
+```ts
+const tx = await beginUpdaterTransaction({
+  files: NPM_FILES,        // backed up at start (or adopt preExistingBackups)
+  base,                    // pre-built success-shaped UpdateResultJson
+  cwd,
+  preExistingBackups,      // optional — adopt caller-supplied backups (osv staging-fix)
+});
+
+// Happy path:
+return tx.success({ packages_updated, validations: validationResult.entries });
+
+// Failure path — runs revert, builds error result:
+return tx.abortWithError({
+  error: 'Validations failed after npm update — changes reverted',
+  validations: validationResult.entries,
+  revert: () => revertNpmChanges(runner, tx.backups, cwd, preRunSnapshots),
+});
+```
+
+**Contract:** `abortWithError` lets revert errors propagate. The decision to swallow vs throw lives in the ecosystem-specific revert helper (pip/composer log-and-continue; npm throws on failed `npm ci` to surface ambiguous on-disk state). The outer `try/catch → PhaseError` in each updater catches propagated errors and wraps them. This preserves the original error-surfacing behavior while removing the duplicated `{ ...base, status: 'error', error, validations }` builder pattern.
+
+**Why this seam:** three updaters each repeated ~25 lines of "build skipped entries + base UpdateResultJson + outer error-result spread" before the deepening. A bug in revert correctness (e.g. the npm "double-restore after `npm ci` lockfile-format normalization" trick) had three places to be remembered. After the deepening, the result-shaping invariant lives in one 60-line module.
 
 ---
 

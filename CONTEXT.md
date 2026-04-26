@@ -8,7 +8,9 @@ When a new domain concept stabilizes during design work, add it here. When a ter
 
 ## Pipeline
 
-**Orchestrator** — `runOrchestrator()` in `src/orchestration/orchestrator.ts`. Owns the full `fix` pipeline: scan → Gate A → per-ecosystem fix → Ecosystem Gate → result aggregation.
+**Orchestrator** — `runOrchestrator()` in `src/orchestration/orchestrator.ts`. Owns the full `fix` pipeline: scan → Gate A → per-ecosystem fix → Ecosystem Gate → result aggregation. After Candidate 2's deepening, the per-ecosystem body is delegated to `runEcosystemFix`; the orchestrator only filters phases, runs advisors, dispatches, and aggregates.
+
+**Per-Ecosystem Fix Flow** — `runEcosystemFix()` in `src/orchestration/run-ecosystem-fix.ts`. Encapsulates the per-plugin sub-pipeline: has-updates gate → effective runner resolution → OSV staging-fix → updater → breaking-install → OSV residual verification → ecosystem gate. Returns a tagged outcome (`skipped` / `success` / `error`) for the orchestrator to aggregate. Throws `GateValidationError` when the ecosystem gate rejects.
 
 **Phase** — one of: `scan`, an ecosystem id (`npm`, `pip`, `composer`), or `report`. The `--phases` CLI flag selects a subset.
 
@@ -26,7 +28,9 @@ When a new domain concept stabilizes during design work, add it here. When a ter
 
 **Fixer Strategy** — how vulnerabilities are remediated for an ecosystem: `osv`, `npm-audit`, `osv-then-audit`, `composer-update`. Selected via `ecosystems[].fixer` in config or the plugin's first supported fixer as default.
 
-**Updater** — the function each plugin runs (`runNpmUpdater`, `runPipUpdater`, `runComposerUpdater`) that applies the fixer, runs validations, and reverts on failure.
+**Updater** — the function each plugin runs (`runNpmUpdater`, `runPipUpdater`, `runComposerUpdater`) that applies the fixer, runs validations, and reverts on failure. The shared revert/result-building skeleton lives in the **Updater Transaction** primitive.
+
+**Updater Transaction** — `beginUpdaterTransaction()` in `src/modules/ecosystem/utils/updater-transaction.ts`. Returns `{ backups, success, abortWithError }`. Each updater opens a transaction (snapshotting backup files or adopting caller-provided backups), then calls `tx.success(...)` on the happy path or `tx.abortWithError({ error, validations, revert })` on failure. The transaction lets revert errors propagate — the swallow-or-throw decision lives in the ecosystem-specific revert helper. Concentrates the duplicated "build error UpdateResultJson + run revert" pattern that previously lived in three places.
 
 **OSV Fix Spec** — declarative struct on a plugin telling the orchestrator which lockfile `osv-scanner` can patch and which files to back up before patching.
 
