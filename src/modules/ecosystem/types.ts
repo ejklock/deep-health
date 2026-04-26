@@ -2,6 +2,7 @@ import type { CommandRunner } from '@core/types/common';
 import type { ProjectConfig, ProtectedPackage, FixerStrategyId, ValidationCommandConfig, AdvisorConfig } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
+import type { EcosystemRuntimeSpec } from '@infra/ecosystem-runtime/types';
 
 export interface EcosystemUpdaterContext {
   runner: CommandRunner;
@@ -95,6 +96,13 @@ export interface EcosystemPlugin {
    * Undefined means no special runtime wrapping — use the base runner.
    */
   readonly runtimeContainer?: 'npm-docker' | 'pip-docker' | 'composer-docker';
+
+  /**
+   * Declarative spec for the Ecosystem Runtime Container module.
+   * When present, the orchestrator uses it to resolve a containerized CommandRunner;
+   * when absent, the plugin runs on the host.
+   */
+  readonly runtimeSpec?: EcosystemRuntimeSpec;
 
   /**
    * Declarative spec for the OSV in-place fix pre-phase.

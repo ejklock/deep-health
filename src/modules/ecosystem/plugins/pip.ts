@@ -4,6 +4,7 @@ import type { EcosystemPlugin, EcosystemUpdaterContext } from '../types';
 import type { ProjectConfig, ProtectedPackage } from '@core/types/config';
 import type { UpdateResultJson } from '@core/types/update';
 import { runPipUpdater } from './pip-updater';
+import { resolvePipDockerImage, PIP_DEFAULT_IMAGE } from '@infra/provisioner/pip-runner';
 
 // ─── Version inference helpers ────────────────────────────────────────────────
 
@@ -74,6 +75,13 @@ export const pipPlugin: EcosystemPlugin = {
   reportLabel: 'Python/pip',
 
   runtimeContainer: 'pip-docker',
+
+  runtimeSpec: {
+    defaultImage: PIP_DEFAULT_IMAGE,
+    resolveImage: resolvePipDockerImage,
+    containerBinaries: ['pip', 'pip3'],
+    runMode: { kind: 'shell-wrap' },
+  },
 
   postUpdateOsvVerify: 'always',
 

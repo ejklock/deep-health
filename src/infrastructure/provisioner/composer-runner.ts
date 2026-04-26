@@ -12,10 +12,19 @@ const execFileAsync = promisify(execFile);
 // (which does not bundle composer). Downloads and installs composer into the
 // container's PATH before any composer command runs.
 // Using the official installer: https://getcomposer.org/download/
-const COMPOSER_BOOTSTRAP =
+export const COMPOSER_BOOTSTRAP =
   `php -r "copy('https://getcomposer.org/installer','/tmp/cs.php');" ` +
   `&& php /tmp/cs.php --quiet --install-dir=/usr/local/bin --filename=composer ` +
   `&& rm -f /tmp/cs.php`;
+
+/**
+ * Returns true when `image` is a bare `php:*-cli` image that does not bundle
+ * composer. Used by the composer plugin's `runtimeSpec` preamble to decide
+ * whether to inject COMPOSER_BOOTSTRAP before each command.
+ */
+export function isPhpCliImage(image: string): boolean {
+  return /^php:\d/.test(image) && image.endsWith('-cli');
+}
 
 // ─── ComposerDockerRunnerOptions ─────────────────────────────────────────────
 
@@ -238,7 +247,7 @@ export class ComposerDockerRunner implements EphemeralContainerRunner<string[]> 
    * before every command so `composer` is available on PATH.
    */
   private _isPhpCliImage(): boolean {
-    return /^php:\d/.test(this.image) && this.image.endsWith('-cli');
+    return isPhpCliImage(this.image);
   }
 
   /**

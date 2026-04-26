@@ -23,6 +23,7 @@ vi.mock('@infra/provisioner/osv-runner.js', () => ({
 vi.mock('@infra/provisioner/pip-runner.js', () => ({
   PipDockerRunner: vi.fn().mockImplementation(() => ({})),
   resolvePipDockerImage: vi.fn(() => 'python:3-slim'),
+  PIP_DEFAULT_IMAGE: 'python:3-slim',
 }));
 vi.mock('@infra/provisioner/composer-runner.js', () => ({
   ComposerDockerRunner: vi.fn().mockImplementation(() => ({})),

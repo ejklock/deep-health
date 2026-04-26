@@ -9,6 +9,7 @@ import { emptyEcosystem } from '@core/types/scan';
 import { logger } from '@infra/utils/logger';
 import { collectRootNpmLockfileVersions } from '@orchestration/lockfile-inspect';
 import { runNpmUpdater } from './npm-updater';
+import { resolveNpmDockerImage } from '@infra/provisioner/npm-runner';
 
 // ─── Version inference helpers ────────────────────────────────────────────────
 
@@ -96,6 +97,13 @@ export const npmPlugin: EcosystemPlugin = {
   reportLabel: 'npm',
 
   runtimeContainer: 'npm-docker',
+
+  runtimeSpec: {
+    defaultImage: 'node:lts',
+    resolveImage: resolveNpmDockerImage,
+    containerBinaries: ['npm'],
+    runMode: { kind: 'direct-exec', binary: 'npm' },
+  },
 
   osvFixSpec: {
     fixLockfile: 'package-lock.json',

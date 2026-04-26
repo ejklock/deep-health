@@ -4,6 +4,9 @@ import type { EcosystemPlugin, EcosystemUpdaterContext } from '../types';
 import type { ProjectConfig, ProtectedPackage } from '@core/types/config';
 import type { UpdateResultJson } from '@core/types/update';
 import { runComposerUpdater } from './composer-updater';
+import { resolveComposerDockerImage } from '@infra/provisioner/php-image-resolver';
+import { COMPOSER_BOOTSTRAP, isPhpCliImage } from '@infra/provisioner/composer-runner';
+import { COMPOSER_DEFAULT_IMAGE } from '@infra/provisioner/php-profiles';
 
 // ─── Version inference helpers ────────────────────────────────────────────────
 
@@ -70,6 +73,16 @@ export const composerPlugin: EcosystemPlugin = {
 
   /** Declarative tag: composer commands run in a PHP Docker container */
   runtimeContainer: 'composer-docker' as const,
+
+  runtimeSpec: {
+    defaultImage: COMPOSER_DEFAULT_IMAGE,
+    resolveImage: resolveComposerDockerImage,
+    containerBinaries: ['composer', 'php'],
+    runMode: {
+      kind: 'shell-wrap',
+      preamble: (image) => (isPhpCliImage(image) ? COMPOSER_BOOTSTRAP : undefined),
+    },
+  },
 
   defaultValidationCommands: [
     { name: 'tests', command: 'php artisan test --compact' },
