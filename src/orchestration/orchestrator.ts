@@ -1,5 +1,5 @@
 import type { CommandRunner, PhaseStatus } from "@core/types/common";
-import type { ProjectConfig, FixerStrategyId } from "@core/types/config";
+import type { ProjectConfig } from "@core/types/config";
 import type { ScanResultJson } from "@core/types/scan";
 import type { UpdateResultJson } from "@core/types/update";
 import type { AdvisorResult, ResidualVerification } from "@core/types/report";
@@ -7,16 +7,12 @@ import type {
   EngineWarning,
   ScannerEngineContext,
 } from "@modules/scanner/types";
-import { validateGateA, validateEcosystemGate } from "@core/gates/validator";
+import { validateGateA } from "@core/gates/validator";
 import { GateValidationError } from "@core/errors";
 import { logger } from "@infra/utils/logger";
 import { detectGitBranch } from "@infra/utils/git-branch";
-import { OsvDockerRunner } from "@infra/provisioner/osv-runner";
-import { OsvContainerCommandRunner } from "@infra/executor/osv-container-runner";
-import { resolveEcosystemRuntime } from "@infra/ecosystem-runtime";
 // Ecosystem registry — plugins are registered via modules/ecosystem/index.ts side-effects
 import { EcosystemRegistry, defaultRegistry } from "@modules/ecosystem/index";
-import { logDryRunPreview } from './dry-run-preview';
 // Scanner registry — engines are bootstrapped lazily via bootstrapDefaultEngines()
 import {
   defaultScannerRegistry,
@@ -29,8 +25,7 @@ import type { AggregatedScanResult } from "@modules/scanner/index";
 import { runAdvisors } from "@modules/advisor/index";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { applyOsvFixViaStaging } from "./osv-fix-applier";
-import { readNpmLockfileVersion } from "./lockfile-inspect";
+import { runEcosystemFix } from "./run-ecosystem-fix";
 
 export interface OrchestratorOptions {
   configPath: string;
@@ -227,101 +222,6 @@ async function runAllEngines(
   return { engineEntries, warnings };
 }
 
-/**
- * Resolve a dedicated CommandRunner for OSV commands based on config.
- *
- * When the effective OSV runner mode is 'docker', returns an OsvContainerCommandRunner
- * that routes osv-scanner commands to an ephemeral OsvDockerRunner container.
- * Returns undefined for 'local' mode or when Docker is not configured.
- * Always creates a read-only runner (for scan/verify operations).
- */
-function resolveOsvCommandRunner(
-  config: ProjectConfig,
-  cwd: string,
-  fallback: CommandRunner,
-  dryRun: boolean,
-): CommandRunner {
-  const osvConfig = config.scanners?.osv;
-  const mode = osvConfig?.runner ?? "docker";
-
-  if (mode === "local") {
-    // Local mode: use fallback (local runner) directly for OSV commands
-    logger.debug(
-      "[OSV runner] mode=local: using local runner for OSV commands",
-    );
-    return fallback;
-  }
-
-  // docker or auto: use OsvDockerRunner-backed OsvContainerCommandRunner
-  const image = osvConfig?.image;
-  const osvDockerRunner = new OsvDockerRunner({
-    projectDir: cwd,
-    image,
-    readonly: true,
-  });
-
-  logger.info(
-    `[OSV runner] Dedicated OSV container runner (mode: ${mode}, mount: read-only${image ? `, image: ${image}` : ""})`,
-  );
-
-  return new OsvContainerCommandRunner({
-    container: osvDockerRunner,
-    fallback,
-    dryRun,
-  });
-}
-
-/**
- * Run residual OSV scan verification after updates are applied.
- * Best-effort: logs a warning on failure but does not abort the pipeline.
- *
- * Returns a ResidualVerification union:
- *   - { status: 'verified', summary }   — scan ran, all ecosystems clean
- *   - { status: 'unverified', summary } — scan ran, CVEs remain in ≥1 ecosystem
- *   - { status: 'skipped' }             — scan not run (dryRun, error, unparseable output)
- */
-async function runOsvResidualVerification(
-  osvRunner: CommandRunner,
-  cwd: string,
-  dryRun: boolean,
-  command: string,
-): Promise<ResidualVerification> {
-  if (dryRun) {
-    logger.info(`[DRY-RUN] Would execute: ${command}`);
-    return { status: 'skipped' };
-  }
-  logger.info(`[OSV verify] Running post-update OSV verification: ${command}`);
-  try {
-    const cmdResult = await osvRunner.run(command, { cwd });
-    // Parse JSON output from osv-scanner
-    let parsed: ScanResultJson;
-    try {
-      parsed = JSON.parse(cmdResult.stdout) as ScanResultJson;
-    } catch {
-      logger.warn('[OSV verify] Could not parse osv-scanner JSON output — treating as non-fatal');
-      return { status: 'skipped' };
-    }
-    // Extract CVE count per ecosystem
-    const summary: Record<string, number> = {};
-    for (const [ecoId, ecoResult] of Object.entries(parsed.ecosystems)) {
-      summary[ecoId] = ecoResult.vulnerabilities_total;
-    }
-    const hasResidual = Object.values(summary).some((n) => n > 0);
-    if (hasResidual) {
-      logger.warn('[OSV verify] Residual CVEs detected after update — see summary for details');
-    }
-    return hasResidual
-      ? { status: 'unverified', summary }
-      : { status: 'verified', summary };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    logger.warn(
-      `[OSV verify] Post-update OSV verification failed (non-fatal): ${message}`,
-    );
-    return { status: 'skipped' };
-  }
-}
-
 export async function runOrchestrator(
   runner: CommandRunner,
   config: ProjectConfig,
@@ -453,24 +353,11 @@ export async function runOrchestrator(
       continue;
     }
 
-    // Resolve per-ecosystem config entry
+    // Run advisors (informational only — never throws, never blocks pipeline).
+    // Kept outside runEcosystemFix so they fire even when the plugin would skip
+    // due to no auto-safe vulnerabilities.
     const ecoConfigEntry = config.ecosystems.find((e) => e.id === plugin.id);
-
-    // Resolve validation commands: config override → plugin defaults
-    const validationCommands =
-      ecoConfigEntry?.validationCommands ?? plugin.defaultValidationCommands;
-
-    // Resolve fixer strategy: config override → first supported fixer → 'osv' (npm) or plugin-specific
-    const fixerStrategy: FixerStrategyId =
-      ecoConfigEntry?.fixer ??
-      ((plugin.supportedFixers.length > 0
-        ? plugin.supportedFixers[0]
-        : "osv") as FixerStrategyId);
-
-    // Resolve advisors: config override → plugin defaults
     const advisors = ecoConfigEntry?.advisors ?? plugin.defaultAdvisors;
-
-    // Run advisors (informational only — never throws, never blocks pipeline)
     if (advisors.length > 0) {
       logger.info(`[Advisor Step] Running advisors for ${plugin.name}...`);
       result.advisorResults[plugin.id] = await runAdvisors(
@@ -481,165 +368,30 @@ export async function runOrchestrator(
       );
     }
 
-    const ecosystemResult = scanResult.ecosystems[plugin.id];
     const authorizeBreaking = options.authorizeBreaking?.[plugin.id] ?? false;
-    const hasUpdates =
-      ecosystemResult &&
-      (ecosystemResult.auto_safe > 0 ||
-        (authorizeBreaking && ecosystemResult.breaking > 0));
 
-    if (!hasUpdates) {
-      logger.info(
-        `Phase: Skipping ${plugin.name} — no auto-safe vulnerabilities`,
-      );
-      continue;
-    }
-
-    logger.info(`=== Phase: ${plugin.name} Updates ===`);
-
-    // Resolve effective runner via the ecosystem runtime module
-    const effectiveRunner: CommandRunner = plugin.runtimeSpec
-      ? await resolveEcosystemRuntime(plugin, runner, config, options.cwd)
-      : runner;
-
-    // OSV staging-apply (generic, driven by plugin.osvFixSpec)
-    let preFixBackups: Map<string, string> | undefined;
-    let osvFixOutcome:
-      | {
-          applied: boolean;
-          packagesUpdated: Array<{
-            name: string;
-            versionFrom: string;
-            versionTo: string;
-          }>;
-        }
-      | undefined;
-
-    // Fase 3: warn when lockfileVersion=1 + osv strategy (osv-scanner cannot patch v1 lockfiles)
-    if (fixerStrategy === "osv" && plugin.id === "npm") {
-      const lockVer = await readNpmLockfileVersion(options.cwd);
-      if (lockVer === 1) {
-        logger.warn(
-          `[OSV fix] package-lock.json has lockfileVersion: 1 (npm 6 / Node ≤12). ` +
-            `osv-scanner cannot patch lockfileVersion 1 lockfiles in-place. ` +
-            `No lockfile changes will be written for this project. ` +
-            `To fix vulnerabilities automatically, set fixer: "npm-audit" in your deep-health config for the npm ecosystem.`,
-        );
-      }
-    }
-
-    if ((fixerStrategy === "osv" || fixerStrategy === "osv-then-audit") && plugin.osvFixSpec) {
-      const fixResult = await applyOsvFixViaStaging({
-        cwd: options.cwd,
-        osvConfig: config.scanners?.osv,
-        osvFixSpec: plugin.osvFixSpec,
-        dryRun: options.dryRun ?? false,
-      });
-      preFixBackups = fixResult.backups;
-      osvFixOutcome = {
-        applied: fixResult.applied,
-        packagesUpdated: fixResult.packagesUpdated,
-      };
-    }
-
-    // Fase 5: dry-run planned-changes preview
-    if (options.dryRun) {
-      logDryRunPreview(plugin.id, ecosystemResult, authorizeBreaking);
-    }
-
-    const updateResult = await plugin.runUpdater({
-      runner: effectiveRunner,
+    const outcome = await runEcosystemFix({
+      plugin,
+      hostRunner: runner,
       config,
       scanResult,
       cwd: options.cwd,
+      dryRun: options.dryRun,
       authorizeBreaking,
-      validationCommands,
-      fixerStrategy,
-      preFixBackups,
-      osvFixOutcome,
-      preRunSnapshots: preRunSnapshots.size > 0 ? preRunSnapshots : undefined,
+      preRunSnapshots,
     });
 
-    // === Post-updater: Breaking packages install (generic, via plugin hook) ===
-    if (
-      plugin.installBreakingPackages &&
-      authorizeBreaking &&
-      updateResult.status !== "error"
-    ) {
-      const breakRes = await plugin.installBreakingPackages({
-        runner: effectiveRunner,
-        cwd: options.cwd,
-        scanResult,
-        dryRun: options.dryRun,
-        fixerStrategy,
-      });
-      if (breakRes?.status === "error") {
-        result.updates[plugin.id] = {
-          ...updateResult,
-          status: "error",
-          error: breakRes.error ?? "breaking install failed",
-        };
-        result.overallStatus = "error";
-        break;
-      }
+    if (outcome.status === "skipped") continue;
+
+    result.updates[plugin.id] = outcome.updateResult;
+    if (outcome.status === "success" && outcome.residualVerification) {
+      result.residualVerification = outcome.residualVerification;
     }
 
-    // === Post-updater: OSV residual verification (generic, driven by plugin.postUpdateOsvVerify) ===
-    const shouldOsvVerify =
-      updateResult.status !== "error" &&
-      (plugin.postUpdateOsvVerify === "always" ||
-        (plugin.postUpdateOsvVerify === "osv-strategy-only" &&
-          fixerStrategy === "osv"));
-
-    if (shouldOsvVerify) {
-      const osvVerifyRunner = resolveOsvCommandRunner(
-        config,
-        options.cwd,
-        runner,
-        false,
-      );
-      const osvVerifyMode = config.scanners?.osv?.runner ?? "docker";
-      if (osvVerifyMode === "local") {
-        logger.info(
-          "[OSV verify] Using local osv-scanner binary for residual verification",
-        );
-      } else {
-        logger.info(
-          "[OSV verify] Using OSV container runner with read-only mount for residual verification",
-        );
-      }
-      const verifyScanArgs = plugin.buildScanArgs();
-      const verifyCmd = `osv-scanner ${verifyScanArgs.join(" ")} --format json`;
-      const residualVerification = await runOsvResidualVerification(
-        osvVerifyRunner,
-        options.cwd,
-        options.dryRun,
-        verifyCmd,
-      );
-      result.residualVerification = residualVerification;
-    }
-
-    result.updates[plugin.id] = updateResult;
-
-    // Generic gate validation for this ecosystem
-    const gate = validateEcosystemGate(plugin.id, updateResult);
-    if (!gate.valid) {
-      throw new GateValidationError(
-        `Gate ${plugin.id} validation failed: ${gate.errors.join(", ")}`,
-        plugin.id,
-        gate.errors,
-      );
-    }
-
-    if (updateResult.status === "error") {
-      logger.error(`${plugin.name} update failed — stopping pipeline`);
+    if (outcome.status === "error") {
       result.overallStatus = "error";
       break;
     }
-
-    logger.info(
-      `${plugin.name} update complete: ${updateResult.packages_updated.length} packages updated`,
-    );
   }
 
   // Check if there are pending items (breaking or manual vulns still unresolved)

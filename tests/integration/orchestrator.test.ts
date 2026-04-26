@@ -28,6 +28,22 @@ vi.mock('@orchestration/osv-fix-applier.js', () => ({
   }),
 }));
 
+// Mock the ecosystem runtime so integration tests don't need Docker to exercise
+// npm/composer/pip CLI commands. The identity passthrough lets the injected
+// MockCommandRunner observe every command the plugin issues, instead of those
+// commands being routed to a real ephemeral Docker container.
+vi.mock('@infra/ecosystem-runtime', async () => {
+  const actual = await vi.importActual<typeof import('@infra/ecosystem-runtime')>(
+    '@infra/ecosystem-runtime',
+  );
+  return {
+    ...actual,
+    resolveEcosystemRuntime: vi.fn(
+      async (_plugin: unknown, hostRunner: unknown) => hostRunner,
+    ),
+  };
+});
+
 import * as osvFixApplier from '@orchestration/osv-fix-applier.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
