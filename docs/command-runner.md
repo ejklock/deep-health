@@ -172,16 +172,37 @@ interface CommandResult {
 
 `deep-health` executes command strings that come from `project-config.yml`. The trust model is:
 
-| Config field | Source | Shell method | Risk |
-|---|---|---|---|
-| `runtime.test_command` | repo owner (Zod-validated) | `run()` — shell | Trusted (repo owner controls the file) |
-| `ecosystems[].validationCommands[].command` | repo owner | `run()` — shell | Trusted |
-| `ecosystems[].advisors[].command` | repo owner | `run()` — shell | Trusted, informational only |
-| OAuth URL (`cloud-setup`) | Google OAuth library | `runArgs()` — no shell | URL is a discrete argv element; metacharacters are inert |
-| Branch names (git operations) | git output | `runArgs()` — no shell | External value; shell-safe by design |
-| Package names (scan result) | OSV JSON | `runArgs()` — no shell | External value; shell-safe by design |
+| Config field | Source | Shell method | Execution context | Risk |
+|---|---|---|---|---|
+| `runtime.test_command` | repo owner (Zod-validated) | `run()` — shell | Ecosystem container (per ADR-0001) | Trusted; container-bounded blast radius |
+| `ecosystems[].validationCommands[].command` | repo owner | `run()` → `runShell()` | Ecosystem container | Trusted; container-bounded blast radius |
+| `ecosystems[].advisors[].command` | repo owner | `run()` — shell | Host runner | Trusted, informational only |
+| OAuth URL (`cloud-setup`) | Google OAuth library | `runArgs()` — no shell | Host runner | URL is a discrete argv element; metacharacters are inert |
+| Branch names (git operations) | git output | `runArgs()` — no shell | Host runner | External value; shell-safe by design |
+| Package names (scan result) | OSV JSON | `runArgs()` — no shell | Ecosystem container | External value; shell-safe by design |
 
-**The trust boundary is the repository owner.** An attacker who can modify `project-config.yml` already has write access to the repository. If you use `deep-health` in a context where `project-config.yml` is written by untrusted parties, treat those command strings as untrusted input and audit them before running the tool.
+**The trust boundary is the repository owner.** An attacker who can modify `project-config.yml` already has write access to the repository (they could equally modify `package.json`, `.github/workflows/`, etc.). If you use `deep-health` in a context where `project-config.yml` is written by untrusted parties, treat those command strings as untrusted input and audit them before running the tool.
+
+### What Docker-only protects against (and what it doesn't)
+
+After [ADR-0001](./adr/0001-docker-only-runtime.md) (docker-only) and [ADR-0002](./adr/0002-threat-model-and-runtime-hardening.md) (cap-drop hardening), validation and updater commands run inside ephemeral Docker containers with all Linux capabilities dropped (`--cap-drop=ALL`) and setuid escalation blocked (`--security-opt=no-new-privileges`). This **materially reduces the blast radius** of a hostile config compared to the legacy `mode: 'local'` path that ran on the host.
+
+**Docker-only DOES protect against:**
+
+- Reading the host's `$HOME` (SSH keys, AWS credentials, `.npmrc` tokens, shell history)
+- Modifying anything outside `/project` on the host filesystem
+- Privilege escalation via setuid binaries inside the container
+- Raw network sockets, kernel module loading, mount operations, ownership changes (capability-gated operations)
+- Persisting beyond the container lifetime — the container is `--rm` (destroyed after each command)
+
+**Docker-only DOES NOT protect against:**
+
+- **Reading or modifying anything inside `/project`** — including `.env`, `.npmrc`, `.composer/auth.json`, source code, `.git/`, lockfiles, generated output. The mount is read-write because package managers must update lockfiles; a hostile command can plant backdoors or steal secrets that already live in the project tree.
+- **Outbound network requests** — the container has default Docker bridge networking. A hostile command can exfiltrate project contents to an attacker-controlled server or beacon to a C2.
+- **Resource exhaustion** — no `--memory` or `--cpus` limits by default. Fork bombs and disk-fill are not blocked.
+- **Container escape via Docker daemon vulnerabilities** — keeping Docker on the host current is the best defense.
+
+**The container is defense in depth, not a sandbox.** If your threat model includes any of the "DOES NOT" items, do not run `deep-health` against untrusted configs. See [ADR-0002](./adr/0002-threat-model-and-runtime-hardening.md) for the full rationale and deferred-mitigations list.
 
 ---
 
