@@ -44,8 +44,9 @@ graph TD
 
     subgraph infra["infrastructure/"]
         CONFIG["config/<br/>loader + schema"]
-        EXEC_WRAP["executor/<br/>Container runners"]
-        PROV["provisioner/<br/>Docker runners"]
+        ECO_RT["ecosystem-runtime/<br/>Unified container module"]
+        EXEC_WRAP["executor/<br/>LocalExecutor + OSV runner"]
+        PROV["provisioner/<br/>Image resolvers + OSV + Sonar"]
         STORAGE["storage/<br/>Local + GDrive"]
         UTILS["utils/<br/>logger, git, docker-platform"]
     end
@@ -73,7 +74,9 @@ graph TD
     NPM_P --> POLICY
     COMP_P --> POLICY
     PIP_P --> POLICY
+    ORCH --> ECO_RT
     ORCH --> EXEC_WRAP
+    ECO_RT --> PROV
     EXEC_WRAP --> PROV
     RPT --> I18N
     FIX --> STORAGE
@@ -176,7 +179,7 @@ classDiagram
         +FixerStrategyId[] supportedFixers
         +ValidationCommandConfig[] defaultValidationCommands
         +AdvisorConfig[] defaultAdvisors
-        +string? runtimeContainer
+        +EcosystemRuntimeSpec? runtimeSpec
         +OsvFixSpec? osvFixSpec
         +PostUpdateOsvVerify postUpdateOsvVerify
         +buildScanArgs() string[]
@@ -224,10 +227,10 @@ classDiagram
 **Adding a new ecosystem:**
 
 1. Create `src/modules/ecosystem/plugins/<name>.ts` implementing `EcosystemPlugin`.
-2. Register it in `src/modules/ecosystem/index.ts`.
-3. Add a Docker runner in `src/infrastructure/provisioner/` if needed.
-4. Add a container executor in `src/infrastructure/executor/`.
-5. Add the `runtimeContainer` tag resolution in `orchestrator.ts` (the `resolveXxxContainerRunner` pattern).
+2. Declare a `runtimeSpec: EcosystemRuntimeSpec` on the plugin object — see [Ecosystem Runtime Container](#ecosystem-runtime-container) for the spec shape.
+3. Register the plugin in `src/modules/ecosystem/index.ts`.
+
+No new files in `infrastructure/`, no orchestrator edits. The unified runtime module reads `runtimeSpec` and wires the entire container chain.
 
 ---
 
@@ -319,41 +322,81 @@ classDiagram
 
 ---
 
-## Container Runner Resolution
+## Ecosystem Runtime Container
+
+`src/infrastructure/ecosystem-runtime/` is the unified seam through which a plugin's CLI runs in an ephemeral Docker container. One module replaces what used to be three triplicated runner trios (executor + resolver + provisioner). See [ADR-0001](./adr/0001-docker-only-runtime.md) for the docker-only decision.
 
 ```mermaid
 flowchart LR
-    PLUGIN["EcosystemPlugin\nruntimeContainer tag"]
+    PLUGIN["EcosystemPlugin<br/>runtimeSpec: EcosystemRuntimeSpec"]
+    RESOLVE["resolveEcosystemRuntime()"]
+    IMG["Image resolution<br/>scanners.&lt;id&gt;.image →<br/>scanners.&lt;id&gt;.runtime_version →<br/>plugin.inferVersion() →<br/>spec.defaultImage"]
+    CONTAINER["EphemeralEcosystemContainer<br/>(runMode, image, projectDir, logPrefix)"]
+    CMD["EcosystemContainerCommandRunner<br/>(container, hostRunner, spec)"]
+    EFFECTIVE["effectiveRunner: CommandRunner"]
 
-    PLUGIN -- "npm-docker" --> NPM_RES["resolveNpmContainerRunner()"]
-    PLUGIN -- "pip-docker" --> PIP_RES["resolvePipContainerRunner()"]
-    PLUGIN -- "composer-docker" --> COMP_RES["resolveComposerContainerRunner()"]
-    PLUGIN -- "undefined" --> BASE["LocalExecutor\n(base runner)"]
-
-    NPM_RES --> NPM_VER["Version precedence:\n1. scanners.npm.image\n2. scanners.npm.runtime_version\n3. plugin.inferVersion()\n4. node:lts (fallback)"]
-    NPM_VER --> NPM_DOCKER["NpmDockerRunner\n→ NpmContainerCommandRunner"]
-
-    PIP_RES --> PIP_VER["Version precedence:\n1. scanners.pip.image\n2. scanners.pip.runtime_version\n3. plugin.inferVersion()\n4. python:3-slim (fallback)"]
-    PIP_VER --> PIP_DOCKER["PipDockerRunner\n→ PipContainerCommandRunner"]
-
-    COMP_RES --> COMP_VER["Version precedence:\n1. scanners.composer.image\n2. scanners.composer.runtime_version\n3. plugin.inferVersion()\n4. composer:2 (fallback)"]
-    COMP_VER --> COMP_DOCKER["ComposerDockerRunner\n→ ComposerContainerCommandRunner"]
+    PLUGIN --> RESOLVE
+    RESOLVE --> IMG
+    IMG --> CONTAINER
+    CONTAINER --> CMD
+    CMD --> EFFECTIVE
 ```
 
-### Validation command routing (Task 3.5)
+### EcosystemRuntimeSpec
 
-Container runners now intercept **all** validation commands, not just ecosystem-binary ones:
+Declarative description of how an ecosystem's CLI runs in a container. Lives on the plugin as `runtimeSpec`:
 
-| Command | Routed to |
-|---|---|
-| `npm test` | Ecosystem container (npm) |
-| `jest --coverage` | Ecosystem container via `runShell()` |
-| `php artisan test` | Ecosystem container via `runShell()` |
-| `pytest -x` | Ecosystem container via `runShell()` |
-| `git status` | Host (always) |
-| `gh pr create` | Host (always) |
+```ts
+interface EcosystemRuntimeSpec {
+  defaultImage: string;
+  resolveImage: (version: string | undefined) => string;
+  containerBinaries: readonly string[];
+  runMode: RunMode;
+}
 
-`runShell(command)` calls `docker run ... sh -c "<command>"` with the command passed as a **single argv element** — not interpolated into a larger shell string.
+type RunMode =
+  | { kind: 'direct-exec'; binary: string }
+  | { kind: 'shell-wrap'; preamble?: (image: string) => string | undefined };
+```
+
+### Run Modes
+
+| `runMode.kind` | Used by | Final docker invocation |
+|---|---|---|
+| `direct-exec` | npm | `docker run <image> <binary> <args...>` |
+| `shell-wrap` | pip, composer | `docker run <image> sh -lc "[<preamble> && ]<args joined>"` |
+
+The optional `preamble` on `shell-wrap` is consulted per invocation against the resolved image. Composer uses it to inject `COMPOSER_BOOTSTRAP` when the image is a bare `php:*-cli` (which doesn't pre-install composer).
+
+`runShell()` always uses `sh -c` (without `-l`), preserving legacy behavior for arbitrary user-supplied validation commands.
+
+### Routing
+
+`EcosystemContainerCommandRunner` routes commands by inspecting the binary against `spec.containerBinaries`:
+
+| Command class | Example | Routed to |
+|---|---|---|
+| Spec-recognized binary | `runner.runArgs('npm', ['install'])` | Ephemeral container |
+| Other CLI command | `runner.run('jest --coverage')` | Container via `runShell()` |
+| Host-only command | `runner.runArgs('git', ['push'])` | Host runner |
+
+**Host-only commands** are `git`, `gh`, `open`. They never enter the container regardless of which spec is active.
+
+### Adding a new ecosystem (runtime side)
+
+For a hypothetical `cargo` plugin:
+
+```ts
+// src/modules/ecosystem/plugins/cargo.ts
+runtimeSpec: {
+  defaultImage: 'rust:latest',
+  resolveImage: (v) => v ? `rust:${v}` : 'rust:latest',
+  containerBinaries: ['cargo'],
+  runMode: { kind: 'direct-exec', binary: 'cargo' },
+},
+```
+
+That declaration alone wires the entire runtime chain — no new provisioner class, no new executor class, no orchestrator edits.
 
 ---
 

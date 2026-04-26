@@ -6,7 +6,7 @@
 deep-health <command> [options]
 ```
 
-All commands require Node ≥ 22 and Docker (unless `mode: local` is set in the config).
+All commands require Node ≥ 22 and Docker. See [ADR-0001](./adr/0001-docker-only-runtime.md) for why Docker is required — no local mode is supported for ecosystem CLIs.
 
 ---
 
@@ -234,17 +234,15 @@ ecosystems:
 # Scanner settings
 scanners:
   osv:
-    runner: 'docker'          # docker | local
+    runner: 'docker'          # docker | local (separate seam — see ADR-0001)
     image: 'ghcr.io/google/osv-scanner:latest'   # optional override
   npm:
-    mode: 'docker'            # docker | local
-    runtime_version: '20'     # optional; inferred from project files if omitted
+    runtime_version: '20'     # optional; inferred from .nvmrc / package.json#engines.node
+    # image: 'node:20'        # optional explicit override; resolved from runtime_version otherwise
   composer:
-    mode: 'docker'
-    runtime_version: '8.1'
+    runtime_version: '8.1'    # optional; inferred from composer.json#require.php
   pip:
-    mode: 'docker'
-    runtime_version: '3.11'
+    runtime_version: '3.11'   # optional; inferred from runtime.txt / .python-version
   sonarqube:
     enabled: false            # set true to run SonarQube scan
     on_failure: 'warn'        # warn | fail

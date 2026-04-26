@@ -68,12 +68,12 @@ if (this.dryRun) {
 }
 ```
 
-The flag propagates through the runner chain. When the orchestrator creates an `NpmContainerCommandRunner`, it passes `dryRun` from the base runner:
+The flag propagates through the runner chain. When the orchestrator creates an `EcosystemContainerCommandRunner`, it passes `dryRun` from the host runner:
 
 ```
 LocalExecutor (dryRun=true)
-  └── NpmContainerCommandRunner (dryRun=true)
-        └── NpmDockerRunner (never called — short-circuits at ContainerCommandRunner level)
+  └── EcosystemContainerCommandRunner (dryRun=true)
+        └── EphemeralEcosystemContainer (never called — short-circuits at command runner level)
 ```
 
 **Consequences for plugin authors:**
@@ -84,30 +84,41 @@ LocalExecutor (dryRun=true)
 
 ---
 
-## Runner Chain (Container Strategy)
+## Runner Chain (Ecosystem Runtime Container)
 
-In production, the orchestrator wraps the base `LocalExecutor` with a per-ecosystem container runner:
+In production, the orchestrator wraps `LocalExecutor` with a containerized runner resolved via `resolveEcosystemRuntime()` from `@infra/ecosystem-runtime`:
 
 ```
-LocalExecutor (base)
-    ↓ wrapped by
-NpmContainerCommandRunner
-    ↓ delegates to
-NpmDockerRunner
+LocalExecutor (host)
+    ↓ passed as hostRunner to
+EcosystemContainerCommandRunner
+    ↓ delegates ecosystem commands to
+EphemeralEcosystemContainer
     ↓ executes inside
-ephemeral Docker container (node:20-slim)
+ephemeral Docker container (node:20, python:3.11-slim, composer:2, etc.)
 ```
 
-Each wrapper intercepts only the commands it owns (e.g. `npm install`, `npm audit fix`) and passes everything else to the `fallback` (base runner). This design means the plugin code does not need to know whether it is running in Docker or locally — it always calls `runner.run()` or `runner.runArgs()` and the runner handles the dispatch.
+`EcosystemContainerCommandRunner` is parameterized by an `EcosystemRuntimeSpec` (declared on the plugin). It routes each command based on the spec:
+
+| Command shape | Destination |
+|---|---|
+| First token matches `spec.containerBinaries` | Container (`run` / `runStreaming`) |
+| Other CLI command, not host-only | Container via `runShell()` |
+| Host-only command (`git`, `gh`, `open`) | `hostRunner` |
+
+Plugin code does not need to know whether it is running in Docker or on the host — it always calls `runner.run()` or `runner.runArgs()` and the runner handles dispatch. See `docs/architecture.md#ecosystem-runtime-container` for the full module diagram and `RunMode` semantics.
 
 ```ts
-// From NpmContainerCommandRunner — simplified:
-async run(command, options) {
-  if (this.dryRun) return dryRunResult(command);
-  if (isNpmCommand(command)) {
-    return this.container.run(command, options); // → Docker
+// EcosystemContainerCommandRunner — simplified:
+async runArgs(file, args, options) {
+  if (this.dryRun) return dryRunResult();
+  if (matchesContainerBinary(file, spec.containerBinaries)) {
+    return this._runContainer(...);  // → Docker
   }
-  return this.fallback.run(command, options);    // → LocalExecutor
+  if (hasRunShell(this.container) && !isHostOnly(file)) {
+    return this.container.runShell([file, ...args].join(' '));  // → Docker via shell
+  }
+  return this.hostRunner.runArgs(file, args, options);  // → host
 }
 ```
 
@@ -117,11 +128,10 @@ async run(command, options) {
 
 | Class | File | Used for |
 |---|---|---|
-| `LocalExecutor` | `infrastructure/executor/local-executor.ts` | Base runner; used in tests and local mode |
-| `NpmContainerCommandRunner` | `infrastructure/executor/npm-container-runner.ts` | Routes npm commands to Docker |
-| `PipContainerCommandRunner` | `infrastructure/executor/pip-container-runner.ts` | Routes pip commands to Docker |
-| `ComposerContainerCommandRunner` | `infrastructure/executor/composer-container-runner.ts` | Routes composer/php commands to Docker |
-| `OsvContainerCommandRunner` | `infrastructure/executor/osv-container-runner.ts` | Routes osv-scanner commands to Docker |
+| `LocalExecutor` | `infrastructure/executor/local-executor.ts` | Host runner; passed as `hostRunner` to ecosystem container runners |
+| `EcosystemContainerCommandRunner` | `infrastructure/ecosystem-runtime/command-runner.ts` | Unified container runner for npm, pip, composer (parameterized by `EcosystemRuntimeSpec`) |
+| `EphemeralEcosystemContainer` | `infrastructure/ecosystem-runtime/ephemeral-container.ts` | Underlying Docker container — `run`/`runStreaming`/`runShell` parameterized by `RunMode` |
+| `OsvContainerCommandRunner` | `infrastructure/executor/osv-container-runner.ts` | Routes `osv-scanner` commands to Docker (separate seam — read-only mount, no shell wrap) |
 
 ---
 
