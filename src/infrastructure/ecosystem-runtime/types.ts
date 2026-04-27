@@ -67,13 +67,20 @@ export type RunMode = DirectExecRunMode | ShellWrapRunMode;
 /**
  * Direct exec — argv reaches the container's process without a shell layer.
  *
- * Final docker invocation:
+ * Final docker invocation (no preamble):
  *   docker run --rm <flags> <image> <binary> <args...>
+ *
+ * Final docker invocation (with preamble):
+ *   docker run --rm <flags> <image> sh -lc '<preamble> && exec "$@"' -- <binary> <args...>
  *
  * Used by ecosystems whose CLI tolerates direct exec and whose tokens never
  * contain shell metacharacters (e.g. npm). No shell parsing means tokens are
  * passed as independent argv elements — robust against package names with
  * dots/dashes/etc.
+ *
+ * When a preamble is present the executor wraps the command in a shell, but
+ * argv is still passed via positional params (`"$@"`) — never interpolated —
+ * so the SEC-004 trust boundary is preserved.
  */
 export interface DirectExecRunMode {
   readonly kind: 'direct-exec';
@@ -84,6 +91,21 @@ export interface DirectExecRunMode {
    * the docker invocation `docker run <image> npm install`.
    */
   readonly binary: string;
+
+  /**
+   * Optional preamble injected before the binary when present.
+   * Receives the resolved image string so the preamble can be conditional
+   * on image variant (e.g. only install libvips-dev for node:14).
+   *
+   * When defined and non-undefined, `_buildDockerArgs` switches to
+   * `sh -lc '<preamble> && exec "$@"' -- <binary> <arg>…` so that
+   * OS-level dependencies can be installed before the CLI runs.
+   * The original argv tokens are passed as positional params and expanded
+   * with `"$@"` — never shell-interpolated — preserving the SEC-004 boundary.
+   *
+   * Return `undefined` to skip the preamble for a specific image.
+   */
+  readonly preamble?: (image: string) => string | undefined;
 }
 
 /**

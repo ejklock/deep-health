@@ -276,7 +276,13 @@ export class EphemeralEcosystemContainer implements EphemeralContainerRunner<str
 
     const { runMode } = this;
     if (runMode.kind === 'direct-exec') {
-      args.push(runMode.binary, ...tokens);
+      const preamble = runMode.preamble?.(this.image);
+      if (preamble) {
+        // SEC-004: tokens stay as independent argv elements via "$@" — no shell re-tokenization.
+        args.push('sh', '-lc', `${preamble} && exec "$@"`, '--', runMode.binary, ...tokens);
+      } else {
+        args.push(runMode.binary, ...tokens);
+      }
     } else {
       // shell-wrap
       const joined = tokens.join(' ');
@@ -302,11 +308,8 @@ export class EphemeralEcosystemContainer implements EphemeralContainerRunner<str
     const args = this._buildBaseArgs(cwd);
     args.push(this.image);
 
-    let shellCmd = command;
-    if (this.runMode.kind === 'shell-wrap') {
-      const p = this.runMode.preamble?.(this.image);
-      if (p) shellCmd = `${p} && ${command}`;
-    }
+    const preamble = this.runMode.preamble?.(this.image);
+    const shellCmd = preamble ? `${preamble} && ${command}` : command;
     // shellCmd is a SINGLE argv element passed to sh -c — not interpolated
     args.push('sh', '-c', shellCmd);
 

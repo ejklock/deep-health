@@ -156,6 +156,106 @@ describe('EphemeralEcosystemContainer._buildShellDockerArgs() — npm mode', () 
   });
 });
 
+describe('EphemeralEcosystemContainer._buildDockerArgs() — direct-exec with preamble', () => {
+  it('uses sh -lc with exec "$@" when preamble returns a string', () => {
+    const runner = new EphemeralEcosystemContainer({
+      runMode: {
+        kind: 'direct-exec',
+        binary: 'npm',
+        preamble: () => 'apt-get install -y libvips-dev',
+      },
+      projectDir: '/project',
+      image: 'node:14',
+      logPrefix: 'npm',
+    });
+    const args = runner._buildDockerArgs(['ci']);
+    // Must switch to shell wrap: sh -lc '<preamble> && exec "$@"' -- npm ci
+    expect(args).toContain('sh');
+    expect(args).toContain('-lc');
+    expect(args).toContain('--');
+    const lcIdx = args.indexOf('-lc');
+    expect(args[lcIdx + 1]).toBe('apt-get install -y libvips-dev && exec "$@"');
+    expect(args[lcIdx + 2]).toBe('--');
+    expect(args[lcIdx + 3]).toBe('npm');
+    expect(args[lcIdx + 4]).toBe('ci');
+  });
+
+  it('falls through to direct exec when preamble returns undefined', () => {
+    const runner = new EphemeralEcosystemContainer({
+      runMode: {
+        kind: 'direct-exec',
+        binary: 'npm',
+        preamble: (image) => (image === 'node:lts' ? 'echo hi' : undefined),
+      },
+      projectDir: '/project',
+      image: 'node:20',
+      logPrefix: 'npm',
+    });
+    const args = runner._buildDockerArgs(['ci']);
+    // node:20 preamble returns undefined → bare direct-exec
+    expect(args).not.toContain('sh');
+    const lastTwo = args.slice(-2);
+    expect(lastTwo).toEqual(['npm', 'ci']);
+  });
+
+  it('keeps tokens with shell metacharacters as independent argv elements', () => {
+    const runner = new EphemeralEcosystemContainer({
+      runMode: {
+        kind: 'direct-exec',
+        binary: 'npm',
+        preamble: () => 'apt-get install -y build-essential',
+      },
+      projectDir: '/project',
+      image: 'node:14',
+      logPrefix: 'npm',
+    });
+    // A token that looks like a shell injection attempt
+    const suspiciousToken = '; rm -rf /';
+    const args = runner._buildDockerArgs(['install', suspiciousToken]);
+    // The suspicious token must be a standalone argv element, not embedded in the sh -lc string
+    const lcIdx = args.indexOf('-lc');
+    const shellString = args[lcIdx + 1];
+    expect(shellString).not.toContain(suspiciousToken);
+    // It must appear verbatim as its own element after '--' and 'npm'
+    expect(args).toContain(suspiciousToken);
+    const suspiciousIdx = args.indexOf(suspiciousToken);
+    const npmIdx = args.indexOf('npm', lcIdx);
+    expect(suspiciousIdx).toBeGreaterThan(npmIdx);
+  });
+
+  it('does not add sh layer when no preamble is defined', () => {
+    const runner = makeNpmContainer({ projectDir: '/project' });
+    const args = runner._buildDockerArgs(['install', '--save-dev', 'jest']);
+    expect(args).not.toContain('sh');
+    expect(args.slice(-4)).toEqual(['npm', 'install', '--save-dev', 'jest']);
+  });
+});
+
+describe('EphemeralEcosystemContainer._buildShellDockerArgs() — direct-exec with preamble', () => {
+  it('prepends preamble before shell command for direct-exec', () => {
+    const runner = new EphemeralEcosystemContainer({
+      runMode: {
+        kind: 'direct-exec',
+        binary: 'npm',
+        preamble: () => 'apt-get install -y python3',
+      },
+      projectDir: '/project',
+      image: 'node:14',
+      logPrefix: 'npm',
+    });
+    const args = runner._buildShellDockerArgs('node --version');
+    const last3 = args.slice(-3);
+    expect(last3).toEqual(['sh', '-c', 'apt-get install -y python3 && node --version']);
+  });
+
+  it('passes command as-is when direct-exec has no preamble', () => {
+    const runner = makeNpmContainer({ projectDir: '/project' });
+    const args = runner._buildShellDockerArgs('node --version');
+    const last3 = args.slice(-3);
+    expect(last3).toEqual(['sh', '-c', 'node --version']);
+  });
+});
+
 describe('EphemeralEcosystemContainer.runStreaming() — null close code (npm mode)', () => {
   it('uses exitCode=1 when close event fires with null code', async () => {
     const mockSpawn = vi.mocked(spawn) as unknown as Mock;
