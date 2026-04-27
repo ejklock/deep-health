@@ -66,6 +66,14 @@ const DebianPackageNameSchema = z
 
 const NativeDepsSchema = z.array(DebianPackageNameSchema).optional();
 
+/**
+ * Image source axis — shared by npm, pip, and composer runners.
+ * - 'pull' (default): pull a pre-built image from a registry (Docker Hub, GHCR, etc.).
+ * - 'dockerfile': build a local image from a project-owned Dockerfile.
+ *   Requires `dockerfile_path` to be set. Mutually exclusive with `image`.
+ */
+const ImageSourceSchema = z.enum(['pull', 'dockerfile']).default('pull');
+
 /** npm runner config */
 const NpmRunnerConfigSchema = z
   .object({
@@ -73,6 +81,7 @@ const NpmRunnerConfigSchema = z
      * Docker image to use for the npm container.
      * Defaults to a version-resolved image (e.g. 'node:20'), falling back to 'node:lts'.
      * Takes precedence over runtime_version.
+     * Mutually exclusive with image_source='dockerfile'.
      */
     image: z.string().optional(),
     /**
@@ -83,13 +92,43 @@ const NpmRunnerConfigSchema = z
      */
     runtime_version: z.string().optional(),
     /**
+     * Image source axis.
+     * - 'pull' (default): pull a registry image.
+     * - 'dockerfile': build from a project-owned Dockerfile; requires `dockerfile_path`.
+     *   Mutually exclusive with `image`.
+     */
+    image_source: ImageSourceSchema,
+    /**
+     * Path to the Dockerfile relative to the project root.
+     * Required when image_source='dockerfile'.
+     * Example: 'Dockerfile', '.docker/node.Dockerfile'
+     */
+    dockerfile_path: z.string().optional(),
+    /**
      * OS-level packages to install via apt-get before running npm commands.
      * Useful for native addons that require system libraries (e.g. sharp → libvips-dev).
      * Example: [libvips-dev, build-essential, python3]
      */
     native_deps: NativeDepsSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((cfg, ctx) => {
+    if (cfg.image_source === 'dockerfile' && cfg.image) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'scanners.npm: image_source="dockerfile" is mutually exclusive with `image`. ' +
+          'Remove `image` or set image_source="pull".',
+      });
+    }
+    if (cfg.image_source === 'dockerfile' && !cfg.dockerfile_path) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'scanners.npm: image_source="dockerfile" requires `dockerfile_path` to be set.',
+      });
+    }
+  });
 
 /** Output format — markdown for reports */
 const OutputFormatSchema = z.enum(["markdown"]);
@@ -175,6 +214,7 @@ const PipRunnerConfigSchema = z
      * Docker image to use for the pip container.
      * Defaults to a version-resolved image (e.g. 'python:3.11-slim'), falling back to 'python:3-slim'.
      * Takes precedence over runtime_version.
+     * Mutually exclusive with image_source='dockerfile'.
      */
     image: z.string().optional(),
     /**
@@ -184,12 +224,41 @@ const PipRunnerConfigSchema = z
      */
     runtime_version: z.string().optional(),
     /**
+     * Image source axis.
+     * - 'pull' (default): pull a registry image.
+     * - 'dockerfile': build from a project-owned Dockerfile; requires `dockerfile_path`.
+     *   Mutually exclusive with `image`.
+     */
+    image_source: ImageSourceSchema,
+    /**
+     * Path to the Dockerfile relative to the project root.
+     * Required when image_source='dockerfile'.
+     */
+    dockerfile_path: z.string().optional(),
+    /**
      * OS-level packages to install via apt-get before running pip commands.
      * Useful for packages with C extensions that require system libraries.
      */
     native_deps: NativeDepsSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((cfg, ctx) => {
+    if (cfg.image_source === 'dockerfile' && cfg.image) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'scanners.pip: image_source="dockerfile" is mutually exclusive with `image`. ' +
+          'Remove `image` or set image_source="pull".',
+      });
+    }
+    if (cfg.image_source === 'dockerfile' && !cfg.dockerfile_path) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'scanners.pip: image_source="dockerfile" requires `dockerfile_path` to be set.',
+      });
+    }
+  });
 
 /** composer runner config */
 const ComposerRunnerConfigSchema = z
@@ -198,6 +267,7 @@ const ComposerRunnerConfigSchema = z
      * Docker image to use for the composer container.
      * Defaults to a version-resolved image (e.g. 'php:8.2-cli'), falling back to 'composer:2'.
      * Takes precedence over runtime_version.
+     * Mutually exclusive with image_source='dockerfile'.
      */
     image: z.string().optional(),
     /**
@@ -208,20 +278,35 @@ const ComposerRunnerConfigSchema = z
      */
     runtime_version: z.string().optional(),
     /**
-     * Image provisioning strategy.
-     * - 'pull' (default): use the resolved base image as-is.
-     * - 'build' (Phase 2 — NOT YET IMPLEMENTED): build a custom image with framework PHP extensions.
+     * Image source axis.
+     * - 'pull' (default): pull a registry image (php:*-cli or composer:2).
+     * - 'dockerfile': build from a project-owned Dockerfile; requires `dockerfile_path`.
+     *   Mutually exclusive with `image`.
+     *
+     * NOTE: This supersedes the legacy `image_strategy` field. `image_strategy` is
+     * retained for one release cycle as a deprecated no-op and will be removed in a
+     * future version. Migrate to `image_source` + `dockerfile_path`.
      */
-    image_strategy: z.enum(["pull", "build"]).default("pull"),
+    image_source: ImageSourceSchema,
     /**
-     * PHP framework profile for extension selection (used when image_strategy='build').
-     * - 'none' (default): no framework-specific extensions.
-     * - 'laravel' | 'symfony' | 'wordpress': installs profile extension list.
-     * Phase 1: persisted to config only. Phase 2: consumed by image builder.
+     * Path to the Dockerfile relative to the project root.
+     * Required when image_source='dockerfile'.
+     * Example: 'Dockerfile', '.docker/php.Dockerfile'
+     */
+    dockerfile_path: z.string().optional(),
+    /**
+     * @deprecated Use image_source='dockerfile' + dockerfile_path instead.
+     * Retained for one release cycle as a no-op to avoid hard-breaking existing configs.
+     * Will be removed in a future version.
+     */
+    image_strategy: z.enum(['pull', 'build']).optional(),
+    /**
+     * @deprecated Paired with the deprecated image_strategy='build'.
+     * Has no effect. Will be removed alongside image_strategy.
      */
     framework_profile: z
-      .enum(["none", "laravel", "symfony", "wordpress"])
-      .default("none"),
+      .enum(['none', 'laravel', 'symfony', 'wordpress'])
+      .optional(),
     /**
      * When true, passes --ignore-platform-reqs to all composer commands.
      * Defaults to true in Docker mode (the container is not the production environment).
@@ -234,7 +319,24 @@ const ComposerRunnerConfigSchema = z
      */
     native_deps: NativeDepsSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((cfg, ctx) => {
+    if (cfg.image_source === 'dockerfile' && cfg.image) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'scanners.composer: image_source="dockerfile" is mutually exclusive with `image`. ' +
+          'Remove `image` or set image_source="pull".',
+      });
+    }
+    if (cfg.image_source === 'dockerfile' && !cfg.dockerfile_path) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'scanners.composer: image_source="dockerfile" requires `dockerfile_path` to be set.',
+      });
+    }
+  });
 
 const ScannersConfigSchema = z
   .object({

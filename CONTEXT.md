@@ -62,6 +62,10 @@ When a new domain concept stabilizes during design work, add it here. When a ter
 
 **Host Runner** — the `CommandRunner` (typically `LocalExecutor`) that handles host-only commands. Passed into the container command runner; replaces what the legacy code called `fallback`.
 
+**Image Source** — config axis (`scanners.<id>.image_source: 'pull' | 'dockerfile'`) that selects how the ecosystem runner image is provisioned. `'pull'` (default) uses the existing registry-image resolution chain. `'dockerfile'` delegates to `buildProjectImage()` to build a stable local image from a project-owned Dockerfile. Mutually exclusive with `image`; requires `dockerfile_path`. Validated by schema `superRefine` at load time.
+
+**Project Image Build** — `buildProjectImage()` in `src/infrastructure/ecosystem-runtime/build-project-image.ts`. Reads a project-owned Dockerfile, derives a stable local tag via SHA-256 of the file contents, probes the local Docker daemon cache (`docker image inspect`), and only rebuilds when the tag is absent. Returns `{ image, entrypointOverride: "" }`. The `entrypointOverride` MUST be forwarded to `EphemeralEcosystemContainer` so `--entrypoint ""` is injected into every `docker run`, preventing the image's ENTRYPOINT from hijacking the ecosystem CLI binary. Emits a warning when the build context exceeds 50 MB. Build happens lazily on first use inside `resolveEcosystemRuntime` — the orchestrator is not modified.
+
 ---
 
 ## Scanner

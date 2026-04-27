@@ -68,6 +68,14 @@ export interface OsvScannerConfig {
   image?: string;
 }
 
+/**
+ * Image source axis — shared by npm, pip, and composer runners.
+ * - 'pull' (default): pull a pre-built image from a registry.
+ * - 'dockerfile': build a local image from a project-owned Dockerfile.
+ *   Requires `dockerfile_path`. Mutually exclusive with `image`.
+ */
+export type ImageSource = 'pull' | 'dockerfile';
+
 /** npm runner configuration */
 export interface NpmRunnerConfig {
   /**
@@ -82,6 +90,7 @@ export interface NpmRunnerConfig {
    * When absent, the image is resolved from the inferred/configured Node version
    * (e.g. Node 20 → 'node:20').  Falls back to 'node:lts'.
    * Takes precedence over `runtime_version`.
+   * Mutually exclusive with `image_source='dockerfile'`.
    */
   image?: string;
   /**
@@ -93,6 +102,19 @@ export interface NpmRunnerConfig {
    * Set by `deep-health init` when a Node version can be inferred from .nvmrc / .node-version / package.json.
    */
   runtime_version?: string;
+  /**
+   * Image source axis.
+   * - 'pull' (default): pull a registry image.
+   * - 'dockerfile': build from a project-owned Dockerfile; requires `dockerfile_path`.
+   *   Mutually exclusive with `image`.
+   */
+  image_source?: ImageSource;
+  /**
+   * Path to the Dockerfile relative to the project root.
+   * Required when image_source='dockerfile'.
+   * Example: 'Dockerfile', '.docker/node.Dockerfile'
+   */
+  dockerfile_path?: string;
   /**
    * OS-level packages to install via apt-get before running npm commands.
    * Use this when a project depends on native npm addons that require system
@@ -234,12 +256,10 @@ export type ComposerRunnerMode = "auto" | "docker" | "local";
 
 /**
  * Image provisioning strategy for composer Docker mode.
- * - 'pull' (default): pull a pre-built php-cli or composer:2 image as-is.
- * - 'build' (Phase 2 — not yet implemented): build a custom image with framework
- *   extensions from PHP_FRAMEWORK_PROFILES[framework_profile] installed on top of
- *   the resolved base image. Enabling this in Phase 1 has no effect.
+ * @deprecated Use ImageSource ('pull' | 'dockerfile') instead.
+ * Retained for one release cycle. Will be removed in a future version.
  */
-export type ComposerImageStrategy = "pull" | "build";
+export type ComposerImageStrategy = 'pull' | 'build';
 
 /** Composer runner configuration */
 export interface ComposerRunnerConfig {
@@ -255,6 +275,7 @@ export interface ComposerRunnerConfig {
    * When absent, the image is resolved from the inferred/configured PHP version
    * (e.g. PHP 8.2 → 'php:8.2-cli').  Falls back to 'composer:2'.
    * Takes precedence over `runtime_version`.
+   * Mutually exclusive with `image_source='dockerfile'`.
    */
   image?: string;
   /**
@@ -267,24 +288,30 @@ export interface ComposerRunnerConfig {
    */
   runtime_version?: string;
   /**
-   * Image provisioning strategy when mode is 'docker'.
-   * - 'pull' (default): use the resolved base image as-is.
-   * - 'build' (Phase 2 — NOT YET IMPLEMENTED): build a custom image with
-   *   framework-specific PHP extensions installed on top of the base image.
-   *   Setting this to 'build' in Phase 1 is accepted by the schema but has
-   *   no effect — a Phase-2 TODO marker will emit a warning when it is reached.
+   * Image source axis.
+   * - 'pull' (default): pull a registry image (php:*-cli or composer:2).
+   * - 'dockerfile': build from a project-owned Dockerfile; requires `dockerfile_path`.
+   *   Mutually exclusive with `image`.
+   *
+   * This supersedes the deprecated `image_strategy` field.
+   */
+  image_source?: ImageSource;
+  /**
+   * Path to the Dockerfile relative to the project root.
+   * Required when image_source='dockerfile'.
+   * Example: 'Dockerfile', '.docker/php.Dockerfile'
+   */
+  dockerfile_path?: string;
+  /**
+   * @deprecated Use image_source='dockerfile' + dockerfile_path instead.
+   * Retained for one release cycle as a no-op. Will be removed in a future version.
    */
   image_strategy?: ComposerImageStrategy;
   /**
-   * PHP framework profile used for extension selection when image_strategy='build'.
-   * - 'none' (default): no framework-specific extensions.
-   * - 'laravel' | 'symfony' | 'wordpress': installs the extension list from
-   *   PHP_FRAMEWORK_PROFILES for the given framework.
-   *
-   * Phase 1: persisted to config and exposed via `deep-health init` prompt.
-   * Phase 2: consumed by the image builder when image_strategy='build'.
+   * @deprecated Paired with the deprecated image_strategy='build'.
+   * Has no effect. Will be removed alongside image_strategy.
    */
-  framework_profile?: "none" | "laravel" | "symfony" | "wordpress";
+  framework_profile?: 'none' | 'laravel' | 'symfony' | 'wordpress';
   /**
    * When true, passes `--ignore-platform-reqs` to all composer commands.
    * Defaults to true when mode is 'docker' (the Docker container is not the
@@ -318,6 +345,7 @@ export interface PipRunnerConfig {
    * When absent, the image is resolved from the inferred/configured Python version.
    * Falls back to 'python:3-slim'.
    * Takes precedence over `runtime_version`.
+   * Mutually exclusive with `image_source='dockerfile'`.
    */
   image?: string;
   /**
@@ -328,6 +356,18 @@ export interface PipRunnerConfig {
    * Only used when `image` is not set.
    */
   runtime_version?: string;
+  /**
+   * Image source axis.
+   * - 'pull' (default): pull a registry image.
+   * - 'dockerfile': build from a project-owned Dockerfile; requires `dockerfile_path`.
+   *   Mutually exclusive with `image`.
+   */
+  image_source?: ImageSource;
+  /**
+   * Path to the Dockerfile relative to the project root.
+   * Required when image_source='dockerfile'.
+   */
+  dockerfile_path?: string;
   /**
    * OS-level packages to install via apt-get before running pip commands.
    * Use this for packages with C extensions that require system libraries

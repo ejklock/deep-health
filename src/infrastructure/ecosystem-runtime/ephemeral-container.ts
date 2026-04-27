@@ -41,6 +41,16 @@ export interface EphemeralEcosystemContainerOptions {
   platform?: string;
   /** Log prefix tag, e.g. 'npm' / 'pip' / 'composer'. Used in stream-line tags. */
   logPrefix: string;
+  /**
+   * When set, `--entrypoint <value>` is injected into every `docker run` call.
+   * Pass `""` (empty string) to clear the image's ENTRYPOINT so the ecosystem
+   * binary is invoked directly without being shadowed.
+   *
+   * This MUST be set when the image was built from a project-owned Dockerfile
+   * (image_source='dockerfile') to prevent the image ENTRYPOINT from hijacking
+   * the ecosystem CLI command.  Produced by `buildProjectImage()`.
+   */
+  entrypointOverride?: string;
 }
 
 // ─── EphemeralEcosystemContainer ─────────────────────────────────────────────
@@ -67,6 +77,7 @@ export class EphemeralEcosystemContainer implements EphemeralContainerRunner<str
   private readonly resolvedPlatform: string | undefined;
   private readonly runMode: RunMode;
   private readonly logPrefix: string;
+  private readonly entrypointOverride: string | undefined;
 
   constructor(options: EphemeralEcosystemContainerOptions) {
     this.image = options.image;
@@ -74,6 +85,7 @@ export class EphemeralEcosystemContainer implements EphemeralContainerRunner<str
     this.resolvedPlatform = resolvePlatform(options.platform);
     this.runMode = options.runMode;
     this.logPrefix = options.logPrefix;
+    this.entrypointOverride = options.entrypointOverride;
   }
 
   /**
@@ -250,6 +262,14 @@ export class EphemeralEcosystemContainer implements EphemeralContainerRunner<str
 
     if (this.resolvedPlatform !== undefined) {
       args.push('--platform', this.resolvedPlatform);
+    }
+
+    // When an entrypoint override is set (e.g. "" for project-built images),
+    // inject --entrypoint before the image name so the image's ENTRYPOINT cannot
+    // hijack the ecosystem CLI binary. ADR-0001 requires this universally for
+    // project-dockerfile images to prevent entrypoint shadowing.
+    if (this.entrypointOverride !== undefined) {
+      args.push('--entrypoint', this.entrypointOverride);
     }
 
     args.push('--volume', `${cwd ?? this.projectDir}:/project`);
