@@ -72,7 +72,7 @@ export async function runEcosystemFix(
   const validationCommands =
     ecoConfigEntry?.validationCommands ?? plugin.defaultValidationCommands;
 
-  const fixerStrategy: FixerStrategyId =
+  let fixerStrategy: FixerStrategyId =
     ecoConfigEntry?.fixer ??
     ((plugin.supportedFixers.length > 0
       ? plugin.supportedFixers[0]
@@ -111,16 +111,19 @@ export async function runEcosystemFix(
       }
     | undefined;
 
-  // npm + osv: warn when lockfileVersion=1 (osv-scanner cannot patch v1 in-place)
-  if (fixerStrategy === 'osv' && plugin.id === 'npm') {
+  // npm + osv/osv-then-audit: auto-demote to npm-audit when lockfileVersion=1.
+  // osv-scanner cannot patch v1 lockfiles in-place, so continuing with the osv
+  // strategy would silently drop all fixable patches. Switching to npm-audit
+  // also skips applyOsvFixViaStaging (the guard below checks fixerStrategy).
+  if (plugin.id === 'npm' && (fixerStrategy === 'osv' || fixerStrategy === 'osv-then-audit')) {
     const lockVer = await readNpmLockfileVersion(cwd);
     if (lockVer === 1) {
       logger.warn(
         `[OSV fix] package-lock.json has lockfileVersion: 1 (npm 6 / Node ≤12). ` +
           `osv-scanner cannot patch lockfileVersion 1 lockfiles in-place. ` +
-          `No lockfile changes will be written for this project. ` +
-          `To fix vulnerabilities automatically, set fixer: "npm-audit" in your deep-health config for the npm ecosystem.`,
+          `Auto-switching fixer: '${fixerStrategy}' → 'npm-audit'.`,
       );
+      fixerStrategy = 'npm-audit';
     }
   }
 

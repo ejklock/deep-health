@@ -45,6 +45,7 @@ vi.mock('@infra/executor/osv-container-runner', () => ({
 
 import { runEcosystemFix } from '@orchestration/run-ecosystem-fix';
 import { applyOsvFixViaStaging } from '@orchestration/osv-fix-applier';
+import { readNpmLockfileVersion } from '@orchestration/lockfile-inspect';
 import { validateEcosystemGate } from '@core/gates/validator';
 import { GateValidationError } from '@core/errors';
 import type { EcosystemPlugin } from '@modules/ecosystem/types';
@@ -311,6 +312,156 @@ describe('runEcosystemFix', () => {
         status: 'unverified',
         summary: { npm: 1, composer: 0 },
       });
+    }
+  });
+
+  // ─── lockfileVersion 1 auto-demotion (PR 3) ──────────────────────────────
+
+  it('auto-demotes fixer osv→npm-audit when lockfileVersion=1, skips applyOsvFixViaStaging', async () => {
+    vi.mocked(readNpmLockfileVersion).mockResolvedValue(1);
+
+    const plugin = makePlugin({
+      osvFixSpec: { fixLockfile: 'package-lock.json', backupFiles: ['package-lock.json'] },
+    });
+
+    await runEcosystemFix({
+      plugin,
+      hostRunner: new MockRunner(),
+      config: makeConfig({
+        ecosystems: [{ id: 'npm', fixer: 'osv', validationCommands: [], advisors: [] }],
+      }),
+      scanResult: makeScan(),
+      cwd: '/project',
+      dryRun: false,
+      authorizeBreaking: false,
+      preRunSnapshots: undefined,
+    });
+
+    // OSV staging must be skipped — strategy was demoted before the guard
+    expect(applyOsvFixViaStaging).not.toHaveBeenCalled();
+    // runUpdater must receive the demoted strategy
+    const updaterCall = vi.mocked(plugin.runUpdater).mock.calls[0][0];
+    expect(updaterCall.fixerStrategy).toBe('npm-audit');
+  });
+
+  it('auto-demotes fixer osv-then-audit→npm-audit when lockfileVersion=1', async () => {
+    vi.mocked(readNpmLockfileVersion).mockResolvedValue(1);
+
+    const plugin = makePlugin({
+      osvFixSpec: { fixLockfile: 'package-lock.json', backupFiles: ['package-lock.json'] },
+    });
+
+    await runEcosystemFix({
+      plugin,
+      hostRunner: new MockRunner(),
+      config: makeConfig({
+        ecosystems: [{ id: 'npm', fixer: 'osv-then-audit', validationCommands: [], advisors: [] }],
+      }),
+      scanResult: makeScan(),
+      cwd: '/project',
+      dryRun: false,
+      authorizeBreaking: false,
+      preRunSnapshots: undefined,
+    });
+
+    expect(applyOsvFixViaStaging).not.toHaveBeenCalled();
+    const updaterCall = vi.mocked(plugin.runUpdater).mock.calls[0][0];
+    expect(updaterCall.fixerStrategy).toBe('npm-audit');
+  });
+
+  it('does NOT demote when lockfileVersion=2 (osv-scanner can handle v2)', async () => {
+    vi.mocked(readNpmLockfileVersion).mockResolvedValue(2);
+
+    const plugin = makePlugin({
+      osvFixSpec: { fixLockfile: 'package-lock.json', backupFiles: ['package-lock.json'] },
+    });
+
+    await runEcosystemFix({
+      plugin,
+      hostRunner: new MockRunner(),
+      config: makeConfig({
+        ecosystems: [{ id: 'npm', fixer: 'osv', validationCommands: [], advisors: [] }],
+      }),
+      scanResult: makeScan(),
+      cwd: '/project',
+      dryRun: false,
+      authorizeBreaking: false,
+      preRunSnapshots: undefined,
+    });
+
+    // applyOsvFixViaStaging should have been called (strategy stays osv)
+    expect(applyOsvFixViaStaging).toHaveBeenCalledOnce();
+    const updaterCall = vi.mocked(plugin.runUpdater).mock.calls[0][0];
+    expect(updaterCall.fixerStrategy).toBe('osv');
+  });
+
+  it('does NOT demote when lockfileVersion is null (no package-lock.json)', async () => {
+    vi.mocked(readNpmLockfileVersion).mockResolvedValue(null);
+
+    const plugin = makePlugin({
+      osvFixSpec: { fixLockfile: 'package-lock.json', backupFiles: ['package-lock.json'] },
+    });
+
+    await runEcosystemFix({
+      plugin,
+      hostRunner: new MockRunner(),
+      config: makeConfig({
+        ecosystems: [{ id: 'npm', fixer: 'osv', validationCommands: [], advisors: [] }],
+      }),
+      scanResult: makeScan(),
+      cwd: '/project',
+      dryRun: false,
+      authorizeBreaking: false,
+      preRunSnapshots: undefined,
+    });
+
+    expect(applyOsvFixViaStaging).toHaveBeenCalledOnce();
+    const updaterCall = vi.mocked(plugin.runUpdater).mock.calls[0][0];
+    expect(updaterCall.fixerStrategy).toBe('osv');
+  });
+
+  it('does NOT call readNpmLockfileVersion when fixer is already npm-audit', async () => {
+    const plugin = makePlugin();
+
+    await runEcosystemFix({
+      plugin,
+      hostRunner: new MockRunner(),
+      config: makeConfig({
+        ecosystems: [{ id: 'npm', fixer: 'npm-audit', validationCommands: [], advisors: [] }],
+      }),
+      scanResult: makeScan(),
+      cwd: '/project',
+      dryRun: false,
+      authorizeBreaking: false,
+      preRunSnapshots: undefined,
+    });
+
+    expect(readNpmLockfileVersion).not.toHaveBeenCalled();
+  });
+
+  it('skips residual verification after demotion (osv-strategy-only does not fire for npm-audit)', async () => {
+    vi.mocked(readNpmLockfileVersion).mockResolvedValue(1);
+
+    const hostRunner = new MockRunner();
+    const plugin = makePlugin({ postUpdateOsvVerify: 'osv-strategy-only' });
+
+    const outcome = await runEcosystemFix({
+      plugin,
+      hostRunner,
+      config: makeConfig({
+        ecosystems: [{ id: 'npm', fixer: 'osv', validationCommands: [], advisors: [] }],
+      }),
+      scanResult: makeScan(),
+      cwd: '/project',
+      dryRun: false,
+      authorizeBreaking: false,
+      preRunSnapshots: undefined,
+    });
+
+    expect(outcome.status).toBe('success');
+    if (outcome.status === 'success') {
+      // Demoted to npm-audit → osv-strategy-only residual verify must be skipped
+      expect(outcome.residualVerification).toBeUndefined();
     }
   });
 
