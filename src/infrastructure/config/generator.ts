@@ -252,9 +252,14 @@ export function generateConfigYaml(opts: GenerateConfigOptions = {}): string {
 
   const rawProjectName = opts.projectName ?? 'My Project';
 
+  // Escape single quotes for YAML single-quoted string safety ('' is the only valid escape).
+  // Prevents injection via values like O'Brien → O''Brien in the generated YAML.
+  const safeProjectName = rawProjectName.replace(/'/g, "''");
+  const safeClient = (opts.client ?? 'Client Name').replace(/'/g, "''");
+
   return compiled({
-    projectName: rawProjectName,
-    client: opts.client ?? 'Client Name',
+    projectName: safeProjectName,
+    client: safeClient,
     ecosystems,
     reportLanguage: opts.reportLanguage ?? 'pt-br',
     protectedPackageEcosystems,

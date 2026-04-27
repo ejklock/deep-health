@@ -416,3 +416,98 @@ describe('folder_id validation', () => {
     expect(result.success).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Group E — ValidationCommandConfigSchema command length limit
+// ---------------------------------------------------------------------------
+
+const command1000 = 'a'.repeat(1000);
+const command1001 = 'a'.repeat(1001);
+
+describe('ValidationCommandConfigSchema — command length limit', () => {
+  it('fails when command exceeds 1000 characters', () => {
+    const result = ProjectConfigSchema.safeParse({
+      ...minimalConfig,
+      ecosystems: [{ id: 'npm', validationCommands: [{ name: 'test', command: command1001 }] }],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.map((i) => i.message).join(' ')).toMatch(/1000/);
+    }
+  });
+
+  it('passes when command is exactly 1000 characters', () => {
+    const result = ProjectConfigSchema.safeParse({
+      ...minimalConfig,
+      ecosystems: [{ id: 'npm', validationCommands: [{ name: 'test', command: command1000 }] }],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('passes with a normal short command (regression check)', () => {
+    const result = ProjectConfigSchema.safeParse({
+      ...minimalConfig,
+      ecosystems: [{ id: 'npm', validationCommands: [{ name: 'test', command: 'npm test' }] }],
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('AdvisorConfigSchema — command length limit', () => {
+  it('fails when command exceeds 1000 characters', () => {
+    const result = ProjectConfigSchema.safeParse({
+      ...minimalConfig,
+      ecosystems: [{ id: 'npm', advisors: [{ name: 'advisor', command: command1001 }] }],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.map((i) => i.message).join(' ')).toMatch(/1000/);
+    }
+  });
+
+  it('passes when command is exactly 1000 characters', () => {
+    const result = ProjectConfigSchema.safeParse({
+      ...minimalConfig,
+      ecosystems: [{ id: 'npm', advisors: [{ name: 'advisor', command: command1000 }] }],
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Group F — project.name / project.client newline injection prevention
+// ---------------------------------------------------------------------------
+
+describe('project.name — newline injection prevention', () => {
+  it('rejects name with embedded newline', () => {
+    const result = ProjectConfigSchema.safeParse({
+      ...minimalConfig,
+      project: { name: 'foo\nmalicious_key: value', client: 'Client' },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects name with carriage return', () => {
+    const result = ProjectConfigSchema.safeParse({
+      ...minimalConfig,
+      project: { name: 'foo\rbar', client: 'Client' },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts name with single quote (O'Brien is a valid project name)", () => {
+    const result = ProjectConfigSchema.safeParse({
+      ...minimalConfig,
+      project: { name: "O'Brien", client: 'Client' },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects client with embedded newline', () => {
+    const result = ProjectConfigSchema.safeParse({
+      ...minimalConfig,
+      project: { name: 'My Project', client: "Client\ninjected_key: value" },
+    });
+    expect(result.success).toBe(false);
+  });
+});

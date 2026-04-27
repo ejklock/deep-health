@@ -403,3 +403,24 @@ describe('generateConfigYaml — dockerfile image_source options', () => {
     expect(result.success).toBe(true);
   });
 });
+
+describe('generateConfigYaml — single-quote YAML injection prevention', () => {
+  it("escapes single quotes in project name (O'Brien → O''Brien in YAML)", () => {
+    const yaml = generateConfigYaml({ projectName: "O'Brien", client: 'Client' });
+    const parsed = parse(yaml) as { project: { name: string } };
+    expect(parsed.project.name).toBe("O'Brien");
+  });
+
+  it("escapes single quotes in client name (Client's Co. → remains valid YAML)", () => {
+    const yaml = generateConfigYaml({ projectName: 'My App', client: "Client's Co." });
+    const parsed = parse(yaml) as { project: { client: string } };
+    expect(parsed.project.client).toBe("Client's Co.");
+  });
+
+  it("generated YAML with single-quoted project name passes schema validation", () => {
+    const yaml = generateConfigYaml({ projectName: "It's a Project", client: 'ACME' });
+    const parsed = parse(yaml);
+    const result = ProjectConfigSchema.safeParse(parsed);
+    expect(result.success).toBe(true);
+  });
+});

@@ -18,17 +18,23 @@ const FixerStrategyIdSchema = z.enum(["osv", "npm-audit", "osv-then-audit"]);
 /** Advisor command config */
 const AdvisorConfigSchema = z
   .object({
-    name: z.string(),
-    command: z.string(),
+    name: z.string().max(200),
+    command: z.string().max(1000),
     format: z.enum(["json", "text"]).optional(),
   })
   .strict();
 
-/** Validation command config */
+/**
+ * Validation command config.
+ * ⚠ SECURITY: commands execute as shell commands (shell: true) on the operator's host,
+ * inheriting the full process environment. Treat this as an executable trust boundary —
+ * operators configure these, and external/untrusted data must never be interpolated
+ * into command strings. See also: src/modules/ecosystem/utils/validation-runner.ts.
+ */
 const ValidationCommandConfigSchema = z
   .object({
-    name: z.string(),
-    command: z.string(),
+    name: z.string().max(200),
+    command: z.string().max(1000),
     timeout_seconds: z.number().int().positive().optional().default(300),
   })
   .strict();
@@ -450,8 +456,8 @@ export const ProjectConfigSchema = z
     config_version: z.string().optional(),
     project: z
       .object({
-        name: z.string(),
-        client: z.string(),
+        name: z.string().regex(/^[^\n\r]+$/, 'project.name must not contain newlines'),
+        client: z.string().regex(/^[^\n\r]+$/, 'project.client must not contain newlines'),
       })
       .strict(),
     /**

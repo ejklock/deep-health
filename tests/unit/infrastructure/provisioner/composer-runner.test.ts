@@ -96,6 +96,16 @@ describe('EphemeralEcosystemContainer._buildDockerArgs() — shell-wrap mode (co
     expect(shellCmd).toContain('getcomposer.org/installer');
     expect(shellCmd).toContain('/usr/local/bin');
     expect(shellCmd).toMatch(/&&\s*composer install$/);
+    // SHA-384 integrity check is present between download and execution
+    expect(shellCmd).toContain('composer.github.io/installer.sig');
+    expect(shellCmd).toContain('sha384');
+    expect(shellCmd).toContain('&& rm -f /tmp/cs.php');
+    // Verification step must appear after download and before execution
+    const downloadIdx = shellCmd.indexOf('getcomposer.org/installer');
+    const verifyIdx = shellCmd.indexOf('composer.github.io/installer.sig');
+    const execIdx = shellCmd.indexOf('php /tmp/cs.php');
+    expect(verifyIdx).toBeGreaterThan(downloadIdx);
+    expect(execIdx).toBeGreaterThan(verifyIdx);
   });
 
   it('bootstrap installs git/unzip on php:*-cli images, guarded by command -v', () => {

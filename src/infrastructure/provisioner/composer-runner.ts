@@ -10,6 +10,7 @@ export const COMPOSER_BOOTSTRAP =
   `(command -v git >/dev/null && command -v unzip >/dev/null) ` +
   `|| (apt-get update -qq && apt-get install -y --no-install-recommends git unzip ca-certificates) ` +
   `&& php -r "copy('https://getcomposer.org/installer','/tmp/cs.php');" ` +
+  `&& php -r "\\$expected=trim(file_get_contents('https://composer.github.io/installer.sig'));\\$actual=hash_file('sha384','/tmp/cs.php');if(\\$expected!==\\$actual){fwrite(STDERR,'Composer installer SHA-384 mismatch'.chr(10));exit(1);}" ` +
   `&& php /tmp/cs.php --quiet --install-dir=/usr/local/bin --filename=composer ` +
   `&& rm -f /tmp/cs.php`;
 
