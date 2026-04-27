@@ -52,6 +52,20 @@ const OsvScannerConfigSchema = z
   })
   .strict();
 
+/**
+ * Validates a single Debian/apt package name.
+ * Debian policy: starts with alphanumeric, followed by alphanumeric, hyphens,
+ * dots, or plus signs. Rejects shell metacharacters that would break preamble injection.
+ */
+const DebianPackageNameSchema = z
+  .string()
+  .regex(
+    /^[a-z0-9][a-z0-9+.\-]*$/,
+    'Invalid package name — must follow Debian naming conventions (lowercase alphanumeric, hyphens, dots, plus signs only)',
+  );
+
+const NativeDepsSchema = z.array(DebianPackageNameSchema).optional();
+
 /** npm runner config */
 const NpmRunnerConfigSchema = z
   .object({
@@ -68,6 +82,12 @@ const NpmRunnerConfigSchema = z
      * Set by `deep-health init` when a Node version can be inferred automatically.
      */
     runtime_version: z.string().optional(),
+    /**
+     * OS-level packages to install via apt-get before running npm commands.
+     * Useful for native addons that require system libraries (e.g. sharp → libvips-dev).
+     * Example: [libvips-dev, build-essential, python3]
+     */
+    native_deps: NativeDepsSchema,
   })
   .strict();
 
@@ -163,6 +183,11 @@ const PipRunnerConfigSchema = z
      * Overrides the version inferred from project files.
      */
     runtime_version: z.string().optional(),
+    /**
+     * OS-level packages to install via apt-get before running pip commands.
+     * Useful for packages with C extensions that require system libraries.
+     */
+    native_deps: NativeDepsSchema,
   })
   .strict();
 
@@ -203,6 +228,11 @@ const ComposerRunnerConfigSchema = z
      * Set to false to enforce strict platform checks even in Docker.
      */
     ignore_platform_reqs: z.boolean().optional(),
+    /**
+     * OS-level packages to install via apt-get before running composer commands.
+     * Useful for PHP extensions that require system libraries.
+     */
+    native_deps: NativeDepsSchema,
   })
   .strict();
 

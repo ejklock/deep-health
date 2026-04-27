@@ -93,6 +93,21 @@ export interface NpmRunnerConfig {
    * Set by `deep-health init` when a Node version can be inferred from .nvmrc / .node-version / package.json.
    */
   runtime_version?: string;
+  /**
+   * OS-level packages to install via apt-get before running npm commands.
+   * Use this when a project depends on native npm addons that require system
+   * libraries to compile or link (e.g. sharp → libvips-dev, canvas → libcairo2-dev).
+   *
+   * Packages are installed inside the ephemeral container via:
+   *   apt-get update -qq && apt-get install -y --no-install-recommends <pkgs>
+   *
+   * Example:
+   *   native_deps: [libvips-dev, build-essential, python3]
+   *
+   * Package names must follow Debian naming conventions (lowercase alphanumeric,
+   * hyphens, dots, plus signs only).
+   */
+  native_deps?: readonly string[];
 }
 
 /** Outputs/reports configuration */
@@ -277,6 +292,13 @@ export interface ComposerRunnerConfig {
    * Set to false to enforce strict platform checks even in Docker mode.
    */
   ignore_platform_reqs?: boolean;
+  /**
+   * OS-level packages to install via apt-get before running composer commands.
+   * Useful when a PHP extension requires system libraries not present in the
+   * base php:*-cli image (e.g. imagemagick for ext-imagick).
+   * Package names must follow Debian naming conventions.
+   */
+  native_deps?: readonly string[];
 }
 
 /** Runner selection for pip commands */
@@ -306,6 +328,13 @@ export interface PipRunnerConfig {
    * Only used when `image` is not set.
    */
   runtime_version?: string;
+  /**
+   * OS-level packages to install via apt-get before running pip commands.
+   * Use this for packages with C extensions that require system libraries
+   * (e.g. Pillow → libjpeg-dev, psycopg2 → libpq-dev).
+   * Package names must follow Debian naming conventions.
+   */
+  native_deps?: readonly string[];
 }
 
 export interface ScannersConfig {

@@ -1,6 +1,7 @@
 import type { CommandRunner } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
 import type { EcosystemPlugin } from '@modules/ecosystem/types';
+import type { RunMode } from './types';
 import { logger } from '../utils/logger';
 import { EcosystemContainerCommandRunner } from './command-runner';
 import { EphemeralEcosystemContainer } from './ephemeral-container';
@@ -58,10 +59,30 @@ export async function resolveEcosystemRuntime(
 
   logger.info(`[ecosystem-runtime/${plugin.id}] Using Docker image: ${image}`);
 
+  // ─── Native deps preamble ─────────────────────────────────────────────────
+
+  const nativeDeps =
+    (scannerCfg as { native_deps?: readonly string[] } | undefined)?.native_deps ?? [];
+
+  let runMode: RunMode = spec.runMode;
+  if (nativeDeps.length > 0) {
+    const pkgs = nativeDeps.join(' ');
+    const aptInstall = `apt-get update -qq && apt-get install -y --no-install-recommends ${pkgs}`;
+    logger.info(`[ecosystem-runtime/${plugin.id}] native_deps: ${pkgs}`);
+    const existingPreamble = spec.runMode.preamble;
+    runMode = {
+      ...spec.runMode,
+      preamble: (img: string): string => {
+        const existing = existingPreamble?.(img);
+        return existing ? `${aptInstall} && ${existing}` : aptInstall;
+      },
+    } as RunMode;
+  }
+
   // ─── Container instantiation ──────────────────────────────────────────────
 
   const container = new EphemeralEcosystemContainer({
-    runMode: spec.runMode,
+    runMode,
     projectDir: cwd,
     image,
     logPrefix: plugin.id,
