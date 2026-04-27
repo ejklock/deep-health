@@ -90,8 +90,7 @@ commonOptions(
     )
     .option(
       "--phases <phases>",
-      "Comma-separated phases: scan,npm,composer,report",
-      "scan,npm,composer",
+      "Comma-separated phases to run (e.g. scan,npm,composer,pip,report). When absent, all configured ecosystems run.",
     )
     .option("--no-report", "Skip executive report generation", false)
     // Generic: --authorize-breaking can be passed multiple times, once per ecosystem id

@@ -23,6 +23,13 @@ type OsvVulnerability = {
   severity?: Array<{ type?: string; score?: string }>;
   affected?: Array<{
     ranges?: Array<{
+      /**
+       * OSV range type: 'SEMVER' | 'ECOSYSTEM' | 'GIT'.
+       * GIT ranges carry commit SHAs, not installable package versions — must be
+       * excluded from version-based fix detection to avoid semver.coerce() treating
+       * a leading-digit SHA (e.g. "9e08eb8f…") as "9.0.0".
+       */
+      type?: string;
       events?: Array<{
         fixed?: string;
         introduced?: string;
@@ -107,9 +114,10 @@ function extractSafeVersionFromVuln(
 ): string | null {
   const coercedCurrent = semver.coerce(currentVersion);
   if (!coercedCurrent) {
-    // Fallback for non-semver versions: return the first fixed found (original behavior)
+    // Fallback for non-semver versions: return the first fixed found from a non-GIT range.
     for (const affected of vuln.affected ?? []) {
       for (const range of affected.ranges ?? []) {
+        if (range.type === 'GIT') continue;
         for (const event of range.events ?? []) {
           if (event.fixed) return event.fixed;
         }
@@ -120,6 +128,10 @@ function extractSafeVersionFromVuln(
 
   for (const affected of vuln.affected ?? []) {
     for (const range of affected.ranges ?? []) {
+      // GIT ranges carry commit SHAs — semver.coerce() on a leading-digit SHA
+      // (e.g. "9e08eb8f…") would produce "9.0.0", falsely treating it as a
+      // semver fix target. Only SEMVER and ECOSYSTEM ranges are package-installable.
+      if (range.type === 'GIT') continue;
       let introduced: string | undefined;
       let fixed: string | undefined;
 
