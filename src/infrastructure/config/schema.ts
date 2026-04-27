@@ -110,6 +110,17 @@ const NpmRunnerConfigSchema = z
      * Example: [libvips-dev, build-essential, python3]
      */
     native_deps: NativeDepsSchema,
+    /**
+     * Build context directory for docker build, relative to the project root.
+     * Defaults to the project root ('.') when absent.
+     * Only used when image_source='dockerfile'.
+     */
+    build_context: z.string().optional(),
+    /**
+     * Build arguments passed as --build-arg KEY=VALUE to docker build.
+     * Only used when image_source='dockerfile'.
+     */
+    build_args: z.record(z.string()).optional(),
   })
   .strict()
   .superRefine((cfg, ctx) => {
@@ -240,6 +251,17 @@ const PipRunnerConfigSchema = z
      * Useful for packages with C extensions that require system libraries.
      */
     native_deps: NativeDepsSchema,
+    /**
+     * Build context directory for docker build, relative to the project root.
+     * Defaults to the project root ('.') when absent.
+     * Only used when image_source='dockerfile'.
+     */
+    build_context: z.string().optional(),
+    /**
+     * Build arguments passed as --build-arg KEY=VALUE to docker build.
+     * Only used when image_source='dockerfile'.
+     */
+    build_args: z.record(z.string()).optional(),
   })
   .strict()
   .superRefine((cfg, ctx) => {
@@ -318,6 +340,17 @@ const ComposerRunnerConfigSchema = z
      * Useful for PHP extensions that require system libraries.
      */
     native_deps: NativeDepsSchema,
+    /**
+     * Build context directory for docker build, relative to the project root.
+     * Defaults to the project root ('.') when absent.
+     * Only used when image_source='dockerfile'.
+     */
+    build_context: z.string().optional(),
+    /**
+     * Build arguments passed as --build-arg KEY=VALUE to docker build.
+     * Only used when image_source='dockerfile'.
+     */
+    build_args: z.record(z.string()).optional(),
   })
   .strict()
   .superRefine((cfg, ctx) => {

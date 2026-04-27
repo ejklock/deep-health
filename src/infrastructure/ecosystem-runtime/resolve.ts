@@ -80,6 +80,7 @@ export async function resolveEcosystemRuntime(
       projectDir: cwd,
       dockerfilePath,
       logPrefix: plugin.id,
+      requiredBinaries: spec.containerBinaries,
     });
 
     image = buildResult.image;

@@ -86,47 +86,108 @@ scanners:
     #       Run "deep-health init" (with SonarQube enabled) to generate a template if missing.
 {{#if npmRuntimeVersion}}
   npm:
-    runtime_version: '{{npmRuntimeVersion}}'
+    runtime_version: '{{npmRuntimeVersion}}'{{#if npmImageSource}}
+    image_source: '{{npmImageSource}}'{{#if npmDockerfilePath}}
+    dockerfile_path: '{{npmDockerfilePath}}'{{/if}}{{#if npmBuildContext}}
+    build_context: '{{npmBuildContext}}'{{/if}}{{#if npmBuildArgs}}
+    build_args:
+{{#each npmBuildArgs}}      {{key}}: '{{value}}'
+{{/each}}{{/if}}{{/if}}
     # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
     # image: 'node:{{npmRuntimeVersion}}'  # optional — override resolved Node image
 {{/if}}
 {{#if pipRuntimeVersion}}
   pip:
-    runtime_version: '{{pipRuntimeVersion}}'
+    runtime_version: '{{pipRuntimeVersion}}'{{#if pipImageSource}}
+    image_source: '{{pipImageSource}}'{{#if pipDockerfilePath}}
+    dockerfile_path: '{{pipDockerfilePath}}'{{/if}}{{#if pipBuildContext}}
+    build_context: '{{pipBuildContext}}'{{/if}}{{#if pipBuildArgs}}
+    build_args:
+{{#each pipBuildArgs}}      {{key}}: '{{value}}'
+{{/each}}{{/if}}{{/if}}
     # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
     # image: 'python:{{pipRuntimeVersion}}-slim'  # optional — override resolved Python image
 {{/if}}
 {{#if composerRuntimeVersion}}
   composer:
     runtime_version: '{{composerRuntimeVersion}}'{{#if composerFrameworkProfile}}
-    framework_profile: '{{composerFrameworkProfile}}'{{/if}}
+    framework_profile: '{{composerFrameworkProfile}}'{{/if}}{{#if composerImageSource}}
+    image_source: '{{composerImageSource}}'{{#if composerDockerfilePath}}
+    dockerfile_path: '{{composerDockerfilePath}}'{{/if}}{{#if composerBuildContext}}
+    build_context: '{{composerBuildContext}}'{{/if}}{{#if composerBuildArgs}}
+    build_args:
+{{#each composerBuildArgs}}      {{key}}: '{{value}}'
+{{/each}}{{/if}}{{/if}}
     # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
     # image: 'php:{{composerRuntimeVersion}}-cli'  # optional — override resolved PHP image
-    # image_strategy: 'pull'           # optional — 'pull' (default) | 'build' (Phase 2)
 {{/if}}
 {{else}}
 {{#if hasAnyScannerRuntime}}
 scanners:
 {{#if npmRuntimeVersion}}
   npm:
-    runtime_version: '{{npmRuntimeVersion}}'
+    runtime_version: '{{npmRuntimeVersion}}'{{#if npmImageSource}}
+    image_source: '{{npmImageSource}}'{{#if npmDockerfilePath}}
+    dockerfile_path: '{{npmDockerfilePath}}'{{/if}}{{#if npmBuildContext}}
+    build_context: '{{npmBuildContext}}'{{/if}}{{#if npmBuildArgs}}
+    build_args:
+{{#each npmBuildArgs}}      {{key}}: '{{value}}'
+{{/each}}{{/if}}{{/if}}
     # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
     # image: 'node:{{npmRuntimeVersion}}'  # optional — override resolved Node image
 {{/if}}
+{{#if npmImageSource}}{{#unless npmRuntimeVersion}}
+  npm:
+    image_source: '{{npmImageSource}}'{{#if npmDockerfilePath}}
+    dockerfile_path: '{{npmDockerfilePath}}'{{/if}}{{#if npmBuildContext}}
+    build_context: '{{npmBuildContext}}'{{/if}}{{#if npmBuildArgs}}
+    build_args:
+{{#each npmBuildArgs}}      {{key}}: '{{value}}'
+{{/each}}{{/if}}
+{{/unless}}{{/if}}
 {{#if pipRuntimeVersion}}
   pip:
-    runtime_version: '{{pipRuntimeVersion}}'
+    runtime_version: '{{pipRuntimeVersion}}'{{#if pipImageSource}}
+    image_source: '{{pipImageSource}}'{{#if pipDockerfilePath}}
+    dockerfile_path: '{{pipDockerfilePath}}'{{/if}}{{#if pipBuildContext}}
+    build_context: '{{pipBuildContext}}'{{/if}}{{#if pipBuildArgs}}
+    build_args:
+{{#each pipBuildArgs}}      {{key}}: '{{value}}'
+{{/each}}{{/if}}{{/if}}
     # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
     # image: 'python:{{pipRuntimeVersion}}-slim'  # optional — override resolved Python image
 {{/if}}
+{{#if pipImageSource}}{{#unless pipRuntimeVersion}}
+  pip:
+    image_source: '{{pipImageSource}}'{{#if pipDockerfilePath}}
+    dockerfile_path: '{{pipDockerfilePath}}'{{/if}}{{#if pipBuildContext}}
+    build_context: '{{pipBuildContext}}'{{/if}}{{#if pipBuildArgs}}
+    build_args:
+{{#each pipBuildArgs}}      {{key}}: '{{value}}'
+{{/each}}{{/if}}
+{{/unless}}{{/if}}
 {{#if composerRuntimeVersion}}
   composer:
     runtime_version: '{{composerRuntimeVersion}}'{{#if composerFrameworkProfile}}
-    framework_profile: '{{composerFrameworkProfile}}'{{/if}}
+    framework_profile: '{{composerFrameworkProfile}}'{{/if}}{{#if composerImageSource}}
+    image_source: '{{composerImageSource}}'{{#if composerDockerfilePath}}
+    dockerfile_path: '{{composerDockerfilePath}}'{{/if}}{{#if composerBuildContext}}
+    build_context: '{{composerBuildContext}}'{{/if}}{{#if composerBuildArgs}}
+    build_args:
+{{#each composerBuildArgs}}      {{key}}: '{{value}}'
+{{/each}}{{/if}}{{/if}}
     # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
     # image: 'php:{{composerRuntimeVersion}}-cli'  # optional — override resolved PHP image
-    # image_strategy: 'pull'           # optional — 'pull' (default) | 'build' (Phase 2)
 {{/if}}
+{{#if composerImageSource}}{{#unless composerRuntimeVersion}}
+  composer:
+    image_source: '{{composerImageSource}}'{{#if composerDockerfilePath}}
+    dockerfile_path: '{{composerDockerfilePath}}'{{/if}}{{#if composerBuildContext}}
+    build_context: '{{composerBuildContext}}'{{/if}}{{#if composerBuildArgs}}
+    build_args:
+{{#each composerBuildArgs}}      {{key}}: '{{value}}'
+{{/each}}{{/if}}
+{{/unless}}{{/if}}
 {{else}}
 # scanners:                              # optional — additional scanner engines
 #   sonarqube:
@@ -145,31 +206,24 @@ scanners:
 #     image: 'ghcr.io/google/osv-scanner:latest'  # optional — Docker image override
 #   npm:
 #     mode: 'docker'                     # 'docker' (default) | 'local' | 'auto'
-#                                        #   docker — run npm inside an ephemeral Node container (default)
-#                                        #   local  — use the locally installed npm binary ⚠ warns
-#                                        #   auto   — deprecated escape hatch ⚠ warns
 #     runtime_version: '20'             # optional — Node version for Docker image resolution
-#                                        #   Overrides inferVersion(); ignored when 'image' is set.
-#     image: 'node:20'              # optional — override resolved Node image
+#     image: 'node:20'                  # optional — override resolved Node image
+#     image_source: 'pull'              # optional — 'pull' (default) | 'dockerfile'
+#     dockerfile_path: 'Dockerfile'     # required when image_source='dockerfile'
 #   pip:
 #     mode: 'docker'                     # 'docker' (default) | 'local' | 'auto'
-#                                        #   docker — run pip inside an ephemeral Python container (default)
-#                                        #   local  — use the locally installed pip binary ⚠ warns
-#                                        #   auto   — deprecated escape hatch ⚠ warns
 #     runtime_version: '3.11'           # optional — Python version for Docker image resolution
-#                                        #   Overrides inferVersion(); ignored when 'image' is set.
 #     image: 'python:3.11-slim'         # optional — override resolved Python image
+#     image_source: 'pull'              # optional — 'pull' (default) | 'dockerfile'
+#     dockerfile_path: 'Dockerfile'     # required when image_source='dockerfile'
 #   composer:
 #     mode: 'docker'                     # 'docker' (default) | 'local' | 'auto'
-#                                        #   docker — run composer inside an ephemeral PHP container (default)
-#                                        #   local  — use the locally installed composer/php binary ⚠ warns
-#                                        #   auto   — deprecated escape hatch ⚠ warns
 #     runtime_version: '8.2'           # optional — PHP version for Docker image resolution
-#                                        #   Overrides inferVersion(); ignored when 'image' is set.
 #     image: 'php:8.2-cli'              # optional — override resolved PHP image
+#     image_source: 'pull'              # optional — 'pull' (default) | 'dockerfile'
+#     dockerfile_path: 'Dockerfile'     # required when image_source='dockerfile'
 #     framework_profile: 'none'         # optional — 'none' (default) | 'laravel' | 'symfony' | 'wordpress'
-#                                        #   Phase 2: used with image_strategy='build' to install extensions.
-#     image_strategy: 'pull'            # optional — 'pull' (default) | 'build' (Phase 2 — not yet implemented)
+#                                        #   (deprecated; use image_source='dockerfile' for custom images)
 {{/if}}
 {{/if}}
 

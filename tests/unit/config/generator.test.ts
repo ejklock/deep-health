@@ -242,3 +242,164 @@ describe('normalizeSonarProjectKey', () => {
     expect(result.success).toBe(true);
   });
 });
+
+describe('generateConfigYaml — dockerfile image_source options', () => {
+  it('emits image_source and dockerfile_path under scanners.npm when npmImageSource="dockerfile"', () => {
+    const yaml = generateConfigYaml({
+      npmRuntimeVersion: '20',
+      npmImageSource: 'dockerfile',
+      npmDockerfilePath: '.docker/node.Dockerfile',
+      ecosystemConfigs: [{ id: 'npm' }],
+    });
+    const parsed = parse(yaml) as {
+      scanners?: { npm?: { image_source?: string; dockerfile_path?: string } };
+    };
+    expect(parsed.scanners?.npm?.image_source).toBe('dockerfile');
+    expect(parsed.scanners?.npm?.dockerfile_path).toBe('.docker/node.Dockerfile');
+  });
+
+  it('does NOT emit image_source under npm when npmImageSource is absent or "pull"', () => {
+    const yaml = generateConfigYaml({
+      npmRuntimeVersion: '20',
+      ecosystemConfigs: [{ id: 'npm' }],
+    });
+    const parsed = parse(yaml) as { scanners?: { npm?: Record<string, unknown> } };
+    expect(parsed.scanners?.npm?.['image_source']).toBeUndefined();
+    expect(parsed.scanners?.npm?.['dockerfile_path']).toBeUndefined();
+  });
+
+  it('emits image_source and dockerfile_path under scanners.pip when pipImageSource="dockerfile"', () => {
+    const yaml = generateConfigYaml({
+      pipRuntimeVersion: '3.11',
+      pipImageSource: 'dockerfile',
+      pipDockerfilePath: 'Dockerfile',
+      ecosystemConfigs: [{ id: 'pip' }],
+    });
+    const parsed = parse(yaml) as {
+      scanners?: { pip?: { image_source?: string; dockerfile_path?: string } };
+    };
+    expect(parsed.scanners?.pip?.image_source).toBe('dockerfile');
+    expect(parsed.scanners?.pip?.dockerfile_path).toBe('Dockerfile');
+  });
+
+  it('emits image_source and dockerfile_path under scanners.composer when composerImageSource="dockerfile"', () => {
+    const yaml = generateConfigYaml({
+      composerRuntimeVersion: '8.2',
+      composerImageSource: 'dockerfile',
+      composerDockerfilePath: '.docker/php.Dockerfile',
+      ecosystemConfigs: [{ id: 'composer' }],
+    });
+    const parsed = parse(yaml) as {
+      scanners?: { composer?: { image_source?: string; dockerfile_path?: string } };
+    };
+    expect(parsed.scanners?.composer?.image_source).toBe('dockerfile');
+    expect(parsed.scanners?.composer?.dockerfile_path).toBe('.docker/php.Dockerfile');
+  });
+
+  it('generated config with npmImageSource="dockerfile" passes schema validation', () => {
+    const yaml = generateConfigYaml({
+      npmRuntimeVersion: '20',
+      npmImageSource: 'dockerfile',
+      npmDockerfilePath: 'Dockerfile',
+      ecosystemConfigs: [{ id: 'npm' }],
+    });
+    const parsed = parse(yaml);
+    const result = ProjectConfigSchema.safeParse(parsed);
+    expect(result.success).toBe(true);
+  });
+
+  it('triggers hasAnyScannerRuntime when only npmImageSource is set (no runtimeVersion)', () => {
+    const yaml = generateConfigYaml({
+      npmImageSource: 'dockerfile',
+      npmDockerfilePath: 'Dockerfile',
+      ecosystemConfigs: [{ id: 'npm' }],
+    });
+    // Should produce a scanners block (hasAnyScannerRuntime=true)
+    expect(yaml).toContain('scanners:');
+    expect(yaml).toContain('image_source:');
+    expect(yaml).toContain('dockerfile_path:');
+  });
+
+  it('emits build_context under scanners.npm when npmBuildContext is provided', () => {
+    const yaml = generateConfigYaml({
+      npmRuntimeVersion: '20',
+      npmImageSource: 'dockerfile',
+      npmDockerfilePath: 'Dockerfile',
+      npmBuildContext: 'docker/',
+      ecosystemConfigs: [{ id: 'npm' }],
+    });
+    const parsed = parse(yaml) as { scanners?: { npm?: Record<string, unknown> } };
+    expect(parsed.scanners?.npm?.['build_context']).toBe('docker/');
+  });
+
+  it('emits build_args under scanners.npm when npmBuildArgs is provided', () => {
+    const yaml = generateConfigYaml({
+      npmRuntimeVersion: '20',
+      npmImageSource: 'dockerfile',
+      npmDockerfilePath: 'Dockerfile',
+      npmBuildArgs: { NODE_VERSION: '20', APP_ENV: 'production' },
+      ecosystemConfigs: [{ id: 'npm' }],
+    });
+    const parsed = parse(yaml) as { scanners?: { npm?: { build_args?: Record<string, string> } } };
+    expect(parsed.scanners?.npm?.build_args?.NODE_VERSION).toBe('20');
+    expect(parsed.scanners?.npm?.build_args?.APP_ENV).toBe('production');
+  });
+
+  it('does NOT emit build_context or build_args when npmImageSource is absent', () => {
+    const yaml = generateConfigYaml({
+      npmRuntimeVersion: '20',
+      npmBuildContext: 'docker/',
+      npmBuildArgs: { KEY: 'val' },
+      ecosystemConfigs: [{ id: 'npm' }],
+    });
+    const parsed = parse(yaml) as { scanners?: { npm?: Record<string, unknown> } };
+    expect(parsed.scanners?.npm?.['build_context']).toBeUndefined();
+    expect(parsed.scanners?.npm?.['build_args']).toBeUndefined();
+  });
+
+  it('emits build_context and build_args under scanners.pip when provided', () => {
+    const yaml = generateConfigYaml({
+      pipRuntimeVersion: '3.11',
+      pipImageSource: 'dockerfile',
+      pipDockerfilePath: 'Dockerfile',
+      pipBuildContext: '.',
+      pipBuildArgs: { PYTHON_VERSION: '3.11' },
+      ecosystemConfigs: [{ id: 'pip' }],
+    });
+    const parsed = parse(yaml) as {
+      scanners?: { pip?: { build_context?: string; build_args?: Record<string, string> } };
+    };
+    expect(parsed.scanners?.pip?.build_context).toBe('.');
+    expect(parsed.scanners?.pip?.build_args?.PYTHON_VERSION).toBe('3.11');
+  });
+
+  it('emits build_context and build_args under scanners.composer when provided', () => {
+    const yaml = generateConfigYaml({
+      composerRuntimeVersion: '8.2',
+      composerImageSource: 'dockerfile',
+      composerDockerfilePath: '.docker/php.Dockerfile',
+      composerBuildContext: '.docker/',
+      composerBuildArgs: { PHP_VERSION: '8.2' },
+      ecosystemConfigs: [{ id: 'composer' }],
+    });
+    const parsed = parse(yaml) as {
+      scanners?: { composer?: { build_context?: string; build_args?: Record<string, string> } };
+    };
+    expect(parsed.scanners?.composer?.build_context).toBe('.docker/');
+    expect(parsed.scanners?.composer?.build_args?.PHP_VERSION).toBe('8.2');
+  });
+
+  it('generated config with build_context and build_args passes schema validation', () => {
+    const yaml = generateConfigYaml({
+      npmRuntimeVersion: '20',
+      npmImageSource: 'dockerfile',
+      npmDockerfilePath: 'Dockerfile',
+      npmBuildContext: '.',
+      npmBuildArgs: { NODE_ENV: 'test' },
+      ecosystemConfigs: [{ id: 'npm' }],
+    });
+    const parsed = parse(yaml);
+    const result = ProjectConfigSchema.safeParse(parsed);
+    expect(result.success).toBe(true);
+  });
+});

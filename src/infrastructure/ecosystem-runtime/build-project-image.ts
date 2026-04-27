@@ -44,6 +44,13 @@ export interface BuildProjectImageOptions {
   dockerfilePath: string;
   /** Log prefix for build output lines, e.g. 'npm' / 'pip' / 'composer'. */
   logPrefix: string;
+  /**
+   * List of ecosystem binaries that must be present in the built image.
+   * Comes from `EcosystemRuntimeSpec.containerBinaries`.
+   * When provided, each binary is probed via `which <binary>` inside the container.
+   * If a binary is missing, an error is thrown before returning the image tag.
+   */
+  requiredBinaries?: readonly string[];
 }
 
 export interface BuildProjectImageResult {
@@ -109,6 +116,11 @@ export async function buildProjectImage(
   const alreadyBuilt = await probeImageExists(image);
   if (alreadyBuilt) {
     logger.info(`[ecosystem-runtime/${logPrefix}] Reusing cached project image: ${image}`);
+    // Binary probe must run even on cache hits — the cached image may lack required
+    // ecosystem tools (e.g. image was built without the right base or was manually tagged).
+    if (options.requiredBinaries && options.requiredBinaries.length > 0) {
+      await probeBinariesInImage(image, options.requiredBinaries, logPrefix);
+    }
     return { image, entrypointOverride: '' };
   }
 
@@ -144,7 +156,11 @@ export async function buildProjectImage(
     );
   }
 
-  // ── 5. Verify the binary is present in the built image ───────────────────
+  // ── 5. Verify required ecosystem binaries are present in the built image ──
+
+  if (options.requiredBinaries && options.requiredBinaries.length > 0) {
+    await probeBinariesInImage(image, options.requiredBinaries, logPrefix);
+  }
 
   logger.info(`[ecosystem-runtime/${logPrefix}] Project image built: ${image}`);
 
@@ -167,11 +183,7 @@ async function probeImageExists(image: string): Promise<boolean> {
 }
 
 /**
- * Estimates build-context size using `docker build --no-cache --dry-run` when
- * available, falling back to a rough `du -sh` heuristic.  Emits a warning when
- * the estimated size exceeds `LARGE_CONTEXT_THRESHOLD_BYTES`.
- *
- * This is best-effort — failures are swallowed; the build is not aborted.
+ * Estimation failure is non-fatal.
  */
 async function warnIfLargeContext(projectDir: string, logPrefix: string): Promise<void> {
   try {
@@ -189,5 +201,54 @@ async function warnIfLargeContext(projectDir: string, logPrefix: string): Promis
     }
   } catch {
     // Estimation failure is non-fatal.
+  }
+}
+
+/**
+ * Probes that each required binary is reachable inside the built image by
+ * running `which <binary>` via `docker run --rm <image> sh -c "which <binary>"`.
+ *
+ * Throws a descriptive error listing all missing binaries — the image is
+ * considered invalid and the caller should not proceed.
+ *
+ * This uses `execFileSync` (synchronous) intentionally — we want to block
+ * until all probes complete before returning the image tag to the caller.
+ * In practice the probes are fast (no container startup overhead beyond the
+ * `which` lookup) and are called once per image build, not per command.
+ */
+async function probeBinariesInImage(
+  image: string,
+  binaries: readonly string[],
+  logPrefix: string,
+): Promise<void> {
+  const missing: string[] = [];
+
+  for (const binary of binaries) {
+    logger.debug(
+      `[ecosystem-runtime/${logPrefix}] Probing binary "${binary}" in image ${image}`,
+    );
+    try {
+      await execFileAsync('docker', [
+        'run', '--rm', '--entrypoint', '',
+        image,
+        'sh', '-c', `which ${binary}`,
+      ]);
+      logger.debug(
+        `[ecosystem-runtime/${logPrefix}] Binary "${binary}" found in image ${image}`,
+      );
+    } catch {
+      logger.debug(
+        `[ecosystem-runtime/${logPrefix}] Binary "${binary}" NOT found in image ${image}`,
+      );
+      missing.push(binary);
+    }
+  }
+
+  if (missing.length > 0) {
+    throw new Error(
+      `[ecosystem-runtime/${logPrefix}] Project image "${image}" is missing required ` +
+      `ecosystem ${missing.length === 1 ? 'binary' : 'binaries'}: ${missing.join(', ')}. ` +
+      `Ensure your Dockerfile installs the required tools (e.g. npm, pip, composer).`,
+    );
   }
 }

@@ -130,6 +130,19 @@ export interface NpmRunnerConfig {
    * hyphens, dots, plus signs only).
    */
   native_deps?: readonly string[];
+  /**
+   * Build context path for docker build, relative to projectDir.
+   * Defaults to the project root when absent.
+   * Only used when image_source='dockerfile'.
+   * Example: '.', 'docker/'
+   */
+  build_context?: string;
+  /**
+   * Build arguments to pass as --build-arg KEY=VALUE to docker build.
+   * Only used when image_source='dockerfile'.
+   * Example: { NODE_VERSION: '20', APP_ENV: 'production' }
+   */
+  build_args?: Record<string, string>;
 }
 
 /** Outputs/reports configuration */
@@ -326,6 +339,17 @@ export interface ComposerRunnerConfig {
    * Package names must follow Debian naming conventions.
    */
   native_deps?: readonly string[];
+  /**
+   * Build context path for docker build, relative to projectDir.
+   * Defaults to the project root when absent.
+   * Only used when image_source='dockerfile'.
+   */
+  build_context?: string;
+  /**
+   * Build arguments to pass as --build-arg KEY=VALUE to docker build.
+   * Only used when image_source='dockerfile'.
+   */
+  build_args?: Record<string, string>;
 }
 
 /** Runner selection for pip commands */
@@ -375,6 +399,17 @@ export interface PipRunnerConfig {
    * Package names must follow Debian naming conventions.
    */
   native_deps?: readonly string[];
+  /**
+   * Build context path for docker build, relative to projectDir.
+   * Defaults to the project root when absent.
+   * Only used when image_source='dockerfile'.
+   */
+  build_context?: string;
+  /**
+   * Build arguments to pass as --build-arg KEY=VALUE to docker build.
+   * Only used when image_source='dockerfile'.
+   */
+  build_args?: Record<string, string>;
 }
 
 export interface ScannersConfig {

@@ -24,6 +24,22 @@ async function promptBoolean(question: string, defaultYes = false): Promise<bool
 }
 
 /**
+ * Parses a comma-separated KEY=VALUE string into a Record<string, string>.
+ * Returns undefined when the input is blank or yields no valid pairs.
+ */
+function parseBuildArgs(raw: string): Record<string, string> | undefined {
+  const pairs = raw.split(',').map((s) => s.trim()).filter(Boolean);
+  const result: Record<string, string> = {};
+  for (const pair of pairs) {
+    const eqIdx = pair.indexOf('=');
+    if (eqIdx > 0) {
+      result[pair.slice(0, eqIdx).trim()] = pair.slice(eqIdx + 1).trim();
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+/**
  * Registry-driven init: prompts for ecosystems from the plugin registry,
  * per-ecosystem fixer strategy, validation commands, and advisors.
  * Also prompts for OSV/SonarQube scanner config and outputs settings.
@@ -85,6 +101,22 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   let composerRuntimeVersion: string | undefined;
   /** PHP framework profile for composer (written to scanners.composer.framework_profile). */
   let composerFrameworkProfile: 'none' | 'laravel' | 'symfony' | 'wordpress' | undefined;
+
+  // Dockerfile image-source options — one set per ecosystem scanner
+  let npmImageSource: 'pull' | 'dockerfile' | undefined;
+  let npmDockerfilePath: string | undefined;
+  let npmBuildContext: string | undefined;
+  let npmBuildArgs: Record<string, string> | undefined;
+
+  let pipImageSource: 'pull' | 'dockerfile' | undefined;
+  let pipDockerfilePath: string | undefined;
+  let pipBuildContext: string | undefined;
+  let pipBuildArgs: Record<string, string> | undefined;
+
+  let composerImageSource: 'pull' | 'dockerfile' | undefined;
+  let composerDockerfilePath: string | undefined;
+  let composerBuildContext: string | undefined;
+  let composerBuildArgs: Record<string, string> | undefined;
 
   for (const id of selectedEcosystemIds) {
     const plugin = defaultRegistry.get(id)!;
@@ -154,6 +186,28 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
         resolvedVersion = inferredVersion;
       }
       npmRuntimeVersion = resolvedVersion;
+
+      // image_source prompts for npm scanner
+      if (!opts.nonInteractive) {
+        const imgSrcAnswer = await prompt(
+          `  [${plugin.name}] Image source (pull/dockerfile)`,
+          'pull',
+        );
+        npmImageSource = imgSrcAnswer.trim() === 'dockerfile' ? 'dockerfile' : 'pull';
+        if (npmImageSource === 'dockerfile') {
+          const dfPath = await prompt(`  [${plugin.name}] Dockerfile path`, './Dockerfile');
+          npmDockerfilePath = dfPath.trim() || './Dockerfile';
+          const ctxAnswer = await prompt(`  [${plugin.name}] Build context (blank for '.')`, '');
+          npmBuildContext = ctxAnswer.trim() || '.';
+          const buildArgsAnswer = await prompt(
+            `  [${plugin.name}] Build args (KEY=VALUE comma-separated, blank to skip)`,
+            '',
+          );
+          npmBuildArgs = parseBuildArgs(buildArgsAnswer);
+        }
+      } else {
+        npmImageSource = 'pull';
+      }
     } else if (id === 'composer') {
       // composer PHP runtime version is stored in scanners.composer.runtime_version
       let resolvedVersion: string | undefined;
@@ -181,6 +235,50 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
           : 'none';
       } else {
         composerFrameworkProfile = 'none';
+      }
+
+      // image_source prompts for composer scanner
+      if (!opts.nonInteractive) {
+        const imgSrcAnswer = await prompt(
+          `  [${plugin.name}] Image source (pull/dockerfile)`,
+          'pull',
+        );
+        composerImageSource = imgSrcAnswer.trim() === 'dockerfile' ? 'dockerfile' : 'pull';
+        if (composerImageSource === 'dockerfile') {
+          const dfPath = await prompt(`  [${plugin.name}] Dockerfile path`, './Dockerfile');
+          composerDockerfilePath = dfPath.trim() || './Dockerfile';
+          const ctxAnswer = await prompt(`  [${plugin.name}] Build context (blank for '.')`, '');
+          composerBuildContext = ctxAnswer.trim() || '.';
+          const buildArgsAnswer = await prompt(
+            `  [${plugin.name}] Build args (KEY=VALUE comma-separated, blank to skip)`,
+            '',
+          );
+          composerBuildArgs = parseBuildArgs(buildArgsAnswer);
+        }
+      } else {
+        composerImageSource = 'pull';
+      }
+    } else if (id === 'pip') {
+      // image_source prompts for pip scanner
+      if (!opts.nonInteractive) {
+        const imgSrcAnswer = await prompt(
+          `  [${plugin.name}] Image source (pull/dockerfile)`,
+          'pull',
+        );
+        pipImageSource = imgSrcAnswer.trim() === 'dockerfile' ? 'dockerfile' : 'pull';
+        if (pipImageSource === 'dockerfile') {
+          const dfPath = await prompt(`  [${plugin.name}] Dockerfile path`, './Dockerfile');
+          pipDockerfilePath = dfPath.trim() || './Dockerfile';
+          const ctxAnswer = await prompt(`  [${plugin.name}] Build context (blank for '.')`, '');
+          pipBuildContext = ctxAnswer.trim() || '.';
+          const buildArgsAnswer = await prompt(
+            `  [${plugin.name}] Build args (KEY=VALUE comma-separated, blank to skip)`,
+            '',
+          );
+          pipBuildArgs = parseBuildArgs(buildArgsAnswer);
+        }
+      } else {
+        pipImageSource = 'pull';
       }
     }
     // Note: version is intentionally not set on the ecosystem entry for npm.
@@ -229,6 +327,18 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     npmRuntimeVersion,
     composerRuntimeVersion,
     composerFrameworkProfile,
+    npmImageSource,
+    npmDockerfilePath,
+    npmBuildContext,
+    npmBuildArgs,
+    pipImageSource,
+    pipDockerfilePath,
+    pipBuildContext,
+    pipBuildArgs,
+    composerImageSource,
+    composerDockerfilePath,
+    composerBuildContext,
+    composerBuildArgs,
     outputs: outputFormats.length > 0 || outputsDir
       ? { formats: outputFormats, dir: outputsDir }
       : undefined,

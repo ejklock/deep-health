@@ -65,6 +65,72 @@ export interface GenerateConfigOptions {
    * Default: 'none' (stock php-cli image, no framework extensions).
    */
   composerFrameworkProfile?: 'none' | 'laravel' | 'symfony' | 'wordpress';
+  /**
+   * Image source for the npm scanner container.
+   * - 'pull' (default): pull a registry image.
+   * - 'dockerfile': build from a project-owned Dockerfile; requires `npmDockerfilePath`.
+   */
+  npmImageSource?: 'pull' | 'dockerfile';
+  /**
+   * Path to the Dockerfile to use for the npm container (relative to project root).
+   * Only written when `npmImageSource='dockerfile'`.
+   * Example: 'Dockerfile', '.docker/node.Dockerfile'
+   */
+  npmDockerfilePath?: string;
+  /**
+   * Image source for the pip scanner container.
+   * - 'pull' (default): pull a registry image.
+   * - 'dockerfile': build from a project-owned Dockerfile; requires `pipDockerfilePath`.
+   */
+  pipImageSource?: 'pull' | 'dockerfile';
+  /**
+   * Path to the Dockerfile to use for the pip container (relative to project root).
+   * Only written when `pipImageSource='dockerfile'`.
+   */
+  pipDockerfilePath?: string;
+  /**
+   * Image source for the composer scanner container.
+   * - 'pull' (default): pull a registry image.
+   * - 'dockerfile': build from a project-owned Dockerfile; requires `composerDockerfilePath`.
+   */
+  composerImageSource?: 'pull' | 'dockerfile';
+  /**
+   * Path to the Dockerfile to use for the composer container (relative to project root).
+   * Only written when `composerImageSource='dockerfile'`.
+   * Example: 'Dockerfile', '.docker/php.Dockerfile'
+   */
+  composerDockerfilePath?: string;
+  /**
+   * Build context directory for the npm Docker build, relative to project root.
+   * Only written when `npmImageSource='dockerfile'`.
+   * Defaults to project root when absent.
+   */
+  npmBuildContext?: string;
+  /**
+   * Build arguments for the npm Docker build (KEY=VALUE pairs).
+   * Only written when `npmImageSource='dockerfile'`.
+   */
+  npmBuildArgs?: Record<string, string>;
+  /**
+   * Build context directory for the pip Docker build, relative to project root.
+   * Only written when `pipImageSource='dockerfile'`.
+   */
+  pipBuildContext?: string;
+  /**
+   * Build arguments for the pip Docker build (KEY=VALUE pairs).
+   * Only written when `pipImageSource='dockerfile'`.
+   */
+  pipBuildArgs?: Record<string, string>;
+  /**
+   * Build context directory for the composer Docker build, relative to project root.
+   * Only written when `composerImageSource='dockerfile'`.
+   */
+  composerBuildContext?: string;
+  /**
+   * Build arguments for the composer Docker build (KEY=VALUE pairs).
+   * Only written when `composerImageSource='dockerfile'`.
+   */
+  composerBuildArgs?: Record<string, string>;
 }
 
 const compiled = Handlebars.compile(configTemplate, { noEscape: true });
@@ -202,7 +268,27 @@ export function generateConfigYaml(opts: GenerateConfigOptions = {}): string {
     composerFrameworkProfile: opts.composerFrameworkProfile && opts.composerFrameworkProfile !== 'none'
       ? opts.composerFrameworkProfile
       : undefined,
-    hasAnyScannerRuntime: !!(opts.npmRuntimeVersion || opts.pipRuntimeVersion || opts.composerRuntimeVersion),
+    hasAnyScannerRuntime: !!(opts.npmRuntimeVersion || opts.pipRuntimeVersion || opts.composerRuntimeVersion
+      || opts.npmImageSource === 'dockerfile' || opts.pipImageSource === 'dockerfile' || opts.composerImageSource === 'dockerfile'),
+    // Dockerfile image-source options
+    npmImageSource: opts.npmImageSource === 'dockerfile' ? 'dockerfile' : undefined,
+    npmDockerfilePath: opts.npmImageSource === 'dockerfile' ? opts.npmDockerfilePath : undefined,
+    npmBuildContext: opts.npmImageSource === 'dockerfile' ? opts.npmBuildContext : undefined,
+    npmBuildArgs: opts.npmImageSource === 'dockerfile' && opts.npmBuildArgs && Object.keys(opts.npmBuildArgs).length > 0
+      ? Object.entries(opts.npmBuildArgs).map(([k, v]) => ({ key: k, value: v }))
+      : undefined,
+    pipImageSource: opts.pipImageSource === 'dockerfile' ? 'dockerfile' : undefined,
+    pipDockerfilePath: opts.pipImageSource === 'dockerfile' ? opts.pipDockerfilePath : undefined,
+    pipBuildContext: opts.pipImageSource === 'dockerfile' ? opts.pipBuildContext : undefined,
+    pipBuildArgs: opts.pipImageSource === 'dockerfile' && opts.pipBuildArgs && Object.keys(opts.pipBuildArgs).length > 0
+      ? Object.entries(opts.pipBuildArgs).map(([k, v]) => ({ key: k, value: v }))
+      : undefined,
+    composerImageSource: opts.composerImageSource === 'dockerfile' ? 'dockerfile' : undefined,
+    composerDockerfilePath: opts.composerImageSource === 'dockerfile' ? opts.composerDockerfilePath : undefined,
+    composerBuildContext: opts.composerImageSource === 'dockerfile' ? opts.composerBuildContext : undefined,
+    composerBuildArgs: opts.composerImageSource === 'dockerfile' && opts.composerBuildArgs && Object.keys(opts.composerBuildArgs).length > 0
+      ? Object.entries(opts.composerBuildArgs).map(([k, v]) => ({ key: k, value: v }))
+      : undefined,
   });
 }
 

@@ -285,6 +285,89 @@ describe('runInitCommand — interactive version prompts', () => {
   });
 });
 
+describe('runInitCommand — interactive dockerfile image_source prompts', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('wires image_source -> dockerfile_path -> build_context -> build_args for npm/pip/composer', async () => {
+    mockPrompt.mockImplementation(async (question: string, defaultValue?: string) => {
+      // Include all ecosystems
+      if (question.includes('Include npm')) return 'y';
+      if (question.includes('Include Composer')) return 'y';
+      if (question.includes('Include pip')) return 'y';
+
+      // Keep fixer/runtime prompts simple
+      if (question.includes('Fixer strategy')) return defaultValue ?? '';
+      if (question.includes('Runtime version')) return '';
+      if (question.includes('PHP framework profile')) return 'none';
+
+      // Skip validation/advisors to reduce noise
+      if (question.includes('Validation command')) return '';
+      if (question.includes('Advisor')) return '';
+
+      // npm dockerfile flow
+      if (question.includes('[npm] Image source')) return 'dockerfile';
+      if (question.includes('[npm] Dockerfile path')) return '.docker/node.Dockerfile';
+      if (question.includes('[npm] Build context')) return 'docker/';
+      if (question.includes('[npm] Build args')) return 'NODE_VERSION=22,APP_ENV=production';
+
+      // composer dockerfile flow
+      if (question.includes('[Composer] Image source')) return 'dockerfile';
+      if (question.includes('[Composer] Dockerfile path')) return '.docker/php.Dockerfile';
+      if (question.includes('[Composer] Build context')) return '.docker/';
+      if (question.includes('[Composer] Build args')) return 'PHP_VERSION=8.2,APP_ENV=production';
+
+      // pip dockerfile flow
+      if (question.includes('[pip] Image source')) return 'dockerfile';
+      if (question.includes('[pip] Dockerfile path')) return '.docker/pip.Dockerfile';
+      if (question.includes('[pip] Build context')) return 'python/';
+      if (question.includes('[pip] Build args')) return 'PYTHON_VERSION=3.11,PIP_INDEX_URL=https://pypi.org/simple';
+
+      // Scanner/report prompts
+      if (question.includes('SonarQube')) return 'n';
+      if (question.includes('Report language')) return 'en';
+      if (question.includes('markdown')) return 'n';
+
+      return defaultValue ?? '';
+    });
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'Dockerfile Init Project',
+      client: 'ACME',
+      output: 'project-config.yml',
+    });
+
+    expect(generateConfigYaml).toHaveBeenCalledWith(
+      expect.objectContaining({
+        npmImageSource: 'dockerfile',
+        npmDockerfilePath: '.docker/node.Dockerfile',
+        npmBuildContext: 'docker/',
+        npmBuildArgs: {
+          NODE_VERSION: '22',
+          APP_ENV: 'production',
+        },
+        pipImageSource: 'dockerfile',
+        pipDockerfilePath: '.docker/pip.Dockerfile',
+        pipBuildContext: 'python/',
+        pipBuildArgs: {
+          PYTHON_VERSION: '3.11',
+          PIP_INDEX_URL: 'https://pypi.org/simple',
+        },
+        composerImageSource: 'dockerfile',
+        composerDockerfilePath: '.docker/php.Dockerfile',
+        composerBuildContext: '.docker/',
+        composerBuildArgs: {
+          PHP_VERSION: '8.2',
+          APP_ENV: 'production',
+        },
+      }),
+    );
+  });
+});
+
 // ─── Existing file guard ──────────────────────────────────────────────────────
 
 describe('runInitCommand — existing file guard', () => {
