@@ -274,7 +274,76 @@ describe('buildProjectImage', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // 9. entrypointOverride is always "" (empty string) — not undefined
+  // 9. buildContext — Dockerfile resolved relative to context dir, not projectDir
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  it('resolves Dockerfile relative to buildContext when buildContext is set', async () => {
+    // Simulate structure: parentDir/Dockerfile, projectDir = parentDir/app
+    const parentDir = tmpDir;
+    const projectDir = path.join(tmpDir, 'app');
+    await fs.mkdir(projectDir, { recursive: true });
+
+    const dockerfileContents = 'FROM node:20\n';
+    // Dockerfile is in parentDir, not in projectDir
+    await fs.writeFile(path.join(parentDir, 'Dockerfile'), dockerfileContents);
+
+    const expectedImage = await stableTag(dockerfileContents, 'npm');
+
+    // Cache miss → build
+    mockExecFile
+      .mockRejectedValueOnce(new Error('No such image'))
+      .mockResolvedValueOnce({ stdout: '100\t/tmp', stderr: '' } as any)
+      .mockResolvedValueOnce({ stdout: '', stderr: '' } as any);
+
+    const result = await buildProjectImage({
+      projectDir,
+      dockerfilePath: 'Dockerfile',
+      logPrefix: 'npm',
+      buildContext: '../',
+    });
+
+    expect(result.image).toBe(expectedImage);
+
+    const buildCall = mockExecFile.mock.calls.find(
+      (c) => c[0] === 'docker' && Array.isArray(c[1]) && c[1].includes('build'),
+    );
+    expect(buildCall).toBeDefined();
+    const args = buildCall![1] as string[];
+    // Context dir should be the resolved parent, NOT projectDir
+    const contextArg = args[args.length - 1];
+    expect(contextArg).toBe(parentDir);
+    // Dockerfile should be resolved to parentDir/Dockerfile
+    const fileIdx = args.indexOf('--file');
+    expect(args[fileIdx + 1]).toBe(path.join(parentDir, 'Dockerfile'));
+  });
+
+  it('passes --build-arg entries to docker build when buildArgs is set', async () => {
+    await fs.writeFile(path.join(tmpDir, 'Dockerfile'), 'FROM node:20\n');
+
+    mockExecFile
+      .mockRejectedValueOnce(new Error('No such image'))
+      .mockResolvedValueOnce({ stdout: '100\t/tmp', stderr: '' } as any)
+      .mockResolvedValueOnce({ stdout: '', stderr: '' } as any);
+
+    await buildProjectImage({
+      projectDir: tmpDir,
+      dockerfilePath: 'Dockerfile',
+      logPrefix: 'npm',
+      buildArgs: { NODE_VERSION: '20', APP_ENV: 'test' },
+    });
+
+    const buildCall = mockExecFile.mock.calls.find(
+      (c) => c[0] === 'docker' && Array.isArray(c[1]) && c[1].includes('build'),
+    );
+    expect(buildCall).toBeDefined();
+    const args = buildCall![1] as string[];
+    expect(args).toContain('--build-arg');
+    expect(args).toContain('NODE_VERSION=20');
+    expect(args).toContain('APP_ENV=test');
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 11. entrypointOverride is always "" (empty string) — not undefined
   // ─────────────────────────────────────────────────────────────────────────────
 
   it('always returns entrypointOverride as empty string ""', async () => {
@@ -295,7 +364,7 @@ describe('buildProjectImage', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // 10. Binary probe on cache hit — binaries present → success
+  // 12. Binary probe on cache hit — binaries present → success
   // ─────────────────────────────────────────────────────────────────────────────
 
   it('probes binaries on cache hit and succeeds when all binaries are present', async () => {
@@ -325,7 +394,7 @@ describe('buildProjectImage', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // 11. Binary probe on cache hit — binary missing → diagnostic error
+  // 13. Binary probe on cache hit — binary missing → diagnostic error
   // ─────────────────────────────────────────────────────────────────────────────
 
   it('throws a diagnostic error when a required binary is missing in a cached image', async () => {

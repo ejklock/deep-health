@@ -175,6 +175,32 @@ describe('resolveEcosystemRuntime — dockerfile image-source', () => {
     expect(containerOptions.image).not.toBe('node:lts');
   });
 
+  it('forwards build_context and build_args from scanner config to buildProjectImage', async () => {
+    mockBuildProjectImage.mockResolvedValue({
+      image: 'deep-health-project/npm:abc123',
+      entrypointOverride: '',
+    });
+
+    const plugin = makePlugin();
+    const config = makeConfig({
+      npm: {
+        image_source: 'dockerfile',
+        dockerfile_path: 'Dockerfile',
+        build_context: '../',
+        build_args: { NODE_VERSION: '20' },
+      },
+    });
+
+    await resolveEcosystemRuntime(plugin, makeHostRunner(), config, '/my/project');
+
+    expect(mockBuildProjectImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buildContext: '../',
+        buildArgs: { NODE_VERSION: '20' },
+      }),
+    );
+  });
+
   it('passes requiredBinaries derived from spec.containerBinaries (composer plugin)', async () => {
     mockBuildProjectImage.mockResolvedValue({
       image: 'deep-health-project/composer:abc',

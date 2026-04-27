@@ -35,10 +35,12 @@ const IMAGE_TAG_NAMESPACE = 'deep-health-project';
 // ─── Public types ─────────────────────────────────────────────────────────────
 
 export interface BuildProjectImageOptions {
-  /** Absolute path to the project directory (docker build context root). */
+  /** Absolute path to the project directory. */
   projectDir: string;
   /**
-   * Path to the Dockerfile, relative to `projectDir`.
+   * Path to the Dockerfile.
+   * When `buildContext` is set, resolved relative to the build context directory.
+   * Otherwise resolved relative to `projectDir`.
    * Example: 'Dockerfile', '.docker/node.Dockerfile'
    */
   dockerfilePath: string;
@@ -51,6 +53,17 @@ export interface BuildProjectImageOptions {
    * If a binary is missing, an error is thrown before returning the image tag.
    */
   requiredBinaries?: readonly string[];
+  /**
+   * Docker build context path, relative to `projectDir`.
+   * When absent, defaults to `projectDir`.
+   * Example: '../', 'docker/'
+   */
+  buildContext?: string;
+  /**
+   * Build arguments forwarded as `--build-arg KEY=VALUE` to `docker build`.
+   * Example: { NODE_VERSION: '20', APP_ENV: 'production' }
+   */
+  buildArgs?: Record<string, string>;
 }
 
 export interface BuildProjectImageResult {
@@ -87,11 +100,18 @@ export interface BuildProjectImageResult {
 export async function buildProjectImage(
   options: BuildProjectImageOptions,
 ): Promise<BuildProjectImageResult> {
-  const { projectDir, dockerfilePath, logPrefix } = options;
+  const { projectDir, dockerfilePath, logPrefix, buildContext, buildArgs: extraBuildArgs } = options;
 
+  // Resolve the effective Docker build context directory
+  const contextDir = buildContext
+    ? path.resolve(projectDir, buildContext)
+    : projectDir;
+
+  // Dockerfile is resolved relative to contextDir (matching Docker's intuition:
+  // when a custom build context is provided, the Dockerfile lives within it)
   const absoluteDockerfile = path.isAbsolute(dockerfilePath)
     ? dockerfilePath
-    : path.join(projectDir, dockerfilePath);
+    : path.resolve(contextDir, dockerfilePath);
 
   // ── 1. Read Dockerfile and compute stable tag ───────────────────────────
 
@@ -126,23 +146,27 @@ export async function buildProjectImage(
 
   // ── 3. Warn on large build context ───────────────────────────────────────
 
-  await warnIfLargeContext(projectDir, logPrefix);
+  await warnIfLargeContext(contextDir, logPrefix);
 
   // ── 4. Build the image ────────────────────────────────────────────────────
 
   logger.info(
-    `[ecosystem-runtime/${logPrefix}] Building project image from ${dockerfilePath} → ${image}`,
+    `[ecosystem-runtime/${logPrefix}] Building project image from ${dockerfilePath} → ${image}` +
+    (buildContext ? ` (context: ${buildContext})` : ''),
   );
 
-  const buildArgs = [
-    'build',
-    '--file', absoluteDockerfile,
-    '--tag', image,
-    projectDir,
-  ];
+  const dockerBuildArgs = ['build', '--file', absoluteDockerfile, '--tag', image];
+
+  if (extraBuildArgs) {
+    for (const [key, value] of Object.entries(extraBuildArgs)) {
+      dockerBuildArgs.push('--build-arg', `${key}=${value}`);
+    }
+  }
+
+  dockerBuildArgs.push(contextDir);
 
   try {
-    const { stderr } = await execFileAsync('docker', buildArgs);
+    const { stderr } = await execFileAsync('docker', dockerBuildArgs);
     if (stderr.trim()) {
       for (const line of stderr.split('\n')) {
         if (line.trim()) logger.debug(`[${logPrefix}/build] ${line}`);

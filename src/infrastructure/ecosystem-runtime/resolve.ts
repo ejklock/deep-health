@@ -53,6 +53,8 @@ export async function resolveEcosystemRuntime(
         image_source?: string;
         dockerfile_path?: string;
         native_deps?: readonly string[];
+        build_context?: string;
+        build_args?: Record<string, string>;
       }
     | undefined;
 
@@ -81,6 +83,8 @@ export async function resolveEcosystemRuntime(
       dockerfilePath,
       logPrefix: plugin.id,
       requiredBinaries: spec.containerBinaries,
+      buildContext: scannerCfg?.build_context,
+      buildArgs: scannerCfg?.build_args,
     });
 
     image = buildResult.image;
