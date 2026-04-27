@@ -278,14 +278,14 @@ describe('buildProjectImage', () => {
   // ─────────────────────────────────────────────────────────────────────────────
 
   it('resolves Dockerfile relative to buildContext when buildContext is set', async () => {
-    // Simulate structure: parentDir/Dockerfile, projectDir = parentDir/app
-    const parentDir = tmpDir;
-    const projectDir = path.join(tmpDir, 'app');
-    await fs.mkdir(projectDir, { recursive: true });
+    // Simulate structure: projectDir = tmpDir, buildContext = docker/ (in-bounds subdirectory)
+    const projectDir = tmpDir;
+    const dockerSubdir = path.join(tmpDir, 'docker');
+    await fs.mkdir(dockerSubdir, { recursive: true });
 
     const dockerfileContents = 'FROM node:20\n';
-    // Dockerfile is in parentDir, not in projectDir
-    await fs.writeFile(path.join(parentDir, 'Dockerfile'), dockerfileContents);
+    // Dockerfile lives inside the docker/ subdirectory
+    await fs.writeFile(path.join(dockerSubdir, 'Dockerfile'), dockerfileContents);
 
     const expectedImage = await stableTag(dockerfileContents, 'npm');
 
@@ -299,7 +299,7 @@ describe('buildProjectImage', () => {
       projectDir,
       dockerfilePath: 'Dockerfile',
       logPrefix: 'npm',
-      buildContext: '../',
+      buildContext: 'docker',
     });
 
     expect(result.image).toBe(expectedImage);
@@ -309,12 +309,12 @@ describe('buildProjectImage', () => {
     );
     expect(buildCall).toBeDefined();
     const args = buildCall![1] as string[];
-    // Context dir should be the resolved parent, NOT projectDir
+    // Context dir should be the resolved docker/ subdirectory
     const contextArg = args[args.length - 1];
-    expect(contextArg).toBe(parentDir);
-    // Dockerfile should be resolved to parentDir/Dockerfile
+    expect(contextArg).toBe(dockerSubdir);
+    // Dockerfile should be resolved to docker/Dockerfile
     const fileIdx = args.indexOf('--file');
-    expect(args[fileIdx + 1]).toBe(path.join(parentDir, 'Dockerfile'));
+    expect(args[fileIdx + 1]).toBe(path.join(dockerSubdir, 'Dockerfile'));
   });
 
   it('passes --build-arg entries to docker build when buildArgs is set', async () => {
@@ -417,5 +417,57 @@ describe('buildProjectImage', () => {
 
     // Must have called: docker image inspect (cache hit) + docker run which composer
     expect(mockExecFile).toHaveBeenCalledTimes(2);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 14. Security: absolute dockerfilePath is rejected
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  it('throws when dockerfilePath is an absolute path', async () => {
+    await expect(
+      buildProjectImage({
+        projectDir: tmpDir,
+        dockerfilePath: '/etc/passwd',
+        logPrefix: 'npm',
+      }),
+    ).rejects.toThrow(/absolute paths are rejected/);
+
+    // No Docker calls should have been made
+    expect(mockExecFile).not.toHaveBeenCalled();
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 15. build_context escaping projectDir emits warning but succeeds (monorepo support)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  it('emits a warning but succeeds when buildContext escapes projectDir (monorepo layout)', async () => {
+    // Simulate: parentDir/Dockerfile.hlg, projectDir = parentDir/app
+    const parentDir = tmpDir;
+    const projectDir = path.join(tmpDir, 'app');
+    await fs.mkdir(projectDir, { recursive: true });
+
+    const dockerfileContents = 'FROM node:14\n';
+    await fs.writeFile(path.join(parentDir, 'Dockerfile.hlg'), dockerfileContents);
+
+    const expectedImage = await stableTag(dockerfileContents, 'npm');
+
+    // Cache hit — just verify the call succeeds
+    mockExecFile.mockResolvedValueOnce({ stdout: '[]', stderr: '' } as any);
+
+    const { logger } = await import('@infra/utils/logger');
+
+    const result = await buildProjectImage({
+      projectDir,
+      dockerfilePath: 'Dockerfile.hlg',
+      logPrefix: 'npm',
+      buildContext: '../',
+    });
+
+    expect(result.image).toBe(expectedImage);
+    expect(result.entrypointOverride).toBe('');
+    // Warning must have been emitted
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('resolves outside the project directory'),
+    );
   });
 });

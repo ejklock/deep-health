@@ -117,6 +117,7 @@ export async function resolveEcosystemRuntime(
   let runMode: RunMode = spec.runMode;
   if (nativeDeps.length > 0) {
     const pkgs = nativeDeps.join(' ');
+    // Load-bearing input guard: DebianPackageNameSchema (src/infrastructure/config/schema.ts) must reject shell metacharacters and whitespace before this point — do not relax that regex without auditing this interpolation site.
     const aptInstall = `apt-get update -qq -o APT::Sandbox::User=root && apt-get install -y --no-install-recommends -o APT::Sandbox::User=root ${pkgs}`;
     logger.info(`[ecosystem-runtime/${plugin.id}] native_deps: ${pkgs}`);
     const existingPreamble = spec.runMode.preamble;

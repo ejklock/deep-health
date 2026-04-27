@@ -33,6 +33,13 @@ const ValidationCommandConfigSchema = z
   })
   .strict();
 
+const DockerImageRefSchema = z
+  .string()
+  .regex(
+    /^[a-z0-9][a-z0-9./_:@-]*$/,
+    'Docker image reference must be lowercase and contain only alphanumeric characters, dots, slashes, colons, at-signs, and hyphens',
+  );
+
 /** OSV scanner engine config */
 const OsvScannerConfigSchema = z
   .object({
@@ -48,7 +55,7 @@ const OsvScannerConfigSchema = z
      * Docker image for the OSV container (used when runner is 'docker').
      * Defaults to 'ghcr.io/google/osv-scanner:latest'.
      */
-    image: z.string().optional(),
+    image: DockerImageRefSchema.optional(),
   })
   .strict();
 
@@ -74,6 +81,11 @@ const NativeDepsSchema = z.array(DebianPackageNameSchema).optional();
  */
 const ImageSourceSchema = z.enum(['pull', 'dockerfile']).default('pull');
 
+const BuildArgsSchema = z.record(
+  z.string().regex(/^[A-Z_][A-Z0-9_]*$/, 'Build arg key must be uppercase letters, digits, and underscores'),
+  z.string().regex(/^[^\n\r]*$/, 'Build arg value must not contain newlines'),
+);
+
 /** npm runner config */
 const NpmRunnerConfigSchema = z
   .object({
@@ -83,7 +95,7 @@ const NpmRunnerConfigSchema = z
      * Takes precedence over runtime_version.
      * Mutually exclusive with image_source='dockerfile'.
      */
-    image: z.string().optional(),
+    image: DockerImageRefSchema.optional(),
     /**
      * Node.js runtime version hint used to resolve the Docker image when `image` is not set.
      * Example: '20', '20.11', '20.11.1'.
@@ -120,7 +132,7 @@ const NpmRunnerConfigSchema = z
      * Build arguments passed as --build-arg KEY=VALUE to docker build.
      * Only used when image_source='dockerfile'.
      */
-    build_args: z.record(z.string()).optional(),
+    build_args: BuildArgsSchema.optional(),
   })
   .strict()
   .superRefine((cfg, ctx) => {
@@ -202,7 +214,7 @@ const SonarQubeConfigSchema = z
      * when local sonar-scanner is not installed). Defaults to
      * 'sonarsource/sonar-scanner-cli:latest'.
      */
-    scanner_image: z.string().optional(),
+    scanner_image: DockerImageRefSchema.optional(),
     /**
      * When true, forwards the detected git branch as -Dsonar.branch.name to sonar-scanner.
      * Requires SonarQube Developer Edition or higher — Community Edition does NOT support
@@ -227,7 +239,7 @@ const PipRunnerConfigSchema = z
      * Takes precedence over runtime_version.
      * Mutually exclusive with image_source='dockerfile'.
      */
-    image: z.string().optional(),
+    image: DockerImageRefSchema.optional(),
     /**
      * Python runtime version hint used to resolve the Docker image when `image` is not set.
      * Example: '3.11', '3.11.2'.
@@ -261,7 +273,7 @@ const PipRunnerConfigSchema = z
      * Build arguments passed as --build-arg KEY=VALUE to docker build.
      * Only used when image_source='dockerfile'.
      */
-    build_args: z.record(z.string()).optional(),
+    build_args: BuildArgsSchema.optional(),
   })
   .strict()
   .superRefine((cfg, ctx) => {
@@ -291,7 +303,7 @@ const ComposerRunnerConfigSchema = z
      * Takes precedence over runtime_version.
      * Mutually exclusive with image_source='dockerfile'.
      */
-    image: z.string().optional(),
+    image: DockerImageRefSchema.optional(),
     /**
      * PHP runtime version hint used to resolve the Docker image when `image` is not set.
      * Example: '8.2', '8.2.1'.
@@ -350,7 +362,7 @@ const ComposerRunnerConfigSchema = z
      * Build arguments passed as --build-arg KEY=VALUE to docker build.
      * Only used when image_source='dockerfile'.
      */
-    build_args: z.record(z.string()).optional(),
+    build_args: BuildArgsSchema.optional(),
   })
   .strict()
   .superRefine((cfg, ctx) => {
@@ -402,7 +414,7 @@ const WorkflowConfigSchema = z
      * Full name: <branch_prefix><ISO-timestamp>.
      * Default: 'fix/deep-health-'.
      */
-    branch_prefix: z.string().optional(),
+    branch_prefix: z.string().regex(/^[a-zA-Z0-9]/, 'branch_prefix must not start with a dash or special character').optional(),
     /** Pull request title override. Auto-generated when absent. */
     pr_title: z.string().optional(),
   })
@@ -411,7 +423,7 @@ const WorkflowConfigSchema = z
 const CloudStorageConfigSchema = z
   .object({
     provider: z.enum(["google_drive"]),
-    folder_id: z.string(),
+    folder_id: z.string().regex(/^[A-Za-z0-9_-]{10,}$/, 'folder_id must be at least 10 alphanumeric, dash, or underscore characters'),
     /**
      * When true, fix/executive-report commands will fail if cloud upload fails.
      * Default: false (cloud upload failure is non-fatal — warns to stderr).

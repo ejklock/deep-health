@@ -100,18 +100,46 @@ export interface BuildProjectImageResult {
 export async function buildProjectImage(
   options: BuildProjectImageOptions,
 ): Promise<BuildProjectImageResult> {
-  const { projectDir, dockerfilePath, logPrefix, buildContext, buildArgs: extraBuildArgs } = options;
+  const {
+    projectDir,
+    dockerfilePath,
+    logPrefix,
+    buildContext,
+    buildArgs: extraBuildArgs,
+  } = options;
 
   // Resolve the effective Docker build context directory
   const contextDir = buildContext
     ? path.resolve(projectDir, buildContext)
     : projectDir;
 
+  // ── Security: reject absolute dockerfilePath from caller ─────────────────
+  if (path.isAbsolute(dockerfilePath)) {
+    throw new Error(
+      `[ecosystem-runtime/${logPrefix}] dockerfilePath must be a relative path; absolute paths are rejected for security reasons: "${dockerfilePath}"`,
+    );
+  }
+
+  // ── Security: warn when build context escapes projectDir ────────────────
+  // Escaping projectDir is a legitimate use case (e.g. project code in app/
+  // but Dockerfile needs access to the parent monorepo root). We emit a warning
+  // so operators are aware, but do not block — the threat model here is a
+  // developer-controlled config file, and the Dockerfile itself is equally
+  // trusted. A hard reject would break valid monorepo layouts.
+  const resolvedProjectDir = path.resolve(projectDir);
+  if (
+    contextDir !== resolvedProjectDir &&
+    !contextDir.startsWith(resolvedProjectDir + path.sep)
+  ) {
+    logger.warn(
+      `[ecosystem-runtime/${logPrefix}] build_context "${buildContext}" resolves outside the project directory (${resolvedProjectDir}). ` +
+      `Ensure this is intentional — the full directory tree will be sent to the Docker daemon as build context.`,
+    );
+  }
+
   // Dockerfile is resolved relative to contextDir (matching Docker's intuition:
   // when a custom build context is provided, the Dockerfile lives within it)
-  const absoluteDockerfile = path.isAbsolute(dockerfilePath)
-    ? dockerfilePath
-    : path.resolve(contextDir, dockerfilePath);
+  const absoluteDockerfile = path.resolve(contextDir, dockerfilePath);
 
   // ── 1. Read Dockerfile and compute stable tag ───────────────────────────
 
@@ -129,13 +157,17 @@ export async function buildProjectImage(
   const shortSha = sha256.slice(0, 12);
   const image = `${IMAGE_TAG_NAMESPACE}/${logPrefix}:${shortSha}`;
 
-  logger.debug(`[ecosystem-runtime/${logPrefix}] Dockerfile SHA-256: ${sha256}`);
+  logger.debug(
+    `[ecosystem-runtime/${logPrefix}] Dockerfile SHA-256: ${sha256}`,
+  );
 
   // ── 2. Probe for cached image ─────────────────────────────────────────────
 
   const alreadyBuilt = await probeImageExists(image);
   if (alreadyBuilt) {
-    logger.info(`[ecosystem-runtime/${logPrefix}] Reusing cached project image: ${image}`);
+    logger.info(
+      `[ecosystem-runtime/${logPrefix}] Reusing cached project image: ${image}`,
+    );
     // Binary probe must run even on cache hits — the cached image may lack required
     // ecosystem tools (e.g. image was built without the right base or was manually tagged).
     if (options.requiredBinaries && options.requiredBinaries.length > 0) {
@@ -152,10 +184,16 @@ export async function buildProjectImage(
 
   logger.info(
     `[ecosystem-runtime/${logPrefix}] Building project image from ${dockerfilePath} → ${image}` +
-    (buildContext ? ` (context: ${buildContext})` : ''),
+      (buildContext ? ` (context: ${buildContext})` : ''),
   );
 
-  const dockerBuildArgs = ['build', '--file', absoluteDockerfile, '--tag', image];
+  const dockerBuildArgs = [
+    'build',
+    '--file',
+    absoluteDockerfile,
+    '--tag',
+    image,
+  ];
 
   if (extraBuildArgs) {
     for (const [key, value] of Object.entries(extraBuildArgs)) {
@@ -209,7 +247,10 @@ async function probeImageExists(image: string): Promise<boolean> {
 /**
  * Estimation failure is non-fatal.
  */
-async function warnIfLargeContext(projectDir: string, logPrefix: string): Promise<void> {
+async function warnIfLargeContext(
+  projectDir: string,
+  logPrefix: string,
+): Promise<void> {
   try {
     // Use `du` to sum the raw bytes of the project dir as a cheap proxy.
     // On macOS `du -sk` returns kilobytes; on Linux `du -sb` returns bytes.
@@ -220,7 +261,7 @@ async function warnIfLargeContext(projectDir: string, logPrefix: string): Promis
     if (bytes > LARGE_CONTEXT_THRESHOLD_BYTES) {
       logger.warn(
         `[ecosystem-runtime/${logPrefix}] Build context is large (~${Math.round(bytes / (1024 * 1024))} MB). ` +
-        `Consider adding a .dockerignore to exclude node_modules, vendor, .git, etc.`,
+          `Consider adding a .dockerignore to exclude node_modules, vendor, .git, etc.`,
       );
     }
   } catch {
@@ -253,9 +294,14 @@ async function probeBinariesInImage(
     );
     try {
       await execFileAsync('docker', [
-        'run', '--rm', '--entrypoint', '',
+        'run',
+        '--rm',
+        '--entrypoint',
+        '',
         image,
-        'sh', '-c', `which ${binary}`,
+        'sh',
+        '-c',
+        `which ${binary}`,
       ]);
       logger.debug(
         `[ecosystem-runtime/${logPrefix}] Binary "${binary}" found in image ${image}`,
@@ -271,8 +317,8 @@ async function probeBinariesInImage(
   if (missing.length > 0) {
     throw new Error(
       `[ecosystem-runtime/${logPrefix}] Project image "${image}" is missing required ` +
-      `ecosystem ${missing.length === 1 ? 'binary' : 'binaries'}: ${missing.join(', ')}. ` +
-      `Ensure your Dockerfile installs the required tools (e.g. npm, pip, composer).`,
+        `ecosystem ${missing.length === 1 ? 'binary' : 'binaries'}: ${missing.join(', ')}. ` +
+        `Ensure your Dockerfile installs the required tools (e.g. npm, pip, composer).`,
     );
   }
 }
