@@ -67,7 +67,7 @@ export async function resolveEcosystemRuntime(
   let runMode: RunMode = spec.runMode;
   if (nativeDeps.length > 0) {
     const pkgs = nativeDeps.join(' ');
-    const aptInstall = `apt-get update -qq && apt-get install -y --no-install-recommends ${pkgs}`;
+    const aptInstall = `apt-get update -qq -o APT::Sandbox::User=root && apt-get install -y --no-install-recommends -o APT::Sandbox::User=root ${pkgs}`;
     logger.info(`[ecosystem-runtime/${plugin.id}] native_deps: ${pkgs}`);
     const existingPreamble = spec.runMode.preamble;
     runMode = {

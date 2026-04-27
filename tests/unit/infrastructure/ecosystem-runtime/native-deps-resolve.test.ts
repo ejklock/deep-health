@@ -93,7 +93,7 @@ describe('resolveEcosystemRuntime — native_deps preamble', () => {
     expect(runMode.preamble).toBeDefined();
     const preamble = runMode.preamble('node:14');
     expect(preamble).toBe(
-      'apt-get update -qq && apt-get install -y --no-install-recommends libvips-dev build-essential',
+      'apt-get update -qq -o APT::Sandbox::User=root && apt-get install -y --no-install-recommends -o APT::Sandbox::User=root libvips-dev build-essential',
     );
   });
 
@@ -137,7 +137,7 @@ describe('resolveEcosystemRuntime — native_deps preamble', () => {
 
     // native_deps apt-get must come first, then the plugin's own bootstrap
     expect(preamble).toBe(
-      'apt-get update -qq && apt-get install -y --no-install-recommends imagemagick && existing-bootstrap-cmd',
+      'apt-get update -qq -o APT::Sandbox::User=root && apt-get install -y --no-install-recommends -o APT::Sandbox::User=root imagemagick && existing-bootstrap-cmd',
     );
     expect(pluginPreamble).toHaveBeenCalledWith('php:8.2-cli');
   });
@@ -163,7 +163,7 @@ describe('resolveEcosystemRuntime — native_deps preamble', () => {
     const preamble = runMode.preamble('node:lts');
 
     expect(preamble).toBe(
-      'apt-get update -qq && apt-get install -y --no-install-recommends python3',
+      'apt-get update -qq -o APT::Sandbox::User=root && apt-get install -y --no-install-recommends -o APT::Sandbox::User=root python3',
     );
   });
 });
