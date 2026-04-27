@@ -102,7 +102,7 @@ See the [Orchestrator Pipeline Flow](./architecture.md#orchestrator-pipeline-flo
    a. Runs advisors (informational only — never blocks).
    b. Skips the plugin if there are no `auto_safe` vulnerabilities (or no `breaking` vulns when `--authorize-breaking` was given).
    c. Resolves the Docker container runner (npm/pip/composer).
-   d. Applies OSV staging-fix if `fixerStrategy === 'osv'`.
+   d. For npm, auto-demotes `osv`/`osv-then-audit` to `npm-audit` if `package-lock.json` has `lockfileVersion: 1` (osv-scanner cannot patch v1 lockfiles in-place). Applies OSV staging-fix if the effective strategy is `osv` or `osv-then-audit`.
    e. Calls `plugin.runUpdater()`.
    f. Optionally installs breaking packages (`--authorize-breaking`).
    g. Runs post-update OSV residual verification.
@@ -239,10 +239,20 @@ scanners:
   npm:
     runtime_version: '20'     # optional; inferred from .nvmrc / package.json#engines.node
     # image: 'node:20'        # optional explicit override; resolved from runtime_version otherwise
+    # native_deps:            # OS packages to apt-get install before npm ci runs
+    #   - libvips-dev         # required by sharp@0.x on glibc 2.28 images (e.g. node:14)
+    #   - build-essential     # required by any native addon that uses node-gyp
+    #   - python3             # required by node-gyp on some distros
   composer:
     runtime_version: '8.1'    # optional; inferred from composer.json#require.php
+    # native_deps:            # OS packages required by PHP extensions
+    #   - imagemagick
+    #   - libmagickwand-dev
   pip:
     runtime_version: '3.11'   # optional; inferred from runtime.txt / .python-version
+    # native_deps:            # OS packages required by C-extension pip packages
+    #   - libjpeg-dev         # Pillow
+    #   - libpq-dev           # psycopg2
   sonarqube:
     enabled: false            # set true to run SonarQube scan
     on_failure: 'warn'        # warn | fail

@@ -139,10 +139,15 @@ flowchart TD
         HAS_UPDATES -- no --> SKIPPED([return: status=skipped])
         HAS_UPDATES -- yes --> RESOLVE_RUNNER
 
-        RESOLVE_RUNNER["Resolve effective runner<br/>via Ecosystem Runtime Container"]
-        RESOLVE_RUNNER --> OSV_STAGING
+        RESOLVE_RUNNER["Resolve effective runner<br/>via Ecosystem Runtime Container<br/>(includes native_deps preamble)"]
+        RESOLVE_RUNNER --> LOCK_DEMOTE
 
-        OSV_STAGING["OSV staging-fix<br/>(if strategy=osv or osv-then-audit)"]
+        LOCK_DEMOTE{"npm + osv/osv-then-audit<br/>+ lockfileVersion=1?"}
+        LOCK_DEMOTE -- yes --> AUTO_DEMOTE["Auto-demote fixer → npm-audit\n(osv-scanner cannot patch v1 lockfiles)"]
+        LOCK_DEMOTE -- no --> OSV_STAGING
+        AUTO_DEMOTE --> OSV_STAGING
+
+        OSV_STAGING["OSV staging-fix<br/>(if effective strategy=osv or osv-then-audit)"]
         OSV_STAGING --> DRY_PREVIEW
 
         DRY_PREVIEW["Dry-run preview<br/>(if --dry-run)"]
@@ -399,13 +404,15 @@ flowchart LR
     PLUGIN["EcosystemPlugin<br/>runtimeSpec: EcosystemRuntimeSpec"]
     RESOLVE["resolveEcosystemRuntime()"]
     IMG["Image resolution<br/>scanners.&lt;id&gt;.image →<br/>scanners.&lt;id&gt;.runtime_version →<br/>plugin.inferVersion() →<br/>spec.defaultImage"]
-    CONTAINER["EphemeralEcosystemContainer<br/>(runMode, image, projectDir, logPrefix)"]
+    NATIVE["native_deps preamble synthesis<br/>(if scanners.&lt;id&gt;.native_deps is set)<br/>apt-get install … composed with<br/>any existing plugin preamble"]
+    CONTAINER["EphemeralEcosystemContainer<br/>(runMode + preamble, image, projectDir, logPrefix)"]
     CMD["EcosystemContainerCommandRunner<br/>(container, hostRunner, spec)"]
     EFFECTIVE["effectiveRunner: CommandRunner"]
 
     PLUGIN --> RESOLVE
     RESOLVE --> IMG
-    IMG --> CONTAINER
+    IMG --> NATIVE
+    NATIVE --> CONTAINER
     CONTAINER --> CMD
     CMD --> EFFECTIVE
 ```
@@ -423,7 +430,7 @@ interface EcosystemRuntimeSpec {
 }
 
 type RunMode =
-  | { kind: 'direct-exec'; binary: string }
+  | { kind: 'direct-exec'; binary: string; preamble?: (image: string) => string | undefined }
   | { kind: 'shell-wrap'; preamble?: (image: string) => string | undefined };
 ```
 
@@ -431,10 +438,16 @@ type RunMode =
 
 | `runMode.kind` | Used by | Final docker invocation |
 |---|---|---|
-| `direct-exec` | npm | `docker run <image> <binary> <args...>` |
+| `direct-exec` (no preamble) | npm | `docker run <image> <binary> <args...>` |
+| `direct-exec` (with preamble) | npm + `native_deps` | `docker run <image> sh -lc '<preamble> && exec "$@"' -- <binary> <args...>` |
 | `shell-wrap` | pip, composer | `docker run <image> sh -lc "[<preamble> && ]<args joined>"` |
 
-The optional `preamble` on `shell-wrap` is consulted per invocation against the resolved image. Composer uses it to inject `COMPOSER_BOOTSTRAP` when the image is a bare `php:*-cli` (which doesn't pre-install composer).
+Both run modes support an optional `preamble` function. It is consulted per invocation with the resolved image and may return `undefined` to skip injection for that specific image.
+
+- **`shell-wrap` preamble** — used by composer to inject `COMPOSER_BOOTSTRAP` when the image is a bare `php:*-cli` that does not pre-install composer.
+- **`direct-exec` preamble** — used when `native_deps` is configured in `scanners.npm` (or `pip`/`composer`). `resolveEcosystemRuntime` synthesizes an `apt-get install` preamble and injects it before the binary. When a preamble is present, the executor switches to `sh -lc '…' -- binary args`, preserving the SEC-004 trust boundary: original argv tokens remain independent shell word elements via `"$@"` and are never re-tokenized.
+
+When both a `native_deps` preamble (from config) and a plugin preamble (from `runtimeSpec`) are present, `resolveEcosystemRuntime` composes them: `<native_deps_apt_cmd> && <plugin_preamble>`.
 
 `runShell()` always uses `sh -c` (without `-l`), preserving legacy behavior for arbitrary user-supplied validation commands.
 
@@ -526,10 +539,19 @@ flowchart TD
     CONFIG -- yes --> USE_CONFIG["Use config fixer"]
     CONFIG -- no --> PLUGIN_DEF["Use plugin.supportedFixers[0]"]
 
-    USE_CONFIG --> FIXER
-    PLUGIN_DEF --> FIXER
+    USE_CONFIG --> DEMOTE_CHECK
+    PLUGIN_DEF --> DEMOTE_CHECK
 
-    FIXER{"Strategy?"}
+    DEMOTE_CHECK{"npm plugin AND\nstrategy = osv or osv-then-audit?"}
+    DEMOTE_CHECK -- no --> FIXER
+    DEMOTE_CHECK -- yes --> LOCK_VER{"lockfileVersion\nin package-lock.json?"}
+
+    LOCK_VER -- "= 1 (npm 6 / Node ≤12)" --> DEMOTE["Auto-demote to npm-audit\n(osv-scanner cannot patch v1 in-place)\nlog WARN: auto-switching fixer"]
+    LOCK_VER -- "≥ 2 or null" --> FIXER
+
+    DEMOTE --> FIXER
+
+    FIXER{"Effective strategy?"}
     FIXER -- "osv" --> OSV_ONLY["OSV Scanner fix\n(in-place lockfile patch via staging copy)"]
     FIXER -- "npm-audit" --> NPM_AUDIT["npm audit fix"]
     FIXER -- "osv-then-audit" --> CHAIN["OSV fix first\nthen npm audit fix as fallback"]
@@ -541,7 +563,7 @@ flowchart TD
     COMP_UPD --> POST_VERIFY
 
     POST_VERIFY -- "always" --> RUN_OSV_VERIFY["Run OSV residual\nverification scan"]
-    POST_VERIFY -- "osv-strategy-only\n+ strategy=osv" --> RUN_OSV_VERIFY
+    POST_VERIFY -- "osv-strategy-only\n+ effective strategy=osv" --> RUN_OSV_VERIFY
     POST_VERIFY -- "never or not osv" --> SKIP_VERIFY([skip])
 ```
 

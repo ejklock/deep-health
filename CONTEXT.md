@@ -26,7 +26,9 @@ When a new domain concept stabilizes during design work, add it here. When a ter
 
 **Ecosystem Plugin** — implementation of the `EcosystemPlugin` interface (`src/modules/ecosystem/types.ts`), one per supported ecosystem. Carries metadata (lockfiles, OSV ecosystems, label, supported fixers) and behavior (`runUpdater`, `installBreakingPackages`, `inferVersion`).
 
-**Fixer Strategy** — how vulnerabilities are remediated for an ecosystem: `osv`, `npm-audit`, `osv-then-audit`, `composer-update`. Selected via `ecosystems[].fixer` in config or the plugin's first supported fixer as default.
+**Fixer Strategy** — how vulnerabilities are remediated for an ecosystem: `osv`, `npm-audit`, `osv-then-audit`, `composer-update`. Selected via `ecosystems[].fixer` in config or the plugin's first supported fixer as default. For npm, if the configured strategy is `osv` or `osv-then-audit` and `package-lock.json` has `lockfileVersion: 1` (npm 6 / Node ≤12), `runEcosystemFix` auto-demotes to `npm-audit` at runtime (osv-scanner cannot patch v1 lockfiles in-place).
+
+**Native Deps** — OS-level system packages (e.g. `libvips-dev`, `libpq-dev`) declared under `scanners.<id>.native_deps` in config. `resolveEcosystemRuntime` synthesizes an `apt-get install` preamble from the list and injects it into the run mode before passing the container to the ecosystem CLI. Ensures native npm/pip/composer addons that require system libraries can compile during `npm ci` / `pip install` / `composer install` inside ephemeral containers.
 
 **Updater** — the function each plugin runs (`runNpmUpdater`, `runPipUpdater`, `runComposerUpdater`) that applies the fixer, runs validations, and reverts on failure. The shared revert/result-building skeleton lives in the **Updater Transaction** primitive.
 
@@ -54,7 +56,7 @@ When a new domain concept stabilizes during design work, add it here. When a ter
   - `direct-exec` — `docker run <image> <binary> <args...>` (no shell). Used by ecosystems whose CLI tolerates direct exec (npm).
   - `shell-wrap` — `docker run <image> sh -lc "<joined args>"` with optional image-conditional preamble. Used by ecosystems that need shell features or on-the-fly bootstrap (pip, composer).
 
-**Run Mode Preamble** — optional function `(image) => string | undefined` carried by `shell-wrap` run mode. Returns shell commands to inject before the joined command, separated by `&&`. Used by composer to install composer on-the-fly when running on bare `php:*-cli` images.
+**Run Mode Preamble** — optional function `(image) => string | undefined` carried by either run mode. Returns shell commands to inject before the main command, separated by `&&`. Used by composer to install composer on-the-fly on bare `php:*-cli` images (`shell-wrap`), and by `resolveEcosystemRuntime` to inject `apt-get install` for OS-level native deps when `native_deps` is configured (`direct-exec`). When both a plugin preamble and a `native_deps` preamble are present they are composed: native deps fire first so the plugin's bootstrap has its dependencies available.
 
 **Host-Only Command** — `git`, `gh`, `open`. These never enter the ecosystem container and route to the host runner regardless of which ecosystem is active.
 
