@@ -2,6 +2,13 @@ import Handlebars from 'handlebars';
 import type { SupportedLocale } from '@core/types/locale';
 import type { OutputFormat } from '@core/types/config';
 import configTemplate from './templates/project-config.hbs';
+import npmScannerBlockTemplate from './templates/npm-scanner-block.hbs';
+import pipScannerBlockTemplate from './templates/pip-scanner-block.hbs';
+import composerScannerBlockTemplate from './templates/composer-scanner-block.hbs';
+
+Handlebars.registerPartial('npm-scanner-block', npmScannerBlockTemplate);
+Handlebars.registerPartial('pip-scanner-block', pipScannerBlockTemplate);
+Handlebars.registerPartial('composer-scanner-block', composerScannerBlockTemplate);
 
 /**
  * Config / init scaffolding generates a declarative project-config.yml.
