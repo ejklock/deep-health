@@ -125,6 +125,21 @@ export interface GenerateConfigOptions {
    * Only written when `composerImageSource='dockerfile'`.
    */
   composerBuildArgs?: Record<string, string>;
+  /**
+   * When true, persists `allow_build_context_escape: true` into the npm scanner config.
+   * Only relevant when `npmImageSource='dockerfile'`. Default: false (boundary enforced).
+   */
+  npmAllowBuildContextEscape?: boolean;
+  /**
+   * When true, persists `allow_build_context_escape: true` into the pip scanner config.
+   * Only relevant when `pipImageSource='dockerfile'`. Default: false (boundary enforced).
+   */
+  pipAllowBuildContextEscape?: boolean;
+  /**
+   * When true, persists `allow_build_context_escape: true` into the composer scanner config.
+   * Only relevant when `composerImageSource='dockerfile'`. Default: false (boundary enforced).
+   */
+  composerAllowBuildContextEscape?: boolean;
 }
 
 const compiled = Handlebars.compile(configTemplate, { noEscape: true });
@@ -285,6 +300,9 @@ export function generateConfigYaml(opts: GenerateConfigOptions = {}): string {
     composerBuildArgs: opts.composerImageSource === 'dockerfile' && opts.composerBuildArgs && Object.keys(opts.composerBuildArgs).length > 0
       ? Object.entries(opts.composerBuildArgs).map(([k, v]) => ({ key: k, value: v }))
       : undefined,
+    npmAllowBuildContextEscape: opts.npmImageSource === 'dockerfile' ? opts.npmAllowBuildContextEscape : undefined,
+    pipAllowBuildContextEscape: opts.pipImageSource === 'dockerfile' ? opts.pipAllowBuildContextEscape : undefined,
+    composerAllowBuildContextEscape: opts.composerImageSource === 'dockerfile' ? opts.composerAllowBuildContextEscape : undefined,
   });
 }
 

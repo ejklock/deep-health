@@ -36,6 +36,76 @@ export function stripPipVersion(ref: string): string {
   return cleaned.trim();
 }
 
+/**
+ * Parse the `Successfully installed` line emitted by pip after a successful install.
+ *
+ * Format: `Successfully installed pkg1-1.0.0 pkg2-2.3.4 django-debug-toolbar-6.3.0`
+ *
+ * Splitting on the last hyphen that precedes a digit sequence handles packages
+ * with hyphens in their names (e.g. `django-debug-toolbar-6.3.0`).
+ *
+ * Returns a Map of lowercase-normalized package name → installed version.
+ * Returns an empty Map when the line is absent or unparseable.
+ */
+export function parsePipInstalledVersions(stdout: string): Map<string, string> {
+  const result = new Map<string, string>();
+  const lines = stdout.split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('Successfully installed ')) continue;
+
+    const tokens = trimmed.slice('Successfully installed '.length).split(/\s+/);
+    for (const token of tokens) {
+      // Find the last hyphen that is immediately followed by a digit
+      const match = token.match(/^(.*)-(\d[\d.]*)$/);
+      if (!match) continue;
+      const name = match[1]!.toLowerCase();
+      const version = match[2]!;
+      if (name) {
+        result.set(name, version);
+      }
+    }
+    break; // Only one "Successfully installed" line expected
+  }
+  return result;
+}
+
+/**
+ * Build the `packages_updated` array for pip using installed versions from pip stdout.
+ *
+ * For each auto_safe package (e.g. "pillow==8.0.1"), look up the name in the
+ * installed-versions map and use the real installed version. Falls back to the
+ * scan's safeVersion when the package is not found in the map.
+ *
+ * Returns an empty array when `installedVersions` is empty (nothing was installed).
+ */
+export function buildPipPackagesUpdated(
+  autoSafePackages: string[],
+  installedVersions: Map<string, string>,
+): string[] {
+  if (installedVersions.size === 0) return [];
+
+  const updated: string[] = [];
+  for (const pkg of autoSafePackages) {
+    const name = stripPipVersion(pkg).toLowerCase();
+    const installedVersion = installedVersions.get(name);
+    if (installedVersion !== undefined) {
+      // Use the real installed version
+      updated.push(`${name}@${installedVersion}`);
+    } else {
+      // Fallback: extract safeVersion from scan string (e.g. "pillow==8.0.1" → "pillow@8.0.1")
+      const versionMatch = pkg.match(/==([^\s,;]+)/);
+      const safeVersion = versionMatch ? versionMatch[1] : undefined;
+      if (safeVersion) {
+        updated.push(`${name}@${safeVersion}`);
+      } else {
+        updated.push(name);
+      }
+    }
+  }
+  return updated;
+}
+
 async function checkCurrentState(runner: CommandRunner, cwd: string): Promise<void> {
   logger.debug('Running pip list --outdated (informational)...');
   // Ignore exit code — informational only
@@ -158,6 +228,11 @@ export async function runPipUpdater(
       });
     }
 
+    // Parse actually-installed versions from pip stdout to report real installed versions.
+    // Falls back to scan safeVersion per-package when a package is absent from the output.
+    const installedVersions = parsePipInstalledVersions(updateResult.stdout ?? '');
+    const packagesUpdated = buildPipPackagesUpdated(pipEcosystem.auto_safe_packages, installedVersions);
+
     // Run configured validation commands
     const validationResult = await runValidations({
       runner,
@@ -175,7 +250,7 @@ export async function runPipUpdater(
     }
 
     return tx.success({
-      packages_updated: pipEcosystem.auto_safe_packages,
+      packages_updated: packagesUpdated,
       validations: validationResult.entries,
     });
   } catch (err) {

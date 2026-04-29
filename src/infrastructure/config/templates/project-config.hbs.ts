@@ -92,7 +92,8 @@ scanners:
     build_context: '{{npmBuildContext}}'{{/if}}{{#if npmBuildArgs}}
     build_args:
 {{#each npmBuildArgs}}      {{key}}: '{{value}}'
-{{/each}}{{/if}}{{/if}}
+{{/each}}{{/if}}{{#if npmAllowBuildContextEscape}}
+    allow_build_context_escape: true{{/if}}{{/if}}
     # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
     # image: 'node:{{npmRuntimeVersion}}'  # optional — override resolved Node image
 {{/if}}
@@ -104,7 +105,8 @@ scanners:
     build_context: '{{pipBuildContext}}'{{/if}}{{#if pipBuildArgs}}
     build_args:
 {{#each pipBuildArgs}}      {{key}}: '{{value}}'
-{{/each}}{{/if}}{{/if}}
+{{/each}}{{/if}}{{#if pipAllowBuildContextEscape}}
+    allow_build_context_escape: true{{/if}}{{/if}}
     # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
     # image: 'python:{{pipRuntimeVersion}}-slim'  # optional — override resolved Python image
 {{/if}}
@@ -116,7 +118,8 @@ scanners:
     build_context: '{{composerBuildContext}}'{{/if}}{{#if composerBuildArgs}}
     build_args:
 {{#each composerBuildArgs}}      {{key}}: '{{value}}'
-{{/each}}{{/if}}{{/if}}
+{{/each}}{{/if}}{{#if composerAllowBuildContextEscape}}
+    allow_build_context_escape: true{{/if}}{{/if}}
     # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
     # image: 'php:{{composerRuntimeVersion}}-cli'  # optional — override resolved PHP image
 {{/if}}
@@ -131,7 +134,8 @@ scanners:
     build_context: '{{npmBuildContext}}'{{/if}}{{#if npmBuildArgs}}
     build_args:
 {{#each npmBuildArgs}}      {{key}}: '{{value}}'
-{{/each}}{{/if}}{{/if}}
+{{/each}}{{/if}}{{#if npmAllowBuildContextEscape}}
+    allow_build_context_escape: true{{/if}}{{/if}}
     # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
     # image: 'node:{{npmRuntimeVersion}}'  # optional — override resolved Node image
 {{/if}}
@@ -142,7 +146,8 @@ scanners:
     build_context: '{{npmBuildContext}}'{{/if}}{{#if npmBuildArgs}}
     build_args:
 {{#each npmBuildArgs}}      {{key}}: '{{value}}'
-{{/each}}{{/if}}
+{{/each}}{{/if}}{{#if npmAllowBuildContextEscape}}
+    allow_build_context_escape: true{{/if}}
 {{/unless}}{{/if}}
 {{#if pipRuntimeVersion}}
   pip:
@@ -152,7 +157,8 @@ scanners:
     build_context: '{{pipBuildContext}}'{{/if}}{{#if pipBuildArgs}}
     build_args:
 {{#each pipBuildArgs}}      {{key}}: '{{value}}'
-{{/each}}{{/if}}{{/if}}
+{{/each}}{{/if}}{{#if pipAllowBuildContextEscape}}
+    allow_build_context_escape: true{{/if}}{{/if}}
     # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
     # image: 'python:{{pipRuntimeVersion}}-slim'  # optional — override resolved Python image
 {{/if}}
@@ -163,7 +169,8 @@ scanners:
     build_context: '{{pipBuildContext}}'{{/if}}{{#if pipBuildArgs}}
     build_args:
 {{#each pipBuildArgs}}      {{key}}: '{{value}}'
-{{/each}}{{/if}}
+{{/each}}{{/if}}{{#if pipAllowBuildContextEscape}}
+    allow_build_context_escape: true{{/if}}
 {{/unless}}{{/if}}
 {{#if composerRuntimeVersion}}
   composer:
@@ -173,7 +180,8 @@ scanners:
     build_context: '{{composerBuildContext}}'{{/if}}{{#if composerBuildArgs}}
     build_args:
 {{#each composerBuildArgs}}      {{key}}: '{{value}}'
-{{/each}}{{/if}}{{/if}}
+{{/each}}{{/if}}{{#if composerAllowBuildContextEscape}}
+    allow_build_context_escape: true{{/if}}{{/if}}
     # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
     # image: 'php:{{composerRuntimeVersion}}-cli'  # optional — override resolved PHP image
 {{/if}}
@@ -184,7 +192,8 @@ scanners:
     build_context: '{{composerBuildContext}}'{{/if}}{{#if composerBuildArgs}}
     build_args:
 {{#each composerBuildArgs}}      {{key}}: '{{value}}'
-{{/each}}{{/if}}
+{{/each}}{{/if}}{{#if composerAllowBuildContextEscape}}
+    allow_build_context_escape: true{{/if}}
 {{/unless}}{{/if}}
 {{else}}
 # scanners:                              # optional — additional scanner engines
@@ -208,18 +217,21 @@ scanners:
 #     image: 'node:20'                  # optional — override resolved Node image
 #     image_source: 'pull'              # optional — 'pull' (default) | 'dockerfile'
 #     dockerfile_path: 'Dockerfile'     # required when image_source='dockerfile'
+#     allow_build_context_escape: false # optional — allow build_context outside project boundary ⚠
 #   pip:
 #     mode: 'docker'                     # 'docker' (default) | 'local' | 'auto'
 #     runtime_version: '3.11'           # optional — Python version for Docker image resolution
 #     image: 'python:3.11-slim'         # optional — override resolved Python image
 #     image_source: 'pull'              # optional — 'pull' (default) | 'dockerfile'
 #     dockerfile_path: 'Dockerfile'     # required when image_source='dockerfile'
+#     allow_build_context_escape: false # optional — allow build_context outside project boundary ⚠
 #   composer:
 #     mode: 'docker'                     # 'docker' (default) | 'local' | 'auto'
 #     runtime_version: '8.2'           # optional — PHP version for Docker image resolution
 #     image: 'php:8.2-cli'              # optional — override resolved PHP image
 #     image_source: 'pull'              # optional — 'pull' (default) | 'dockerfile'
 #     dockerfile_path: 'Dockerfile'     # required when image_source='dockerfile'
+#     allow_build_context_escape: false # optional — allow build_context outside project boundary ⚠
 {{/if}}
 {{/if}}
 
