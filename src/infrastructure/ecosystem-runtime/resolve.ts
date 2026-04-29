@@ -105,6 +105,18 @@ export async function resolveEcosystemRuntime(
         version = await plugin.inferVersion(cwd);
       }
 
+      if (!version) {
+        // Neither config nor project-file inference produced a version — falling back to default image.
+        // Warn for pip specifically because python:3-slim can resolve to Python 3.14+ which may break projects.
+        if (plugin.id === 'pip') {
+          logger.warn(
+            '[ecosystem-runtime/pip] No runtime_version configured and no Python version file detected. ' +
+            `Falling back to ${spec.defaultImage} (may resolve to Python 3.14+). ` +
+            "Run 'deep-health init' or set scanners.pip.runtime_version in your config to pin the version.",
+          );
+        }
+      }
+
       // resolveImage returns spec.defaultImage when version is undefined
       image = spec.resolveImage(version);
     }

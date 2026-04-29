@@ -97,6 +97,8 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   const ecosystemConfigs: GenerateConfigOptions['ecosystemConfigs'] = [];
   /** Inferred npm runtime version (written to scanners.npm.runtime_version, not ecosystem entry). */
   let npmRuntimeVersion: string | undefined;
+  /** Inferred Python runtime version (written to scanners.pip.runtime_version, not ecosystem entry). */
+  let pipRuntimeVersion: string | undefined;
   /** Inferred PHP runtime version (written to scanners.composer.runtime_version, not ecosystem entry). */
   let composerRuntimeVersion: string | undefined;
 
@@ -243,6 +245,20 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
         composerImageSource = 'pull';
       }
     } else if (id === 'pip') {
+      // pip Python runtime version is stored in scanners.pip.runtime_version
+      let resolvedPipVersion: string | undefined;
+      if (!opts.nonInteractive) {
+        const versionDefault = inferredVersion ?? '';
+        const versionPrompt = inferredVersion
+          ? `  [${plugin.name}] Python runtime version (inferred: ${inferredVersion}, blank to skip)`
+          : `  [${plugin.name}] Python runtime version (blank to skip)`;
+        const versionAnswer = await prompt(versionPrompt, versionDefault);
+        resolvedPipVersion = versionAnswer.trim() || undefined;
+      } else {
+        resolvedPipVersion = inferredVersion;
+      }
+      pipRuntimeVersion = resolvedPipVersion;
+
       // image_source prompts for pip scanner
       if (!opts.nonInteractive) {
         const imgSrcAnswer = await prompt(
@@ -265,8 +281,8 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
         pipImageSource = 'pull';
       }
     }
-    // Note: version is intentionally not set on the ecosystem entry for npm.
-    // For non-npm ecosystems, version inference is informational only and not currently persisted.
+    // Note: runtime versions are stored in the scanner config block (scanners.npm.runtime_version,
+    // scanners.pip.runtime_version, scanners.composer.runtime_version), not in the ecosystem entry.
 
     ecosystemConfigs.push({ id, fixerStrategy, validationCommands, advisors });
   }
