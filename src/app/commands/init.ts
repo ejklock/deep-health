@@ -325,6 +325,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     ecosystemConfigs,
     enableSonarQube,
     npmRuntimeVersion,
+    pipRuntimeVersion,
     composerRuntimeVersion,
     npmImageSource,
     npmDockerfilePath,
