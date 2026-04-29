@@ -26,8 +26,6 @@ export const PHP_CLI_IMAGE_SUFFIX = 'cli';
  * - 'laravel': Laravel framework (requires bcmath, pdo, pdo_mysql, mbstring, etc.).
  * - 'symfony': Symfony framework (requires intl, pdo, zip, etc.).
  * - 'wordpress': WordPress (requires mysqli, gd, zip, etc.).
- *
- * Phase 2 TODO: use image_strategy='build' to install these extension lists at runtime.
  */
 export type FrameworkProfileId = 'none' | 'laravel' | 'symfony' | 'wordpress';
 
@@ -35,9 +33,6 @@ export type FrameworkProfileId = 'none' | 'laravel' | 'symfony' | 'wordpress';
  * PHP extension lists per framework profile.
  * These are informational in Phase 1 — no extensions are installed; a stock
  * php-cli image is used regardless of framework_profile.
- *
- * Phase 2 TODO: when image_strategy='build', pass this list to a Dockerfile
- * RUN layer (docker-php-ext-install / pecl) to produce a custom image.
  */
 export const PHP_FRAMEWORK_PROFILES: Record<FrameworkProfileId, string[]> = {
   none: [],

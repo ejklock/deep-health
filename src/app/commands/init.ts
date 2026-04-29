@@ -99,8 +99,6 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   let npmRuntimeVersion: string | undefined;
   /** Inferred PHP runtime version (written to scanners.composer.runtime_version, not ecosystem entry). */
   let composerRuntimeVersion: string | undefined;
-  /** PHP framework profile for composer (written to scanners.composer.framework_profile). */
-  let composerFrameworkProfile: 'none' | 'laravel' | 'symfony' | 'wordpress' | undefined;
 
   // Dockerfile image-source options — one set per ecosystem scanner
   let npmImageSource: 'pull' | 'dockerfile' | undefined;
@@ -223,20 +221,6 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
       }
       composerRuntimeVersion = resolvedVersion;
 
-      // framework_profile
-      const validProfiles = ['none', 'laravel', 'symfony', 'wordpress'] as const;
-      if (!opts.nonInteractive) {
-        const profileAnswer = await prompt(
-          `  [${plugin.name}] PHP framework profile (none/laravel/symfony/wordpress)`,
-          'none',
-        );
-        composerFrameworkProfile = (validProfiles as readonly string[]).includes(profileAnswer)
-          ? (profileAnswer as typeof validProfiles[number])
-          : 'none';
-      } else {
-        composerFrameworkProfile = 'none';
-      }
-
       // image_source prompts for composer scanner
       if (!opts.nonInteractive) {
         const imgSrcAnswer = await prompt(
@@ -326,7 +310,6 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     enableSonarQube,
     npmRuntimeVersion,
     composerRuntimeVersion,
-    composerFrameworkProfile,
     npmImageSource,
     npmDockerfilePath,
     npmBuildContext,

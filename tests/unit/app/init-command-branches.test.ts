@@ -289,7 +289,7 @@ describe('runInitCommand — inferVersion absent on plugin (line 141)', () => {
 describe('runInitCommand — composer interactive with inferred version (lines 163, 181)', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('shows inferred PHP version in prompt and accepts valid profile (lines 163, 181)', async () => {
+  it('shows inferred PHP version in prompt and does NOT ask for framework profile (removed field)', async () => {
     const { writeFile, access } = await import('node:fs/promises');
     vi.mocked(access).mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
     vi.mocked(writeFile).mockResolvedValue(undefined);
@@ -312,8 +312,7 @@ describe('runInitCommand — composer interactive with inferred version (lines 1
       if (question.includes('Include npm') || question.includes('Include pip')) return 'n';
       if (question.includes('Fixer strategy')) return defaultValue ?? '';
       if (question.includes('Validation command')) return '';
-      if (question.includes('PHP runtime version')) return '8.2.0'; // line 163
-      if (question.includes('PHP framework profile')) return 'invalid-profile'; // line 181 false branch → 'none'
+      if (question.includes('PHP runtime version')) return '8.2.0';
       if (question.includes('SonarQube') || question.includes('markdown')) return 'n';
       return defaultValue ?? '';
     });
@@ -328,10 +327,12 @@ describe('runInitCommand — composer interactive with inferred version (lines 1
     });
     stdoutSpy.mockRestore();
 
+    // PHP version prompt is still asked (version inference branch)
     const phpVersionQ = promptQuestions.find((q) => q.includes('PHP runtime version'));
     expect(phpVersionQ).toBeDefined();
+    // framework_profile prompt is gone — field was removed in ADR-0004
     const phpProfileQ = promptQuestions.find((q) => q.includes('PHP framework profile'));
-    expect(phpProfileQ).toBeDefined();
+    expect(phpProfileQ).toBeUndefined();
   });
 });
 

@@ -22,25 +22,14 @@ describe('generateConfigYaml() — unknown ecosystem fallback (lines 176-179)', 
   });
 });
 
-describe('generateConfigYaml() — composerFrameworkProfile=none → undefined (line 203)', () => {
-  it('does not write composerFrameworkProfile when value is "none"', () => {
+describe('generateConfigYaml() — framework_profile removed (ADR-0004)', () => {
+  it('never writes framework_profile to generated YAML (field removed in ADR-0004)', () => {
     const yaml = generateConfigYaml({
       projectName: 'Test',
       client: 'Acme',
-      composerFrameworkProfile: 'none',
     });
     expect(typeof yaml).toBe('string');
-    // profile 'none' should result in no framework_profile in output (undefined passed to template)
-    expect(yaml).not.toContain('framework_profile: none');
-  });
-
-  it('writes composerFrameworkProfile when value is a real profile', () => {
-    const yaml = generateConfigYaml({
-      projectName: 'Test',
-      client: 'Acme',
-      composerFrameworkProfile: 'laravel',
-    });
-    expect(typeof yaml).toBe('string');
-    expect(yaml).toContain('laravel');
+    expect(yaml).not.toContain('framework_profile');
+    expect(yaml).not.toContain('image_strategy');
   });
 });

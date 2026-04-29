@@ -55,6 +55,7 @@ export async function resolveEcosystemRuntime(
         native_deps?: readonly string[];
         build_context?: string;
         build_args?: Record<string, string>;
+        allow_build_context_escape?: boolean;
       }
     | undefined;
 
@@ -85,6 +86,7 @@ export async function resolveEcosystemRuntime(
       requiredBinaries: spec.containerBinaries,
       buildContext: scannerCfg?.build_context,
       buildArgs: scannerCfg?.build_args,
+      allowBuildContextEscape: scannerCfg?.allow_build_context_escape,
     });
 
     image = buildResult.image;

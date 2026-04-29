@@ -23,6 +23,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { logger } from '../utils/logger';
+import {
+  assertBuildContextWithinBoundary,
+  resolveAllowedBuildContextRoot,
+} from './resolve-build-context-boundary';
 
 const execFileAsync = promisify(execFile);
 
@@ -64,6 +68,13 @@ export interface BuildProjectImageOptions {
    * Example: { NODE_VERSION: '20', APP_ENV: 'production' }
    */
   buildArgs?: Record<string, string>;
+  /**
+   * When true, allows the Docker build context to resolve outside the project
+   * boundary (git root, or projectDir when not in a git repository).
+   * Emits a security warning when the boundary is crossed.
+   * Default: false.
+   */
+  allowBuildContextEscape?: boolean;
 }
 
 export interface BuildProjectImageResult {
@@ -120,22 +131,19 @@ export async function buildProjectImage(
     );
   }
 
-  // ── Security: warn when build context escapes projectDir ────────────────
-  // Escaping projectDir is a legitimate use case (e.g. project code in app/
-  // but Dockerfile needs access to the parent monorepo root). We emit a warning
-  // so operators are aware, but do not block — the threat model here is a
-  // developer-controlled config file, and the Dockerfile itself is equally
-  // trusted. A hard reject would break valid monorepo layouts.
-  const resolvedProjectDir = path.resolve(projectDir);
-  if (
-    contextDir !== resolvedProjectDir &&
-    !contextDir.startsWith(resolvedProjectDir + path.sep)
-  ) {
-    logger.warn(
-      `[ecosystem-runtime/${logPrefix}] build_context "${buildContext}" resolves outside the project directory (${resolvedProjectDir}). ` +
-      `Ensure this is intentional — the full directory tree will be sent to the Docker daemon as build context.`,
-    );
-  }
+  // ── Security: enforce build context boundary ──────────────────────────────
+  // The allowed root is the git repository root (or projectDir if not in a
+  // git repo). Building outside this boundary may expose sensitive files to
+  // the Docker daemon. Use allow_build_context_escape: true per runner config
+  // to opt in explicitly — a security warning is emitted when active.
+  const boundaryResult = await resolveAllowedBuildContextRoot(projectDir);
+  await assertBuildContextWithinBoundary({
+    contextDir,
+    allowedRoot: boundaryResult.root,
+    boundarySource: boundaryResult.source,
+    logPrefix,
+    allowEscape: options.allowBuildContextEscape,
+  });
 
   // Dockerfile is resolved relative to contextDir (matching Docker's intuition:
   // when a custom build context is provided, the Dockerfile lives within it)

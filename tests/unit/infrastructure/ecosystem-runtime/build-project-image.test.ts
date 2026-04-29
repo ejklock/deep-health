@@ -43,10 +43,21 @@ vi.mock('@infra/utils/logger', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+vi.mock('@infra/ecosystem-runtime/resolve-build-context-boundary', () => ({
+  resolveAllowedBuildContextRoot: vi.fn().mockResolvedValue({ root: '', source: 'project-dir' }),
+  assertBuildContextWithinBoundary: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { execFile } from 'node:child_process';
 import { buildProjectImage } from '@infra/ecosystem-runtime/build-project-image';
+import {
+  resolveAllowedBuildContextRoot,
+  assertBuildContextWithinBoundary,
+} from '@infra/ecosystem-runtime/resolve-build-context-boundary';
 
 const mockExecFile = vi.mocked(execFile);
+const mockResolveRoot = vi.mocked(resolveAllowedBuildContextRoot);
+const mockAssertBoundary = vi.mocked(assertBuildContextWithinBoundary);
 
 /** Resolve the stable image tag the way buildProjectImage does: sha256 of file contents. */
 async function stableTag(contents: string, logPrefix: string): Promise<string> {
@@ -60,6 +71,8 @@ describe('buildProjectImage', () => {
 
   beforeEach(async () => {
     mockExecFile.mockReset();
+    mockResolveRoot.mockResolvedValue({ root: '', source: 'project-dir' });
+    mockAssertBoundary.mockResolvedValue(undefined);
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'build-project-image-test-'));
   });
 
@@ -437,37 +450,69 @@ describe('buildProjectImage', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // 15. build_context escaping projectDir emits warning but succeeds (monorepo support)
+  // Boundary enforcement tests
   // ─────────────────────────────────────────────────────────────────────────────
 
-  it('emits a warning but succeeds when buildContext escapes projectDir (monorepo layout)', async () => {
-    // Simulate: parentDir/Dockerfile.hlg, projectDir = parentDir/app
-    const parentDir = tmpDir;
-    const projectDir = path.join(tmpDir, 'app');
-    await fs.mkdir(projectDir, { recursive: true });
+  it('calls assertBuildContextWithinBoundary with contextDir and git root when buildContext is set', async () => {
+    const dockerSubdir = path.join(tmpDir, 'docker');
+    await fs.mkdir(dockerSubdir, { recursive: true });
+    await fs.writeFile(path.join(dockerSubdir, 'Dockerfile'), 'FROM node:20\n');
 
-    const dockerfileContents = 'FROM node:14\n';
-    await fs.writeFile(path.join(parentDir, 'Dockerfile.hlg'), dockerfileContents);
+    const gitRoot = '/repo';
+    mockResolveRoot.mockResolvedValue({ root: gitRoot, source: 'git' });
 
-    const expectedImage = await stableTag(dockerfileContents, 'npm');
-
-    // Cache hit — just verify the call succeeds
+    // cache hit so we don't need extra mocks
     mockExecFile.mockResolvedValueOnce({ stdout: '[]', stderr: '' } as any);
 
-    const { logger } = await import('@infra/utils/logger');
-
-    const result = await buildProjectImage({
-      projectDir,
-      dockerfilePath: 'Dockerfile.hlg',
+    await buildProjectImage({
+      projectDir: tmpDir,
+      dockerfilePath: 'Dockerfile',
       logPrefix: 'npm',
-      buildContext: '../',
+      buildContext: 'docker',
     });
 
-    expect(result.image).toBe(expectedImage);
-    expect(result.entrypointOverride).toBe('');
-    // Warning must have been emitted
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('resolves outside the project directory'),
+    expect(mockAssertBoundary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contextDir: dockerSubdir,
+        allowedRoot: gitRoot,
+        boundarySource: 'git',
+        logPrefix: 'npm',
+      }),
     );
+  });
+
+  it('forwards allowBuildContextEscape to assertBuildContextWithinBoundary', async () => {
+    await fs.writeFile(path.join(tmpDir, 'Dockerfile'), 'FROM node:20\n');
+    mockExecFile.mockResolvedValueOnce({ stdout: '[]', stderr: '' } as any);
+
+    await buildProjectImage({
+      projectDir: tmpDir,
+      dockerfilePath: 'Dockerfile',
+      logPrefix: 'composer',
+      allowBuildContextEscape: true,
+    });
+
+    expect(mockAssertBoundary).toHaveBeenCalledWith(
+      expect.objectContaining({ allowEscape: true }),
+    );
+  });
+
+  it('propagates throw from assertBuildContextWithinBoundary', async () => {
+    await fs.writeFile(path.join(tmpDir, 'Dockerfile'), 'FROM node:20\n');
+
+    mockAssertBoundary.mockRejectedValueOnce(
+      new Error('[ecosystem-runtime/npm] build_context resolves outside the allowed project boundary.'),
+    );
+
+    await expect(
+      buildProjectImage({
+        projectDir: tmpDir,
+        dockerfilePath: 'Dockerfile',
+        logPrefix: 'npm',
+      }),
+    ).rejects.toThrow(/build_context resolves outside/);
+
+    // docker commands must NOT have been called after the boundary throw
+    expect(mockExecFile).not.toHaveBeenCalled();
   });
 });

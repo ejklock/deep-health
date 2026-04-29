@@ -511,3 +511,149 @@ describe('project.name — newline injection prevention', () => {
     expect(result.success).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Group G — Removed deprecated composer fields
+// ---------------------------------------------------------------------------
+
+describe('ComposerRunnerConfig — removed deprecated fields are rejected', () => {
+  it('rejects image_strategy in scanners.composer (.strict() enforcement)', () => {
+    const result = ProjectConfigSchema.safeParse({
+      ...minimalConfig,
+      ecosystems: [{ id: 'composer' }],
+      scanners: {
+        composer: {
+          image_strategy: 'build',
+        },
+      },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const messages = result.error.issues.map((i) => i.message).join(' ');
+      expect(messages).toMatch(/image_strategy/);
+    }
+  });
+
+  it('rejects framework_profile in scanners.composer (.strict() enforcement)', () => {
+    const result = ProjectConfigSchema.safeParse({
+      ...minimalConfig,
+      ecosystems: [{ id: 'composer' }],
+      scanners: {
+        composer: {
+          framework_profile: 'laravel',
+        },
+      },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const messages = result.error.issues.map((i) => i.message).join(' ');
+      expect(messages).toMatch(/framework_profile/);
+    }
+  });
+
+  it('rejects both image_strategy and framework_profile together', () => {
+    const result = ProjectConfigSchema.safeParse({
+      ...minimalConfig,
+      ecosystems: [{ id: 'composer' }],
+      scanners: {
+        composer: {
+          image_strategy: 'pull',
+          framework_profile: 'symfony',
+        },
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('still accepts valid composer config without deprecated fields', () => {
+    const result = ProjectConfigSchema.safeParse({
+      ...minimalConfig,
+      ecosystems: [{ id: 'composer' }],
+      scanners: {
+        composer: {
+          runtime_version: '8.2',
+          native_deps: ['git', 'unzip'],
+        },
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Group H — allow_build_context_escape field accepted in all three runners
+// ---------------------------------------------------------------------------
+
+describe('allow_build_context_escape — accepted in all ecosystem runner configs', () => {
+  it.each(['npm', 'pip', 'composer'] as const)(
+    'accepts allow_build_context_escape: true in scanners.%s',
+    (ecosystem) => {
+      const result = ProjectConfigSchema.safeParse({
+        ...minimalConfig,
+        ecosystems: [{ id: ecosystem }],
+        scanners: {
+          [ecosystem]: {
+            image_source: 'dockerfile',
+            dockerfile_path: 'Dockerfile',
+            allow_build_context_escape: true,
+          },
+        },
+      });
+      expect(result.success).toBe(true);
+    },
+  );
+
+  it.each(['npm', 'pip', 'composer'] as const)(
+    'accepts allow_build_context_escape: false in scanners.%s',
+    (ecosystem) => {
+      const result = ProjectConfigSchema.safeParse({
+        ...minimalConfig,
+        ecosystems: [{ id: ecosystem }],
+        scanners: {
+          [ecosystem]: {
+            image_source: 'dockerfile',
+            dockerfile_path: 'Dockerfile',
+            allow_build_context_escape: false,
+          },
+        },
+      });
+      expect(result.success).toBe(true);
+    },
+  );
+
+  it.each(['npm', 'pip', 'composer'] as const)(
+    'accepts omitted allow_build_context_escape (field is optional) in scanners.%s',
+    (ecosystem) => {
+      const result = ProjectConfigSchema.safeParse({
+        ...minimalConfig,
+        ecosystems: [{ id: ecosystem }],
+        scanners: {
+          [ecosystem]: {
+            image_source: 'dockerfile',
+            dockerfile_path: 'Dockerfile',
+            // allow_build_context_escape deliberately omitted
+          },
+        },
+      });
+      expect(result.success).toBe(true);
+    },
+  );
+
+  it.each(['npm', 'pip', 'composer'] as const)(
+    'rejects non-boolean allow_build_context_escape in scanners.%s',
+    (ecosystem) => {
+      const result = ProjectConfigSchema.safeParse({
+        ...minimalConfig,
+        ecosystems: [{ id: ecosystem }],
+        scanners: {
+          [ecosystem]: {
+            image_source: 'dockerfile',
+            dockerfile_path: 'Dockerfile',
+            allow_build_context_escape: 'yes',
+          },
+        },
+      });
+      expect(result.success).toBe(false);
+    },
+  );
+});
