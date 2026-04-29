@@ -84,147 +84,15 @@ scanners:
     #
     # NOTE: project_key, host_url, sources, exclusions, etc. live in sonar-project.properties.
     #       Run "deep-health init" (with SonarQube enabled) to generate a template if missing.
-{{#if npmRuntimeVersion}}
-  npm:
-    runtime_version: '{{npmRuntimeVersion}}'{{#if npmImageSource}}
-    image_source: '{{npmImageSource}}'{{#if npmDockerfilePath}}
-    dockerfile_path: '{{npmDockerfilePath}}'{{/if}}{{#if npmBuildContext}}
-    build_context: '{{npmBuildContext}}'{{/if}}{{#if npmBuildArgs}}
-    build_args:
-{{#each npmBuildArgs}}      {{key}}: '{{value}}'
-{{/each}}{{/if}}{{#if npmAllowBuildContextEscape}}
-    allow_build_context_escape: true{{/if}}{{/if}}
-    # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
-    # image: 'node:{{npmRuntimeVersion}}'  # optional — override resolved Node image
-{{/if}}
-{{#if npmImageSource}}{{#unless npmRuntimeVersion}}
-  npm:
-    image_source: '{{npmImageSource}}'{{#if npmDockerfilePath}}
-    dockerfile_path: '{{npmDockerfilePath}}'{{/if}}{{#if npmBuildContext}}
-    build_context: '{{npmBuildContext}}'{{/if}}{{#if npmBuildArgs}}
-    build_args:
-{{#each npmBuildArgs}}      {{key}}: '{{value}}'
-{{/each}}{{/if}}{{#if npmAllowBuildContextEscape}}
-    allow_build_context_escape: true{{/if}}
-{{/unless}}{{/if}}
-{{#if pipRuntimeVersion}}
-  pip:
-    runtime_version: '{{pipRuntimeVersion}}'{{#if pipImageSource}}
-    image_source: '{{pipImageSource}}'{{#if pipDockerfilePath}}
-    dockerfile_path: '{{pipDockerfilePath}}'{{/if}}{{#if pipBuildContext}}
-    build_context: '{{pipBuildContext}}'{{/if}}{{#if pipBuildArgs}}
-    build_args:
-{{#each pipBuildArgs}}      {{key}}: '{{value}}'
-{{/each}}{{/if}}{{#if pipAllowBuildContextEscape}}
-    allow_build_context_escape: true{{/if}}{{/if}}
-    # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
-    # image: 'python:{{pipRuntimeVersion}}-slim'  # optional — override resolved Python image
-{{/if}}
-{{#if pipImageSource}}{{#unless pipRuntimeVersion}}
-  pip:
-    image_source: '{{pipImageSource}}'{{#if pipDockerfilePath}}
-    dockerfile_path: '{{pipDockerfilePath}}'{{/if}}{{#if pipBuildContext}}
-    build_context: '{{pipBuildContext}}'{{/if}}{{#if pipBuildArgs}}
-    build_args:
-{{#each pipBuildArgs}}      {{key}}: '{{value}}'
-{{/each}}{{/if}}{{#if pipAllowBuildContextEscape}}
-    allow_build_context_escape: true{{/if}}
-{{/unless}}{{/if}}
-{{#if composerRuntimeVersion}}
-  composer:
-    runtime_version: '{{composerRuntimeVersion}}'{{#if composerImageSource}}
-    image_source: '{{composerImageSource}}'{{#if composerDockerfilePath}}
-    dockerfile_path: '{{composerDockerfilePath}}'{{/if}}{{#if composerBuildContext}}
-    build_context: '{{composerBuildContext}}'{{/if}}{{#if composerBuildArgs}}
-    build_args:
-{{#each composerBuildArgs}}      {{key}}: '{{value}}'
-{{/each}}{{/if}}{{#if composerAllowBuildContextEscape}}
-    allow_build_context_escape: true{{/if}}{{/if}}
-    # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
-    # image: 'php:{{composerRuntimeVersion}}-cli'  # optional — override resolved PHP image
-{{/if}}
-{{#if composerImageSource}}{{#unless composerRuntimeVersion}}
-  composer:
-    image_source: '{{composerImageSource}}'{{#if composerDockerfilePath}}
-    dockerfile_path: '{{composerDockerfilePath}}'{{/if}}{{#if composerBuildContext}}
-    build_context: '{{composerBuildContext}}'{{/if}}{{#if composerBuildArgs}}
-    build_args:
-{{#each composerBuildArgs}}      {{key}}: '{{value}}'
-{{/each}}{{/if}}{{#if composerAllowBuildContextEscape}}
-    allow_build_context_escape: true{{/if}}
-{{/unless}}{{/if}}
+{{> npm-scanner-block}}
+{{> pip-scanner-block}}
+{{> composer-scanner-block}}
 {{else}}
 {{#if hasAnyScannerRuntime}}
 scanners:
-{{#if npmRuntimeVersion}}
-  npm:
-    runtime_version: '{{npmRuntimeVersion}}'{{#if npmImageSource}}
-    image_source: '{{npmImageSource}}'{{#if npmDockerfilePath}}
-    dockerfile_path: '{{npmDockerfilePath}}'{{/if}}{{#if npmBuildContext}}
-    build_context: '{{npmBuildContext}}'{{/if}}{{#if npmBuildArgs}}
-    build_args:
-{{#each npmBuildArgs}}      {{key}}: '{{value}}'
-{{/each}}{{/if}}{{#if npmAllowBuildContextEscape}}
-    allow_build_context_escape: true{{/if}}{{/if}}
-    # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
-    # image: 'node:{{npmRuntimeVersion}}'  # optional — override resolved Node image
-{{/if}}
-{{#if npmImageSource}}{{#unless npmRuntimeVersion}}
-  npm:
-    image_source: '{{npmImageSource}}'{{#if npmDockerfilePath}}
-    dockerfile_path: '{{npmDockerfilePath}}'{{/if}}{{#if npmBuildContext}}
-    build_context: '{{npmBuildContext}}'{{/if}}{{#if npmBuildArgs}}
-    build_args:
-{{#each npmBuildArgs}}      {{key}}: '{{value}}'
-{{/each}}{{/if}}{{#if npmAllowBuildContextEscape}}
-    allow_build_context_escape: true{{/if}}
-{{/unless}}{{/if}}
-{{#if pipRuntimeVersion}}
-  pip:
-    runtime_version: '{{pipRuntimeVersion}}'{{#if pipImageSource}}
-    image_source: '{{pipImageSource}}'{{#if pipDockerfilePath}}
-    dockerfile_path: '{{pipDockerfilePath}}'{{/if}}{{#if pipBuildContext}}
-    build_context: '{{pipBuildContext}}'{{/if}}{{#if pipBuildArgs}}
-    build_args:
-{{#each pipBuildArgs}}      {{key}}: '{{value}}'
-{{/each}}{{/if}}{{#if pipAllowBuildContextEscape}}
-    allow_build_context_escape: true{{/if}}{{/if}}
-    # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
-    # image: 'python:{{pipRuntimeVersion}}-slim'  # optional — override resolved Python image
-{{/if}}
-{{#if pipImageSource}}{{#unless pipRuntimeVersion}}
-  pip:
-    image_source: '{{pipImageSource}}'{{#if pipDockerfilePath}}
-    dockerfile_path: '{{pipDockerfilePath}}'{{/if}}{{#if pipBuildContext}}
-    build_context: '{{pipBuildContext}}'{{/if}}{{#if pipBuildArgs}}
-    build_args:
-{{#each pipBuildArgs}}      {{key}}: '{{value}}'
-{{/each}}{{/if}}{{#if pipAllowBuildContextEscape}}
-    allow_build_context_escape: true{{/if}}
-{{/unless}}{{/if}}
-{{#if composerRuntimeVersion}}
-  composer:
-    runtime_version: '{{composerRuntimeVersion}}'{{#if composerImageSource}}
-    image_source: '{{composerImageSource}}'{{#if composerDockerfilePath}}
-    dockerfile_path: '{{composerDockerfilePath}}'{{/if}}{{#if composerBuildContext}}
-    build_context: '{{composerBuildContext}}'{{/if}}{{#if composerBuildArgs}}
-    build_args:
-{{#each composerBuildArgs}}      {{key}}: '{{value}}'
-{{/each}}{{/if}}{{#if composerAllowBuildContextEscape}}
-    allow_build_context_escape: true{{/if}}{{/if}}
-    # mode: 'docker'                   # optional — 'docker' (default) | 'local' | 'auto'
-    # image: 'php:{{composerRuntimeVersion}}-cli'  # optional — override resolved PHP image
-{{/if}}
-{{#if composerImageSource}}{{#unless composerRuntimeVersion}}
-  composer:
-    image_source: '{{composerImageSource}}'{{#if composerDockerfilePath}}
-    dockerfile_path: '{{composerDockerfilePath}}'{{/if}}{{#if composerBuildContext}}
-    build_context: '{{composerBuildContext}}'{{/if}}{{#if composerBuildArgs}}
-    build_args:
-{{#each composerBuildArgs}}      {{key}}: '{{value}}'
-{{/each}}{{/if}}{{#if composerAllowBuildContextEscape}}
-    allow_build_context_escape: true{{/if}}
-{{/unless}}{{/if}}
+{{> npm-scanner-block}}
+{{> pip-scanner-block}}
+{{> composer-scanner-block}}
 {{else}}
 # scanners:                              # optional — additional scanner engines
 #   sonarqube:
