@@ -60,12 +60,6 @@ export interface GenerateConfigOptions {
    */
   composerRuntimeVersion?: string;
   /**
-   * PHP framework profile to persist into `scanners.composer.framework_profile`.
-   * When set (and not 'none'), the generated config includes this value for Phase 2.
-   * Default: 'none' (stock php-cli image, no framework extensions).
-   */
-  composerFrameworkProfile?: 'none' | 'laravel' | 'symfony' | 'wordpress';
-  /**
    * Image source for the npm scanner container.
    * - 'pull' (default): pull a registry image.
    * - 'dockerfile': build from a project-owned Dockerfile; requires `npmDockerfilePath`.
@@ -270,9 +264,6 @@ export function generateConfigYaml(opts: GenerateConfigOptions = {}): string {
     npmRuntimeVersion: opts.npmRuntimeVersion,
     pipRuntimeVersion: opts.pipRuntimeVersion,
     composerRuntimeVersion: opts.composerRuntimeVersion,
-    composerFrameworkProfile: opts.composerFrameworkProfile && opts.composerFrameworkProfile !== 'none'
-      ? opts.composerFrameworkProfile
-      : undefined,
     hasAnyScannerRuntime: !!(opts.npmRuntimeVersion || opts.pipRuntimeVersion || opts.composerRuntimeVersion
       || opts.npmImageSource === 'dockerfile' || opts.pipImageSource === 'dockerfile' || opts.composerImageSource === 'dockerfile'),
     // Dockerfile image-source options

@@ -110,8 +110,7 @@ scanners:
 {{/if}}
 {{#if composerRuntimeVersion}}
   composer:
-    runtime_version: '{{composerRuntimeVersion}}'{{#if composerFrameworkProfile}}
-    framework_profile: '{{composerFrameworkProfile}}'{{/if}}{{#if composerImageSource}}
+    runtime_version: '{{composerRuntimeVersion}}'{{#if composerImageSource}}
     image_source: '{{composerImageSource}}'{{#if composerDockerfilePath}}
     dockerfile_path: '{{composerDockerfilePath}}'{{/if}}{{#if composerBuildContext}}
     build_context: '{{composerBuildContext}}'{{/if}}{{#if composerBuildArgs}}
@@ -168,8 +167,7 @@ scanners:
 {{/unless}}{{/if}}
 {{#if composerRuntimeVersion}}
   composer:
-    runtime_version: '{{composerRuntimeVersion}}'{{#if composerFrameworkProfile}}
-    framework_profile: '{{composerFrameworkProfile}}'{{/if}}{{#if composerImageSource}}
+    runtime_version: '{{composerRuntimeVersion}}'{{#if composerImageSource}}
     image_source: '{{composerImageSource}}'{{#if composerDockerfilePath}}
     dockerfile_path: '{{composerDockerfilePath}}'{{/if}}{{#if composerBuildContext}}
     build_context: '{{composerBuildContext}}'{{/if}}{{#if composerBuildArgs}}
@@ -222,8 +220,6 @@ scanners:
 #     image: 'php:8.2-cli'              # optional — override resolved PHP image
 #     image_source: 'pull'              # optional — 'pull' (default) | 'dockerfile'
 #     dockerfile_path: 'Dockerfile'     # required when image_source='dockerfile'
-#     framework_profile: 'none'         # optional — 'none' (default) | 'laravel' | 'symfony' | 'wordpress'
-#                                        #   (deprecated; use image_source='dockerfile' for custom images)
 {{/if}}
 {{/if}}
 

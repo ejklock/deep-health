@@ -139,6 +139,12 @@ const NpmRunnerConfigSchema = z
      * Only used when image_source='dockerfile'.
      */
     build_args: BuildArgsSchema.optional(),
+    /**
+     * When true, allows build_context to resolve outside the project boundary
+     * (git root or projectDir). Security warning is emitted when active.
+     * Only relevant with image_source='dockerfile'. Default: false.
+     */
+    allow_build_context_escape: z.boolean().optional(),
   })
   .strict()
   .superRefine((cfg, ctx) => {
@@ -280,6 +286,12 @@ const PipRunnerConfigSchema = z
      * Only used when image_source='dockerfile'.
      */
     build_args: BuildArgsSchema.optional(),
+    /**
+     * When true, allows build_context to resolve outside the project boundary
+     * (git root or projectDir). Security warning is emitted when active.
+     * Only relevant with image_source='dockerfile'. Default: false.
+     */
+    allow_build_context_escape: z.boolean().optional(),
   })
   .strict()
   .superRefine((cfg, ctx) => {
@@ -322,10 +334,6 @@ const ComposerRunnerConfigSchema = z
      * - 'pull' (default): pull a registry image (php:*-cli or composer:2).
      * - 'dockerfile': build from a project-owned Dockerfile; requires `dockerfile_path`.
      *   Mutually exclusive with `image`.
-     *
-     * NOTE: This supersedes the legacy `image_strategy` field. `image_strategy` is
-     * retained for one release cycle as a deprecated no-op and will be removed in a
-     * future version. Migrate to `image_source` + `dockerfile_path`.
      */
     image_source: ImageSourceSchema,
     /**
@@ -334,19 +342,6 @@ const ComposerRunnerConfigSchema = z
      * Example: 'Dockerfile', '.docker/php.Dockerfile'
      */
     dockerfile_path: z.string().optional(),
-    /**
-     * @deprecated Use image_source='dockerfile' + dockerfile_path instead.
-     * Retained for one release cycle as a no-op to avoid hard-breaking existing configs.
-     * Will be removed in a future version.
-     */
-    image_strategy: z.enum(['pull', 'build']).optional(),
-    /**
-     * @deprecated Paired with the deprecated image_strategy='build'.
-     * Has no effect. Will be removed alongside image_strategy.
-     */
-    framework_profile: z
-      .enum(['none', 'laravel', 'symfony', 'wordpress'])
-      .optional(),
     /**
      * When true, passes --ignore-platform-reqs to all composer commands.
      * Defaults to true in Docker mode (the container is not the production environment).
@@ -369,6 +364,12 @@ const ComposerRunnerConfigSchema = z
      * Only used when image_source='dockerfile'.
      */
     build_args: BuildArgsSchema.optional(),
+    /**
+     * When true, allows build_context to resolve outside the project boundary
+     * (git root or projectDir). Security warning is emitted when active.
+     * Only relevant with image_source='dockerfile'. Default: false.
+     */
+    allow_build_context_escape: z.boolean().optional(),
   })
   .strict()
   .superRefine((cfg, ctx) => {

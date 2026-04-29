@@ -143,6 +143,18 @@ export interface NpmRunnerConfig {
    * Example: { NODE_VERSION: '20', APP_ENV: 'production' }
    */
   build_args?: Record<string, string>;
+  /**
+   * When true, allows the Docker build context to resolve outside the project
+   * boundary (git root, or projectDir when not in a git repository).
+   * Only relevant when image_source='dockerfile' and build_context resolves
+   * outside the allowed root.
+   *
+   * ⚠ Security: enabling this sends the full directory tree outside the project
+   * to the Docker daemon, potentially exposing sensitive files. A warning is
+   * emitted when this flag is active and the boundary is crossed.
+   * Default: false.
+   */
+  allow_build_context_escape?: boolean;
 }
 
 /** Outputs/reports configuration */
@@ -267,13 +279,6 @@ export interface SonarQubeConfig {
 /** Runner selection for composer commands */
 export type ComposerRunnerMode = "auto" | "docker" | "local";
 
-/**
- * Image provisioning strategy for composer Docker mode.
- * @deprecated Use ImageSource ('pull' | 'dockerfile') instead.
- * Retained for one release cycle. Will be removed in a future version.
- */
-export type ComposerImageStrategy = 'pull' | 'build';
-
 /** Composer runner configuration */
 export interface ComposerRunnerConfig {
   /**
@@ -305,8 +310,6 @@ export interface ComposerRunnerConfig {
    * - 'pull' (default): pull a registry image (php:*-cli or composer:2).
    * - 'dockerfile': build from a project-owned Dockerfile; requires `dockerfile_path`.
    *   Mutually exclusive with `image`.
-   *
-   * This supersedes the deprecated `image_strategy` field.
    */
   image_source?: ImageSource;
   /**
@@ -315,16 +318,6 @@ export interface ComposerRunnerConfig {
    * Example: 'Dockerfile', '.docker/php.Dockerfile'
    */
   dockerfile_path?: string;
-  /**
-   * @deprecated Use image_source='dockerfile' + dockerfile_path instead.
-   * Retained for one release cycle as a no-op. Will be removed in a future version.
-   */
-  image_strategy?: ComposerImageStrategy;
-  /**
-   * @deprecated Paired with the deprecated image_strategy='build'.
-   * Has no effect. Will be removed alongside image_strategy.
-   */
-  framework_profile?: 'none' | 'laravel' | 'symfony' | 'wordpress';
   /**
    * When true, passes `--ignore-platform-reqs` to all composer commands.
    * Defaults to true when mode is 'docker' (the Docker container is not the
@@ -350,6 +343,18 @@ export interface ComposerRunnerConfig {
    * Only used when image_source='dockerfile'.
    */
   build_args?: Record<string, string>;
+  /**
+   * When true, allows the Docker build context to resolve outside the project
+   * boundary (git root, or projectDir when not in a git repository).
+   * Only relevant when image_source='dockerfile' and build_context resolves
+   * outside the allowed root.
+   *
+   * ⚠ Security: enabling this sends the full directory tree outside the project
+   * to the Docker daemon, potentially exposing sensitive files. A warning is
+   * emitted when this flag is active and the boundary is crossed.
+   * Default: false.
+   */
+  allow_build_context_escape?: boolean;
 }
 
 /** Runner selection for pip commands */
@@ -410,6 +415,18 @@ export interface PipRunnerConfig {
    * Only used when image_source='dockerfile'.
    */
   build_args?: Record<string, string>;
+  /**
+   * When true, allows the Docker build context to resolve outside the project
+   * boundary (git root, or projectDir when not in a git repository).
+   * Only relevant when image_source='dockerfile' and build_context resolves
+   * outside the allowed root.
+   *
+   * ⚠ Security: enabling this sends the full directory tree outside the project
+   * to the Docker daemon, potentially exposing sensitive files. A warning is
+   * emitted when this flag is active and the boundary is crossed.
+   * Default: false.
+   */
+  allow_build_context_escape?: boolean;
 }
 
 export interface ScannersConfig {
