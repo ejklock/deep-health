@@ -137,6 +137,33 @@ export class DockerSonarQubeProvisioner implements ServiceProvisioner {
     logger.info(`SonarQube provisioner: starting container "${containerName}" on port ${hostPort}...`);
     logger.debug(`SonarQube provisioner: image = ${this.image}`);
 
+    // Sweep leaked containers from previous runs that were never cleaned up
+    // (e.g. from crashed runs where the finally { teardown() } block never ran).
+    try {
+      const { stdout } = await execFileAsync('docker', [
+        'ps', '-a',
+        '--filter', `name=${this.containerNamePrefix}`,
+        '--format', '{{.Names}}',
+      ]);
+      const leakedNames = stdout.trim().split('\n').filter(Boolean);
+      for (const name of leakedNames) {
+        logger.warn(`SonarQube provisioner: removing leaked container "${name}" from a previous run`);
+        try {
+          await execFileAsync('docker', ['rm', '--force', name]);
+        } catch (rmErr) {
+          logger.debug(
+            `SonarQube provisioner: docker rm --force "${name}" failed — ` +
+            `${rmErr instanceof Error ? rmErr.message : String(rmErr)}`,
+          );
+        }
+      }
+    } catch (sweepErr) {
+      logger.debug(
+        `SonarQube provisioner: pre-provision sweep failed (Docker may not be running) — ` +
+        `${sweepErr instanceof Error ? sweepErr.message : String(sweepErr)}`,
+      );
+    }
+
     // Run the container detached; publish internal 9000 to the chosen host port.
     // -e SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true avoids ElasticSearch bootstrap
     // checks that fail in CI / resource-constrained envs.

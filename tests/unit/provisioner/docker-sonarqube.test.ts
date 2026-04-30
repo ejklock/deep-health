@@ -124,8 +124,9 @@ describe('DockerSonarQubeProvisioner', () => {
       const provisioner = new DockerSonarQubeProvisioner({ hostPort: 19002 });
       await provisioner.provision();
 
-      const [, dockerArgs] = mockExecFile.mock.calls[0]!;
-      expect(dockerArgs).toContain('SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true');
+      // Find the `docker run` call specifically — a pre-provision sweep may run first.
+      const runCall = mockExecFile.mock.calls.find(([, args]) => (args as string[])[0] === 'run');
+      expect(runCall?.[1]).toContain('SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true');
     });
 
     it('uses containerNamePrefix option', async () => {
@@ -136,9 +137,11 @@ describe('DockerSonarQubeProvisioner', () => {
 
       await provisioner.provision();
 
-      const [, dockerArgs] = mockExecFile.mock.calls[0]!;
-      const nameIdx = (dockerArgs as string[]).indexOf('--name');
-      const containerName = (dockerArgs as string[])[nameIdx + 1] ?? '';
+      // Find the `docker run` call specifically — a pre-provision sweep may run first.
+      const runCall = mockExecFile.mock.calls.find(([, args]) => (args as string[])[0] === 'run');
+      const dockerArgs = runCall?.[1] as string[] | undefined;
+      const nameIdx = dockerArgs?.indexOf('--name') ?? -1;
+      const containerName = dockerArgs?.[nameIdx + 1] ?? '';
       expect(containerName).toMatch(/^my-test-sq-/);
     });
 
@@ -148,8 +151,9 @@ describe('DockerSonarQubeProvisioner', () => {
       const { baseUrl: second } = await provisioner.provision();
 
       expect(first).toBe(second);
-      // docker run should only be called once
-      expect(mockExecFile).toHaveBeenCalledTimes(1);
+      // docker run should only be called once regardless of any sweep calls.
+      const runCalls = mockExecFile.mock.calls.filter(([, args]) => (args as string[])[0] === 'run');
+      expect(runCalls).toHaveLength(1);
     });
 
     it('exposes containerName_ and resolvedPort_ after provision', async () => {

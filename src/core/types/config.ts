@@ -288,6 +288,12 @@ export interface SonarQubeConfig {
    * Defaults to 120 seconds.  Set to 0 to disable CE waiting entirely.
    */
   ce_task_timeout_seconds?: number;
+  /**
+   * Maximum seconds the sonar-scanner subprocess may run before being killed.
+   * Applies to both local and container sonar-scanner execution.
+   * Increase for large codebases. Defaults to 300 (5 minutes).
+   */
+  scanner_timeout_seconds?: number;
 }
 
 /** Runner selection for composer commands */

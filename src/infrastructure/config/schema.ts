@@ -247,6 +247,12 @@ const SonarQubeConfigSchema = z
      * before fetching the quality gate status.  Defaults to 120.  Set to 0 to disable.
      */
     ce_task_timeout_seconds: z.number().int().nonnegative().default(120),
+    /**
+     * Maximum seconds the sonar-scanner subprocess may run before being killed.
+     * Applies to both local and container sonar-scanner execution.
+     * Defaults to 300 (5 minutes).
+     */
+    scanner_timeout_seconds: z.number().int().positive().optional(),
   })
   .strict();
 

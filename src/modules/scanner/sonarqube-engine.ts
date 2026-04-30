@@ -100,7 +100,7 @@ function parseCeTaskId(cwd: string): string | null {
 async function waitForCeTask(
   hostUrl: string,
   taskId: string | null,
-  token: string,
+  authHeader: string,
   timeoutMs: number,
 ): Promise<'success' | 'failed' | 'timeout' | 'skipped'> {
   if (!taskId) {
@@ -122,7 +122,7 @@ async function waitForCeTask(
     try {
       const url = `${base}/api/ce/task?id=${encodeURIComponent(taskId)}`;
       const response = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: authHeader },
       });
 
       if (!response.ok) {
@@ -176,13 +176,13 @@ const SONAR_METRICS = [
 async function fetchSonarQualityGate(
   hostUrl: string,
   projectKey: string,
-  token: string,
+  authHeader: string,
 ): Promise<SonarQubeQualityGateStatus | null> {
   try {
     const url = `${hostUrl.replace(/\/$/, '')}/api/qualitygates/project_status?projectKey=${encodeURIComponent(projectKey)}`;
     const response = await fetch(url, {
       headers: {
-        Authorization: `Bearer ${token}`,
+        Authorization: authHeader,
       },
     });
     if (!response.ok) {
@@ -199,13 +199,13 @@ async function fetchSonarQualityGate(
 async function fetchSonarMetrics(
   hostUrl: string,
   projectKey: string,
-  token: string,
+  authHeader: string,
 ): Promise<Record<string, string> | null> {
   try {
     const url = `${hostUrl.replace(/\/$/, '')}/api/measures/component?component=${encodeURIComponent(projectKey)}&metricKeys=${SONAR_METRICS}`;
     const response = await fetch(url, {
       headers: {
-        Authorization: `Bearer ${token}`,
+        Authorization: authHeader,
       },
     });
     if (!response.ok) {
@@ -236,7 +236,7 @@ const MAX_ISSUES_FOR_REPORT = 50;
 async function fetchSonarIssues(
   hostUrl: string,
   projectKey: string,
-  token: string,
+  authHeader: string,
 ): Promise<SonarQubeIssuesResponse['issues'] | null> {
   try {
     const severities = 'BLOCKER,CRITICAL,MAJOR';
@@ -247,7 +247,7 @@ async function fetchSonarIssues(
       `&severities=${severities}` +
       `&ps=${MAX_ISSUES_FOR_REPORT}`;
     const response = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: authHeader },
     });
     if (!response.ok) {
       logger.warn(`SonarQube: issues API returned ${response.status} ${response.statusText}`);
@@ -326,11 +326,11 @@ async function generateEphemeralToken(
       }
 
       const fallbackData = (await fallback.json()) as SonarQubeGenerateTokenResponse;
-      return fallbackData.token ?? null;
+      return fallbackData.token || null;
     }
 
     const data = (await response.json()) as SonarQubeGenerateTokenResponse;
-    return data.token ?? null;
+    return data.token || null;
   } catch (err) {
     logger.warn(`SonarQube: failed to generate ephemeral token — ${err instanceof Error ? err.message : String(err)}`);
     return null;
@@ -353,7 +353,12 @@ interface SonarScanExecContext {
   token: string;
   branch: string | null;
   ceTimeoutMs: number;
+  scannerTimeoutMs: number;
   sanitized: SanitizedPropertiesFile;
+  /** Authorization header for REST API calls (CE polling, quality gate, etc).
+   * Defaults to `Bearer ${token}` when absent.
+   * Managed mode sets this to Basic admin:admin for reliability. */
+  pollAuthHeader?: string;
 }
 
 /** Build the `-D` args common to both local and container scanner invocations. */
@@ -397,14 +402,15 @@ async function executeSonarScan(
   }
 
   const scanArgs = buildSonarScanCliArgs(ec);
+  const authHeader = ec.pollAuthHeader ?? `Bearer ${ec.token}`;
 
-  logger.debug(
-    `Running: sonar-scanner -Dsonar.host.url=${ec.hostUrl} -Dsonar.projectKey=${ec.projectKey}` +
-    (ec.branch ? ` -Dsonar.branch.name=${ec.branch}` : '') +
-    ` -Dproject.settings=${ec.sanitized.path} [token omitted]`,
+  logger.info(
+    `SonarQube: running sonar-scanner (timeout: ${Math.round(ec.scannerTimeoutMs / 1000)}s) — ` +
+    `host: ${ec.hostUrl}, projectKey: ${ec.projectKey}` +
+    (ec.branch ? `, branch: ${ec.branch}` : ''),
   );
 
-  const scanRun = await runner.runArgs('sonar-scanner', scanArgs, { cwd });
+  const scanRun = await runner.runArgs('sonar-scanner', scanArgs, { cwd, timeout: ec.scannerTimeoutMs });
 
   if (scanRun.exitCode !== 0) {
     return {
@@ -415,9 +421,9 @@ async function executeSonarScan(
   }
 
   const taskId = parseCeTaskId(cwd);
-  await waitForCeTask(ec.hostUrl, taskId, ec.token, ec.ceTimeoutMs);
+  await waitForCeTask(ec.hostUrl, taskId, authHeader, ec.ceTimeoutMs);
 
-  return collectSonarMetadataAndBuildResult(ec.hostUrl, ec.projectKey, ec.token, base);
+  return collectSonarMetadataAndBuildResult(ec.hostUrl, ec.projectKey, authHeader, base);
 }
 
 /**
@@ -443,14 +449,36 @@ async function executeSonarScanViaContainer(
   // The scanner runner injects `-Dsonar.host.url` itself (translating localhost
   // → host.docker.internal). Strip our duplicate so we don't pass it twice.
   const extraArgs = buildSonarScanCliArgs(ec).filter((a) => !a.startsWith('-Dsonar.host.url='));
+  const authHeader = ec.pollAuthHeader ?? `Bearer ${ec.token}`;
 
-  logger.debug(
-    `Running sonar-scanner via container — host: ${ec.hostUrl}, projectKey: ${ec.projectKey}` +
-    (ec.branch ? `, branch: ${ec.branch}` : '') +
-    ` project.settings: ${ec.sanitized.path} [token omitted]`,
+  logger.info(
+    `SonarQube: running sonar-scanner via container (timeout: ${Math.round(ec.scannerTimeoutMs / 1000)}s) — ` +
+    `host: ${ec.hostUrl}, projectKey: ${ec.projectKey}` +
+    (ec.branch ? `, branch: ${ec.branch}` : ''),
   );
 
-  const scanRun = await scannerRunner.run(extraArgs);
+  const timeoutMs = ec.scannerTimeoutMs;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(
+      () => reject(Object.assign(new Error(`sonar-scanner (container) timed out after ${Math.round(timeoutMs / 1000)}s`), { isScannerTimeout: true })),
+      timeoutMs,
+    );
+  });
+
+  let scanRun: Awaited<ReturnType<typeof scannerRunner.run>>;
+  try {
+    scanRun = await Promise.race([scannerRunner.run(extraArgs), timeoutPromise]);
+    clearTimeout(timeoutId);
+  } catch (err) {
+    clearTimeout(timeoutId);
+    // Only swallow timeout errors — let scanner errors propagate so callers'
+    // finally blocks (e.g. provisioner teardown) still execute.
+    if ((err as { isScannerTimeout?: boolean }).isScannerTimeout) {
+      return { ...base, status: 'error', error: (err as Error).message };
+    }
+    throw err;
+  }
 
   if (scanRun.exitCode !== 0) {
     return {
@@ -461,9 +489,9 @@ async function executeSonarScanViaContainer(
   }
 
   const taskId = parseCeTaskId(cwd);
-  await waitForCeTask(ec.hostUrl, taskId, ec.token, ec.ceTimeoutMs);
+  await waitForCeTask(ec.hostUrl, taskId, authHeader, ec.ceTimeoutMs);
 
-  return collectSonarMetadataAndBuildResult(ec.hostUrl, ec.projectKey, ec.token, base);
+  return collectSonarMetadataAndBuildResult(ec.hostUrl, ec.projectKey, authHeader, base);
 }
 
 /**
@@ -473,16 +501,16 @@ async function executeSonarScanViaContainer(
 async function collectSonarMetadataAndBuildResult(
   hostUrl: string,
   projectKey: string,
-  token: string,
+  authHeader: string,
   base: ScanResultJson,
 ): Promise<ScanResultJson> {
   logger.info('SonarQube: scan complete, collecting quality gate status...');
 
   // Collect metadata from SonarQube API (best-effort; never blocks the pipeline)
   const [qualityGate, metrics, issues] = await Promise.all([
-    fetchSonarQualityGate(hostUrl, projectKey, token),
-    fetchSonarMetrics(hostUrl, projectKey, token),
-    fetchSonarIssues(hostUrl, projectKey, token),
+    fetchSonarQualityGate(hostUrl, projectKey, authHeader),
+    fetchSonarMetrics(hostUrl, projectKey, authHeader),
+    fetchSonarIssues(hostUrl, projectKey, authHeader),
   ]);
 
   const qualityGateStatus = qualityGate?.projectStatus?.status ?? 'UNKNOWN';
@@ -544,6 +572,7 @@ async function collectSonarMetadataAndBuildResult(
 export class SonarQubeEngine implements ScannerEngine {
   readonly id = 'sonarqube';
   readonly name = 'SonarQube';
+  readonly order = 100;
 
   /**
    * Verify that sonar-scanner CLI is available.
@@ -635,10 +664,11 @@ export class SonarQubeEngine implements ScannerEngine {
     }
 
     const ceTimeoutMs = (sonarConfig.ce_task_timeout_seconds ?? 120) * 1_000;
+    const scannerTimeoutMs = (sonarConfig.scanner_timeout_seconds ?? 300) * 1_000;
     const mode = sonarConfig.mode ?? 'external';
 
     if (mode === 'managed') {
-      return this._scanManaged(ctx, projectKey, sonarConfig.scanner_image, (sonarConfig as any).server_image as string | undefined, base, sonarConfig.send_branch_name ?? false, ceTimeoutMs);
+      return this._scanManaged(ctx, projectKey, sonarConfig.scanner_image, (sonarConfig as any).server_image as string | undefined, base, sonarConfig.send_branch_name ?? false, ceTimeoutMs, scannerTimeoutMs);
     }
 
     // ─── External mode ────────────────────────────────────────────────────────
@@ -681,6 +711,7 @@ export class SonarQubeEngine implements ScannerEngine {
         token,
         branch: effectiveBranch,
         ceTimeoutMs,
+        scannerTimeoutMs,
         sanitized,
       });
     } finally {
@@ -698,6 +729,7 @@ export class SonarQubeEngine implements ScannerEngine {
     base: ScanResultJson,
     sendBranchName: boolean,
     ceTimeoutMs: number,
+    scannerTimeoutMs: number,
   ): Promise<ScanResultJson> {
     const { runner, cwd } = ctx;
 
@@ -764,13 +796,16 @@ export class SonarQubeEngine implements ScannerEngine {
       });
 
       try {
+        const adminAuthHeader = `Basic ${Buffer.from('admin:admin').toString('base64')}`;
         const ec = {
           hostUrl,
           projectKey,
           token: ephemeralToken,
           branch,
           ceTimeoutMs,
+          scannerTimeoutMs,
           sanitized,
+          pollAuthHeader: adminAuthHeader,
         };
         if (localAvailable) {
           return await executeSonarScan(ctx, base, ec);
