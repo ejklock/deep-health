@@ -632,6 +632,138 @@ describe('generateExecutiveReport() — buildAdvisorExecSection full branch cove
   });
 });
 
+describe('generateExecutiveReport() — vulnerability deduplication', () => {
+  function makeVuln(
+    pkg: string,
+    version: string,
+    ghsaId: string,
+    classification: 'auto_safe' | 'breaking' | 'manual' = 'breaking',
+  ) {
+    return {
+      ghsaId,
+      cvss: '7.5',
+      package: pkg,
+      ecosystem: 'npm',
+      currentVersion: version,
+      safeVersion: null as string | null,
+      classification,
+      risk: 'high',
+      reason: 'Major version bump required: 1.0.0 → 2.0.0',
+    };
+  }
+
+  function makeScan(vulns: ReturnType<typeof makeVuln>[]): ScanResultJson {
+    return {
+      agent: 'osv-scanner',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {
+        npm: {
+          vulnerabilities_total: vulns.length,
+          auto_safe: vulns.filter((v) => v.classification === 'auto_safe').length,
+          breaking: vulns.filter((v) => v.classification === 'breaking').length,
+          manual: vulns.filter((v) => v.classification === 'manual').length,
+          vulnerabilities: vulns,
+        },
+      },
+      error: null,
+    };
+  }
+
+  // Helper: extract table rows from a named section header until the next heading (##/###).
+  // Stops at the next markdown heading line, not at horizontal rules.
+  // Searches for the headerFragment using a locale-agnostic approach: find the line containing it.
+  function tableRowsAfterHeader(report: string, headerFragment: string): string[] {
+    const lines = report.split('\n');
+    const start = lines.findIndex((l) => l.includes(headerFragment));
+    if (start === -1) return [];
+    const rows: string[] = [];
+    for (let i = start + 1; i < lines.length; i++) {
+      const l = lines[i]!;
+      if (/^#{2,}/.test(l)) break;
+      if (l.startsWith('|') && !l.includes('---')) rows.push(l);
+    }
+    return rows;
+  }
+
+  // The before-section header key is section_evidence_before — locale-dependent.
+  // Use the GHSA column value or package name directly from all table rows (locale-agnostic).
+  function allTableRows(report: string): string[] {
+    return report.split('\n').filter((l) => l.startsWith('|') && !l.includes('---'));
+  }
+
+  it('case 1 — same GHSA, same package, two versions → versions aggregated into 1 row per table section', () => {
+    const scan = makeScan([
+      makeVuln('cross-spawn', '6.0.5', 'GHSA-xxxx-0001'),
+      makeVuln('cross-spawn', '7.0.3', 'GHSA-xxxx-0001'),
+    ]);
+    const result = generateExecutiveReport({ ...baseOpts, scanBefore: scan, scanAfter: scan });
+    // Every table row that contains cross-spawn should also contain both versions (aggregated)
+    const rows = allTableRows(result).filter((l) => l.includes('cross-spawn'));
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    rows.forEach((row) => {
+      expect(row).toContain('6.0.5');
+      expect(row).toContain('7.0.3');
+    });
+  });
+
+  it('case 2 — same GHSA, different packages → 2 separate rows per table section', () => {
+    const scan = makeScan([
+      makeVuln('lodash', '4.17.21', 'GHSA-xxxx-0002'),
+      makeVuln('lodash-es', '4.17.21', 'GHSA-xxxx-0002'),
+    ]);
+    const result = generateExecutiveReport({ ...baseOpts, scanBefore: scan, scanAfter: scan });
+    const lodashOnlyRows = allTableRows(result).filter((l) => l.includes('| lodash |'));
+    const lodashEsRows = allTableRows(result).filter((l) => l.includes('lodash-es'));
+    expect(lodashOnlyRows.length).toBeGreaterThanOrEqual(1);
+    expect(lodashEsRows.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('case 3 — four versions of qs with same GHSA → all four versions in a single row per section', () => {
+    const scan = makeScan([
+      makeVuln('qs', '6.5.2', 'GHSA-6rw7-vpxm-498p'),
+      makeVuln('qs', '6.7.0', 'GHSA-6rw7-vpxm-498p'),
+      makeVuln('qs', '6.10.1', 'GHSA-6rw7-vpxm-498p'),
+      makeVuln('qs', '6.14.0', 'GHSA-6rw7-vpxm-498p'),
+    ]);
+    const result = generateExecutiveReport({ ...baseOpts, scanBefore: scan, scanAfter: scan });
+    const rows = allTableRows(result).filter((l) => l.includes('| qs |') || l.includes('qs'));
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    rows.forEach((row) => {
+      expect(row).toContain('6.5.2');
+      expect(row).toContain('6.7.0');
+      expect(row).toContain('6.10.1');
+      expect(row).toContain('6.14.0');
+    });
+  });
+
+  it('case 4 — worst-case classification: auto_safe + breaking → aggregated into 1 row with both versions', () => {
+    const scan = makeScan([
+      makeVuln('some-pkg', '1.0.0', 'GHSA-xxxx-0003', 'auto_safe'),
+      makeVuln('some-pkg', '1.1.0', 'GHSA-xxxx-0003', 'breaking'),
+    ]);
+    const result = generateExecutiveReport({ ...baseOpts, scanBefore: scan, scanAfter: scan });
+    const rows = allTableRows(result).filter((l) => l.includes('some-pkg'));
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    rows.forEach((row) => {
+      expect(row).toContain('1.0.0');
+      expect(row).toContain('1.1.0');
+    });
+  });
+
+  it('case 5 — same package, different GHSAs → separate rows for each GHSA', () => {
+    const scan = makeScan([
+      makeVuln('qs', '6.5.2', 'GHSA-xxxx-aaaa'),
+      makeVuln('qs', '6.5.2', 'GHSA-xxxx-bbbb'),
+    ]);
+    const result = generateExecutiveReport({ ...baseOpts, scanBefore: scan, scanAfter: scan });
+    const ghsaARows = allTableRows(result).filter((l) => l.includes('GHSA-xxxx-aaaa'));
+    const ghsaBRows = allTableRows(result).filter((l) => l.includes('GHSA-xxxx-bbbb'));
+    expect(ghsaARows.length).toBeGreaterThanOrEqual(1);
+    expect(ghsaBRows.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
 describe('generateExecutiveReport() — pendingByPkg and allVulnsBefore branch coverage', () => {
   const pendingScan: ScanResultJson = {
     agent: 'osv-scanner', status: 'success', environment: 'local',

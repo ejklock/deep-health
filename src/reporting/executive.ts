@@ -8,6 +8,57 @@ import { getLocale } from './i18n/index';
 import { render } from './renderer';
 import executiveTemplate from './templates/executive.hbs';
 
+// ── deduplication ───────────────────────────────────────────────────────────
+
+type VulnerabilityClass = 'auto_safe' | 'breaking' | 'manual';
+
+type AggregatedVulnEntry = VulnerabilityEntry & {
+  affectedVersions: string[];
+  instanceCount: number;
+};
+
+const CLASS_RANK: Record<VulnerabilityClass, number> = { auto_safe: 0, breaking: 1, manual: 2 };
+
+function dedupVulns(entries: VulnerabilityEntry[]): AggregatedVulnEntry[] {
+  const groups = new Map<string, VulnerabilityEntry[]>();
+  for (const entry of entries) {
+    const key = `${entry.ecosystem}|${entry.ghsaId ?? 'no-ghsa'}|${entry.package}`;
+    const group = groups.get(key) ?? [];
+    group.push(entry);
+    groups.set(key, group);
+  }
+
+  return [...groups.values()].map((group) => {
+    const first = group[0]!;
+    const affectedVersions = [...new Set(group.map((v) => v.currentVersion))];
+
+    const maxCvss = group.reduce<string | null>((best, v) => {
+      const n = parseFloat(v.cvss);
+      const b = best !== null ? parseFloat(best) : NaN;
+      if (!isNaN(n) && (isNaN(b) || n > b)) return v.cvss;
+      return best;
+    }, null);
+
+    const safeVersion = group.find((v) => v.safeVersion != null)?.safeVersion ?? null;
+
+    const worstClass = group.reduce<VulnerabilityClass>((worst, v) => {
+      return (CLASS_RANK[v.classification] ?? 0) > (CLASS_RANK[worst] ?? 0) ? v.classification : worst;
+    }, first.classification);
+
+    const minVersion = affectedVersions.slice().sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))[0] ?? first.currentVersion;
+
+    return {
+      ...first,
+      currentVersion: minVersion,
+      cvss: maxCvss ?? first.cvss,
+      safeVersion,
+      classification: worstClass,
+      affectedVersions,
+      instanceCount: group.length,
+    };
+  });
+}
+
 // ── helpers ─────────────────────────────────────────────────────────────────
 
 function monthName(date: Date): string {
@@ -343,30 +394,30 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
   ];
 
   // Fixed vulns: auto_safe and in the updated set for their ecosystem
-  const fixedVulns = allVulnsBefore
-    .filter((v) => {
+  const fixedVulns = dedupVulns(
+    allVulnsBefore.filter((v) => {
       const names = updatedNamesByEco.get(v.ecosystem) ?? new Set();
       return v.classification === 'auto_safe' && names.has(v.package);
-    })
-    .map((v) => {
-      // Look up reportLabel from registry
-      const plugin = defaultRegistry.findByOsvEcosystem(v.ecosystem) ?? defaultRegistry.get(v.ecosystem);
-      // Render residual warning distinctly: only when verification ran and CVEs remain
-      const residualCount = residualVerification.status !== 'skipped'
-        ? (residualVerification.summary[v.ecosystem] ?? 0)
-        : null;
-      const residualWarning = residualVerification.status === 'unverified' && residualCount !== null && residualCount > 0;
-      return {
-        ecoLabel: plugin?.reportLabel ?? v.ecosystem,
-        ghsaLink: ghsaLink(v.ghsaId),
-        cvss: v.cvss,
-        package: v.package,
-        currentVersion: v.currentVersion,
-        safeVersion: installedVersionsByEco.get(v.ecosystem)?.get(v.package) ?? v.safeVersion ?? '—',
-        risk: v.risk,
-        residualWarning,
-      };
-    });
+    }),
+  ).map((v) => {
+    // Look up reportLabel from registry
+    const plugin = defaultRegistry.findByOsvEcosystem(v.ecosystem) ?? defaultRegistry.get(v.ecosystem);
+    // Render residual warning distinctly: only when verification ran and CVEs remain
+    const residualCount = residualVerification.status !== 'skipped'
+      ? (residualVerification.summary[v.ecosystem] ?? 0)
+      : null;
+    const residualWarning = residualVerification.status === 'unverified' && residualCount !== null && residualCount > 0;
+    return {
+      ecoLabel: plugin?.reportLabel ?? v.ecosystem,
+      ghsaLink: ghsaLink(v.ghsaId),
+      cvss: v.cvss,
+      package: v.package,
+      affectedVersions: v.affectedVersions.join(', '),
+      safeVersion: installedVersionsByEco.get(v.ecosystem)?.get(v.package) ?? v.safeVersion ?? '—',
+      risk: v.risk,
+      residualWarning,
+    };
+  });
 
   const pendingOriginal = allVulnsBefore.filter((v) => {
     if (v.classification !== 'auto_safe') return true;
@@ -374,14 +425,14 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
     return !names.has(v.package);
   });
 
-  const pendingVulns = pendingOriginal.map((v) => {
+  const pendingVulns = dedupVulns(pendingOriginal).map((v) => {
     const plugin = defaultRegistry.findByOsvEcosystem(v.ecosystem) ?? defaultRegistry.get(v.ecosystem);
     return {
       ecoLabel: plugin?.reportLabel ?? v.ecosystem,
       ghsaLink: ghsaLink(v.ghsaId),
       cvss: v.cvss,
       package: v.package,
-      currentVersion: v.currentVersion,
+      affectedVersions: v.affectedVersions.join(', '),
       motivoPt: motivoStr(v, locale),
     };
   });
@@ -398,7 +449,7 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
       ? (residualVerification.summary[plugin.id] ?? 0)
       : null;
     const isUnverified = residualVerification.status === 'unverified';
-    const vulnsAfter = (ecoScan?.vulnerabilities ?? []).map((v) => {
+    const rawVulnsAfter = (ecoScan?.vulnerabilities ?? []).map((v) => {
       const fixed = updatedNames.has(v.package) && v.classification === 'auto_safe';
       let statusPt: string;
       if (fixed) {
@@ -413,8 +464,29 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
         ghsaId: v.ghsaId,
         cvss: v.cvss,
         package: v.package,
+        currentVersion: v.currentVersion,
         statusPt,
         risk: v.risk,
+      };
+    });
+    // Deduplicate by (ghsaId, package, statusPt) — keep separate rows when status differs
+    const afterGroups = new Map<string, typeof rawVulnsAfter>();
+    for (const row of rawVulnsAfter) {
+      const key = `${row.ghsaId ?? 'no-ghsa'}|${row.package}|${row.statusPt}`;
+      const group = afterGroups.get(key) ?? [];
+      group.push(row);
+      afterGroups.set(key, group);
+    }
+    const vulnsAfter = [...afterGroups.values()].map((group) => {
+      const first = group[0]!;
+      const affectedVersions = [...new Set(group.map((r) => r.currentVersion))].join(', ');
+      return {
+        ghsaId: first.ghsaId,
+        cvss: first.cvss,
+        package: first.package,
+        affectedVersions,
+        statusPt: first.statusPt,
+        risk: first.risk,
       };
     });
 
@@ -515,14 +587,14 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
     noVulns: totalBefore === 0,
     fixedVulns,
     pendingVulns,
-    allVulnsBefore: allVulnsBefore.map((v) => {
+    allVulnsBefore: dedupVulns(allVulnsBefore).map((v) => {
       const plugin = defaultRegistry.findByOsvEcosystem(v.ecosystem) ?? defaultRegistry.get(v.ecosystem);
       return {
         ecoLabel: plugin?.reportLabel ?? v.ecosystem,
         ghsaId: v.ghsaId,
         cvss: v.cvss,
         package: v.package,
-        currentVersion: v.currentVersion,
+        affectedVersions: v.affectedVersions.join(', '),
         risk: v.risk,
       };
     }),

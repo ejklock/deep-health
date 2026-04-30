@@ -24,13 +24,13 @@ export default `\
 {{t.found_and_fixed}}
 
 {{t.table_fixed_header}}
-{{#each fixedVulns}}| {{ecoLabel}} | {{ghsaLink}} | {{cvss}} | {{package}} | {{currentVersion}} | {{safeVersion}}{{#if residualWarning}} ⚠{{/if}} | {{risk}} |
+{{#each fixedVulns}}| {{ecoLabel}} | {{ghsaLink}} | {{cvss}} | {{package}} | {{affectedVersions}} | {{safeVersion}}{{#if residualWarning}} ⚠{{/if}} | {{risk}} |
 {{/each}}{{/if}}
 {{#if pendingVulns}}
 {{t.pending_intro}}
 
 {{t.table_pending_header}}
-{{#each pendingVulns}}| {{ecoLabel}} | {{ghsaLink}} | {{cvss}} | {{package}} | {{currentVersion}} | {{motivoPt}} |
+{{#each pendingVulns}}| {{ecoLabel}} | {{ghsaLink}} | {{cvss}} | {{package}} | {{affectedVersions}} | {{motivoPt}} |
 {{/each}}{{/if}}
 {{/if}}
 
@@ -39,7 +39,7 @@ export default `\
 ### {{t.section_evidence_before}}
 
 {{t.table_before_header}}
-{{#each allVulnsBefore}}| {{ecoLabel}} | {{ghsaId}} | {{cvss}} | {{package}} | {{currentVersion}} | {{risk}} |
+{{#each allVulnsBefore}}| {{ecoLabel}} | {{ghsaId}} | {{cvss}} | {{package}} | {{affectedVersions}} | {{risk}} |
 {{/each}}
 {{scanBeforeSummary}}
 
@@ -52,7 +52,7 @@ export default `\
 {{evidenceTitle}}
 
 {{../t.table_after_header}}
-{{#each vulnsAfter}}| {{../reportLabel}} | {{ghsaId}} | {{cvss}} | {{package}} | {{statusPt}} | {{risk}} |
+{{#each vulnsAfter}}| {{../reportLabel}} | {{ghsaId}} | {{cvss}} | {{package}} | {{affectedVersions}} | {{statusPt}} | {{risk}} |
 {{/each}}
 {{/if}}
 {{/each}}
