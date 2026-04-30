@@ -43,6 +43,13 @@ export interface ScannerEngine {
   readonly name: string;
 
   /**
+   * Execution priority. Lower values run first.
+   * When absent, the engine retains its registration order relative to other unordered engines.
+   * OSV uses 0; secondary engines like SonarQube use 100.
+   */
+  readonly order?: number;
+
+  /**
    * Check whether this engine is available in the current environment.
    * Should throw EnvironmentError with install instructions if not available.
    */

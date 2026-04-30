@@ -280,6 +280,7 @@ function parseOsvJsonOutput(
 export class OsvScannerEngine implements ScannerEngine {
   readonly id = 'osv';
   readonly name = 'OSV Scanner';
+  readonly order = 0;
 
   // ── Availability helpers ─────────────────────────────────────────────────────
 

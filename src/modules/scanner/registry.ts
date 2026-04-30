@@ -22,10 +22,15 @@ export class ScannerEngineRegistry {
   }
 
   /**
-   * Return all registered engines in registration order.
+   * Return all registered engines, sorted by `order` when any engine defines it.
+   * Engines without `order` sort to the end (treated as Infinity).
+   * When no engine defines `order`, registration order is preserved.
    */
   getAll(): ScannerEngine[] {
-    return this.order.map((id) => this.engines.get(id)!);
+    const engines = this.order.map((id) => this.engines.get(id)!);
+    const hasOrder = engines.some((e) => e.order !== undefined);
+    if (!hasOrder) return engines;
+    return [...engines].sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity));
   }
 
   /**
