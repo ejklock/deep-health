@@ -223,7 +223,7 @@ describe('normalizeSonarProjectKey', () => {
       .scanners?.sonarqube;
     expect(sonarBlock).toBeDefined();
     expect(sonarBlock).toHaveProperty('enabled', true);
-    expect(sonarBlock).toHaveProperty('mode', 'external');
+    expect(sonarBlock).toHaveProperty('mode', 'managed');
     // Removed fields must NOT leak into generated config.
     expect(sonarBlock).not.toHaveProperty('project_key');
     expect(sonarBlock).not.toHaveProperty('host_url');
