@@ -90,8 +90,8 @@ export async function applyNpmAuditFix(opts: NpmAuditFixerOptions): Promise<NpmA
     return { breakingInstallError: null, packagesUpdated: [] };
   }
 
-  const versionsBefore = collectNpmLockfileVersions(preLockfileContent);
-  if (versionsBefore.size === 0) {
+  const rootVersionsBefore = collectRootNpmLockfileVersions(preLockfileContent);
+  if (rootVersionsBefore.size === 0) {
     logger.warn(
       '[npm-audit fix] Could not parse package-lock.json before fix; skipping npm audit fix',
     );
@@ -119,7 +119,6 @@ export async function applyNpmAuditFix(opts: NpmAuditFixerOptions): Promise<NpmA
     postAutoSafeLockfile = preLockfileContent;
   }
 
-  const versionsAfterAutoSafe = collectNpmLockfileVersions(postAutoSafeLockfile);
   const rootVersionsAfterAutoSafe = collectRootNpmLockfileVersions(postAutoSafeLockfile);
 
   // ── Verify auto-safe upgrades ─────────────────────────────────────────────
@@ -134,14 +133,11 @@ export async function applyNpmAuditFix(opts: NpmAuditFixerOptions): Promise<NpmA
       ? pkgSpec.slice(0, pkgSpec.lastIndexOf('@'))
       : pkgSpec;
 
-    const before = semverMax(versionsBefore.get(name) ?? new Set());
-    const afterSet = versionsAfterAutoSafe.get(name);
-    const after = semverMax(afterSet ?? new Set());
-    const rootAfter = rootVersionsAfterAutoSafe.get(name);
+    const before = rootVersionsBefore.get(name);
+    const after = rootVersionsAfterAutoSafe.get(name);
 
     if (isUpgraded(before, after)) {
-      // Report root-level version to avoid false positives from transitive nested copies
-      autoSafeVerified.push(`${name}@${rootAfter ?? after!}`);
+      autoSafeVerified.push(`${name}@${after!}`);
     } else {
       autoSafeFalsePositives.push(name);
     }

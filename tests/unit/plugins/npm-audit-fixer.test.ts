@@ -900,6 +900,89 @@ describe('applyNpmAuditFix — semverMax non-semver best replaced by semver (lin
   });
 });
 
+// ─── lockfileVersion 1: nested dedup false positive regression ───────────────
+// npm 6 (lockfileVersion 1) cannot update root entries in-place via `npm audit fix`.
+// Instead it adds a nested dependencies.<pkg>.dependencies.<pkg> entry. If version
+// comparison uses the full recursive tree (semverMax), the nested copy makes the
+// package look upgraded even though the root is unchanged → false positive report.
+
+describe('regression: lockfileVersion 1 nested dedup must NOT produce false positive', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns packagesUpdated=[] when root version unchanged (only nested dedup copy added)', async () => {
+    const runner = makeRunner();
+
+    // lockfileVersion 1: flat dependencies, no packages key
+    const preLockfile = JSON.stringify({
+      name: 'sample',
+      lockfileVersion: 1,
+      dependencies: {
+        axios: { version: '0.21.4', resolved: 'https://registry.npmjs.org/axios/-/axios-0.21.4.tgz' },
+        'other-dep': { version: '1.0.0' },
+      },
+    });
+    // After npm audit fix on v1: root axios stays 0.21.4, nested dedup copy 0.26.1 added
+    const postLockfile = JSON.stringify({
+      name: 'sample',
+      lockfileVersion: 1,
+      dependencies: {
+        axios: {
+          version: '0.21.4',
+          resolved: 'https://registry.npmjs.org/axios/-/axios-0.21.4.tgz',
+          dependencies: {
+            axios: { version: '0.26.1', resolved: 'https://registry.npmjs.org/axios/-/axios-0.26.1.tgz' },
+          },
+        },
+        'other-dep': { version: '1.0.0' },
+      },
+    });
+
+    mockReadFile
+      .mockResolvedValueOnce(preLockfile)
+      .mockResolvedValueOnce(postLockfile);
+
+    const scan = buildScan([{ pkg: 'axios', version: '0.21.4' }]);
+
+    const result = await applyNpmAuditFix({ runner, cwd: '/project', scanResult: scan, authorizeBreaking: false });
+
+    // Root was NOT upgraded — nested dedup copy must not trigger false positive
+    expect(result.packagesUpdated).toHaveLength(0);
+    const warnCalls = (logger.warn as ReturnType<typeof vi.fn>).mock.calls;
+    expect(warnCalls.some((c) => String(c[0]).includes('no newer version'))).toBe(true);
+  });
+
+  it('returns packagesUpdated with new version when root IS genuinely upgraded on lockfileVersion 1', async () => {
+    const runner = makeRunner();
+
+    const preLockfile = JSON.stringify({
+      name: 'sample',
+      lockfileVersion: 1,
+      dependencies: {
+        axios: { version: '0.21.4' },
+        'other-dep': { version: '1.0.0' },
+      },
+    });
+    const postLockfile = JSON.stringify({
+      name: 'sample',
+      lockfileVersion: 1,
+      dependencies: {
+        axios: { version: '0.26.1' },  // root genuinely updated
+        'other-dep': { version: '1.0.0' },
+      },
+    });
+
+    mockReadFile
+      .mockResolvedValueOnce(preLockfile)
+      .mockResolvedValueOnce(postLockfile);
+
+    const scan = buildScan([{ pkg: 'axios', version: '0.21.4' }]);
+
+    const result = await applyNpmAuditFix({ runner, cwd: '/project', scanResult: scan, authorizeBreaking: false });
+
+    expect(result.packagesUpdated).toContain('axios@0.26.1');
+  });
+});
+
 // ─── L30: semverMax empty-set path ────────────────────────────────────────────
 // Branch: versions.size === 0 → return undefined
 // Triggered when auto_safe package is absent from pre-fix lockfile (versionsBefore.get(name) → undefined → new Set())
