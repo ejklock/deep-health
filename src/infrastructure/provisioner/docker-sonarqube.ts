@@ -115,7 +115,7 @@ export class DockerSonarQubeProvisioner implements ServiceProvisioner {
   private unregisterShutdownHook: (() => void) | null = null;
 
   constructor(options: DockerSonarQubeProvisionerOptions = {}) {
-    this.image = options.image ?? 'sonarqube:community';
+    this.image = options.image ?? 'sonarqube:lts-community';
     this.containerNamePrefix = options.containerNamePrefix ?? 'osv-sq-ephemeral';
     this.readinessTimeoutMs = options.readinessTimeoutMs ?? 120_000;
     this.pollIntervalMs = options.pollIntervalMs ?? 3_000;
@@ -143,6 +143,7 @@ export class DockerSonarQubeProvisioner implements ServiceProvisioner {
     await execFileAsync('docker', [
       'run',
       '--detach',
+      '--rm',
       '--name', containerName,
       '-p', `${hostPort}:9000`,
       '-e', 'SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true',

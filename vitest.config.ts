@@ -85,6 +85,8 @@ export default defineConfig({
               singleFork: true,
             },
           },
+          // Sweep orphaned SonarQube containers before and after the suite.
+          globalSetup: ['tests/helpers/docker-cleanup.ts'],
         },
       },
     ],
