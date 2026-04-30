@@ -597,7 +597,7 @@ describe('SonarQubeEngine — managed mode', () => {
     expect(MockScannerRunner).not.toHaveBeenCalled();
   });
 
-  it('uses sonar.token (not sonar.login/sonar.password) in local managed-mode scan command', async () => {
+  it('uses sonar.token and sonar.login (not sonar.password) in local managed-mode scan command', async () => {
     const runner = new MockRunner({
       '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
       'sonar-scanner -D': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
@@ -611,12 +611,12 @@ describe('SonarQubeEngine — managed mode', () => {
 
     await engine.scan(makeCtx(runner, config));
 
-    // The scan command should include -Dsonar.token (token-based auth)
+    // The scan command must include both sonar.token (5.x+) and sonar.login (4.x compat)
     const scanCommand = runner.calledCommands.find((c) => c.includes('-Dsonar.projectKey'));
     expect(scanCommand).toBeDefined();
     expect(scanCommand).toContain('sonar.token=');
-    // Must NOT use deprecated login/password
-    expect(scanCommand).not.toContain('sonar.login=');
+    expect(scanCommand).toContain('sonar.login=');
+    // Must NOT use password-based auth
     expect(scanCommand).not.toContain('sonar.password=');
   });
 
@@ -686,7 +686,7 @@ describe('SonarQubeEngine — managed mode', () => {
     expect(provisionerInstance.teardown).toHaveBeenCalledOnce();
   });
 
-  it('passes sonar.token (not sonar.login) in container fallback args', async () => {
+  it('passes sonar.token and sonar.login (not sonar.password) in container fallback args', async () => {
     // Local scanner unavailable
     const runner = new MockRunner({ '--version': { exitCode: 127, stderr: 'not found' } });
     const config = makeManagedConfig();
@@ -698,14 +698,14 @@ describe('SonarQubeEngine — managed mode', () => {
 
     await engine.scan(makeCtx(runner, config));
 
-    // Verify the container runner received sonar.token arg, not sonar.login
+    // Verify the container runner received both sonar.token (5.x+) and sonar.login (4.x compat)
     const MockScannerRunner = vi.mocked(DockerSonarScannerRunner);
     const scannerInstance = MockScannerRunner.mock.results[0]?.value as {
       run: ReturnType<typeof vi.fn>;
     };
     const runArgs: string[] = scannerInstance.run.mock.calls[0]?.[0] ?? [];
     expect(runArgs.some((a: string) => a.startsWith('-Dsonar.token='))).toBe(true);
-    expect(runArgs.some((a: string) => a.startsWith('-Dsonar.login='))).toBe(false);
+    expect(runArgs.some((a: string) => a.startsWith('-Dsonar.login='))).toBe(true);
     expect(runArgs.some((a: string) => a.startsWith('-Dsonar.password='))).toBe(false);
   });
 

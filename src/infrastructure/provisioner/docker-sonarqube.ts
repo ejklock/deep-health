@@ -140,13 +140,17 @@ export class DockerSonarQubeProvisioner implements ServiceProvisioner {
     // Run the container detached; publish internal 9000 to the chosen host port.
     // -e SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true avoids ElasticSearch bootstrap
     // checks that fail in CI / resource-constrained envs.
+    // --rm is intentionally omitted: teardown() calls docker stop + docker rm
+    // --force explicitly, which avoids a "removal already in progress" race.
     await execFileAsync('docker', [
       'run',
       '--detach',
-      '--rm',
       '--name', containerName,
       '-p', `${hostPort}:9000`,
       '-e', 'SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true',
+      // Best-effort: disable ES disk watermark so SonarQube starts on hosts
+      // with >90 % disk usage. Not officially supported by SonarSource.
+      '-e', 'SONAR_SEARCH_JAVAADDITIONALOPTS=-Des.cluster.routing.allocation.disk.threshold_enabled=false',
       this.image,
     ]);
 

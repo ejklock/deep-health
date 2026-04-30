@@ -81,6 +81,7 @@ scanners:
     #                                  #   (requires SonarQube Developer Edition or higher)
     # scanner_image: 'sonarsource/sonar-scanner-cli:latest'  # optional — only used in managed mode
     #                                                        # when local sonar-scanner is unavailable
+    # server_image: 'sonarqube:lts-community'  # managed mode only — SonarQube CE server image (NOT the sonar-scanner-cli image; use scanner_image for that)
     #
     # NOTE: project_key, host_url, sources, exclusions, etc. live in sonar-project.properties.
     #       Run "deep-health init" (with SonarQube enabled) to generate a template if missing.

@@ -111,7 +111,7 @@ export interface DockerSonarScannerRunnerOptions {
 export interface DockerSonarQubeProvisionerOptions {
   /**
    * SonarQube Community Edition Docker image tag.
-   * Defaults to 'sonarqube:community'.
+   * Defaults to 'sonarqube:lts-community'.
    */
   image?: string;
 

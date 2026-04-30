@@ -365,7 +365,8 @@ function buildSonarScanCliArgs(ec: SonarScanExecContext): string[] {
     `-Dproject.settings=${ec.sanitized.path}`,
     `-Dsonar.host.url=${ec.hostUrl}`,
     `-Dsonar.projectKey=${ec.projectKey}`,
-    `-Dsonar.token=${ec.token}`,
+    `-Dsonar.login=${ec.token}`,   // sonar-scanner 4.x compat
+    `-Dsonar.token=${ec.token}`,   // sonar-scanner 5.x+
   ];
   if (ec.branch) {
     args.push(`-Dsonar.branch.name=${ec.branch}`);
@@ -637,7 +638,7 @@ export class SonarQubeEngine implements ScannerEngine {
     const mode = sonarConfig.mode ?? 'external';
 
     if (mode === 'managed') {
-      return this._scanManaged(ctx, projectKey, sonarConfig.scanner_image, base, sonarConfig.send_branch_name ?? false, ceTimeoutMs);
+      return this._scanManaged(ctx, projectKey, sonarConfig.scanner_image, (sonarConfig as any).server_image as string | undefined, base, sonarConfig.send_branch_name ?? false, ceTimeoutMs);
     }
 
     // ─── External mode ────────────────────────────────────────────────────────
@@ -693,6 +694,7 @@ export class SonarQubeEngine implements ScannerEngine {
     ctx: ScannerEngineContext,
     projectKey: string,
     scannerImage: string | undefined,
+    serverImage: string | undefined,
     base: ScanResultJson,
     sendBranchName: boolean,
     ceTimeoutMs: number,
@@ -720,7 +722,9 @@ export class SonarQubeEngine implements ScannerEngine {
       logger.info('SonarQube: local sonar-scanner not found — will use sonarsource/sonar-scanner-cli container fallback');
     }
 
-    const provisioner = new DockerSonarQubeProvisioner();
+    const provisioner = new DockerSonarQubeProvisioner(
+      serverImage ? { image: serverImage } : {}
+    );
     const branch = sendBranchName ? (ctx.branch ?? null) : null;
 
     let hostUrl: string;

@@ -250,8 +250,22 @@ export interface SonarQubeConfig {
    * Only relevant when `mode` is 'managed' and local sonar-scanner is unavailable.
    * Defaults to 'sonarsource/sonar-scanner-cli:latest'.
    * Example: 'sonarsource/sonar-scanner-cli:5.0' to pin to a specific version.
+   *
+   * NOTE: This is the sonar-scanner-cli image (the container that sends code for analysis),
+   * NOT the SonarQube server image. To configure the server image, use `server_image`.
    */
   scanner_image?: string;
+  /**
+   * Docker image for the SonarQube Community Edition server container.
+   * Only used when `mode` is 'managed' — the CLI provisions an ephemeral SonarQube
+   * server container using this image, runs the scan, then tears it down.
+   * Defaults to 'sonarqube:lts-community'.
+   * Example: 'sonarqube:10.4-community' to pin to a specific version.
+   *
+   * NOTE: This controls the SonarQube server image, NOT the sonar-scanner-cli image.
+   * To configure the scanner image, use `scanner_image`.
+   */
+  server_image?: string;
   /**
    * When true, forwards the detected git branch as `-Dsonar.branch.name` to sonar-scanner.
    *

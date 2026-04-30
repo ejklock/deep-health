@@ -228,6 +228,14 @@ const SonarQubeConfigSchema = z
      */
     scanner_image: DockerImageRefSchema.optional(),
     /**
+     * Docker image for the SonarQube Community Edition server container.
+     * Only used in managed mode — ignored in external mode.
+     * Distinct from scanner_image (sonar-scanner-cli); this controls the server
+     * that sonar-scanner connects to.
+     * Default: 'sonarqube:lts-community'.
+     */
+    server_image: DockerImageRefSchema.optional(),
+    /**
      * When true, forwards the detected git branch as -Dsonar.branch.name to sonar-scanner.
      * Requires SonarQube Developer Edition or higher — Community Edition does NOT support
      * branch analysis and will fail if this property is forwarded.
