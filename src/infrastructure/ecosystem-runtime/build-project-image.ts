@@ -17,7 +17,7 @@
  * @module
  */
 
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -267,10 +267,16 @@ async function warnIfLargeContext(
     const kb = parseInt(stdout.trim().split(/\s+/)[0] ?? '0', 10);
     const bytes = kb * 1024;
     if (bytes > LARGE_CONTEXT_THRESHOLD_BYTES) {
-      logger.warn(
-        `[ecosystem-runtime/${logPrefix}] Build context is large (~${Math.round(bytes / (1024 * 1024))} MB). ` +
-          `Consider adding a .dockerignore to exclude node_modules, vendor, .git, etc.`,
-      );
+      const hasDockerignore = await fs
+        .access(path.join(projectDir, '.dockerignore'))
+        .then(() => true)
+        .catch(() => false);
+      if (!hasDockerignore) {
+        logger.warn(
+          `[ecosystem-runtime/${logPrefix}] Build context is large (~${Math.round(bytes / (1024 * 1024))} MB). ` +
+            `Consider adding a .dockerignore to exclude node_modules, vendor, .git, etc.`,
+        );
+      }
     }
   } catch {
     // Estimation failure is non-fatal.
