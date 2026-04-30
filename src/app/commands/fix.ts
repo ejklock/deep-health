@@ -184,7 +184,7 @@ async function runFixPipeline(
     updates: result.updates,
     overall_status: result.overallStatus,
     has_pending_vulns: result.hasPendingVulns,
-  });
+  }, reportsDir);
 
   if (result.overallStatus === "error") return 1; // real crash/failure
   if (result.hasPendingVulns) return 1;           // scan clean-exit, vulns remain

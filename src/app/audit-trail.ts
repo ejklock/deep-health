@@ -24,7 +24,8 @@ export interface AuditTrailRecord {
 /**
  * Write a JSON audit trail record for this pipeline run.
  *
- * Writes to `<cwd>/.deep-health/runs/<timestamp>.json`.
+ * Writes to `<reportsDir>/runs/<timestamp>.json`.
+ * When `reportsDir` is not provided, falls back to `<cwd>/.deep-health/runs`.
  * Timestamps use ISO 8601 format with colons replaced by hyphens for filesystem safety
  * (e.g. "2026-04-23T14-30-00.000Z.json").
  *
@@ -33,9 +34,10 @@ export interface AuditTrailRecord {
 export async function writeAuditTrail(
   cwd: string,
   record: AuditTrailRecord,
+  reportsDir?: string,
 ): Promise<void> {
   const safeTimestamp = record.timestamp.replace(/:/g, '-');
-  const runsDir = join(cwd, '.deep-health', 'runs');
+  const runsDir = join(reportsDir ?? join(cwd, '.deep-health'), 'runs');
   const filePath = join(runsDir, `${safeTimestamp}.json`);
 
   try {

@@ -91,4 +91,24 @@ describe('writeAuditTrail', () => {
       expect.stringContaining('.deep-health/runs'),
     );
   });
+
+  it('uses custom reportsDir when provided', async () => {
+    await writeAuditTrail('/proj', baseRecord, '/proj/.security-scan/reports');
+
+    expect(mkdir).toHaveBeenCalledWith(
+      expect.stringContaining('.security-scan/reports/runs'),
+      { recursive: true },
+    );
+    const [filePath] = vi.mocked(writeFile).mock.calls[0];
+    expect(filePath).toContain('.security-scan/reports/runs');
+  });
+
+  it('falls back to <cwd>/.deep-health/runs when reportsDir is omitted', async () => {
+    await writeAuditTrail('/proj', baseRecord);
+
+    expect(mkdir).toHaveBeenCalledWith(
+      expect.stringContaining('.deep-health/runs'),
+      { recursive: true },
+    );
+  });
 });
