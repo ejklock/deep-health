@@ -353,7 +353,7 @@ async function runOsvResidualVerification(
       return { status: 'skipped' };
     }
     const summary: Record<string, number> = {};
-    for (const [ecoId, ecoResult] of Object.entries(parsed.ecosystems)) {
+    for (const [ecoId, ecoResult] of Object.entries(parsed.ecosystems ?? {})) {
       summary[ecoId] = ecoResult.vulnerabilities_total;
     }
     const hasResidual = Object.values(summary).some((n) => n > 0);

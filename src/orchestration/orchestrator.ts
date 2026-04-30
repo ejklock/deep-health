@@ -180,10 +180,15 @@ async function runAllEngines(
   const taskList = new Listr(
     engines.map((engine) => ({
       title: `${badge(engine.id)} ${engine.name}`,
-      task: async (_: unknown, task: { output: string }) => {
+      task: async (_: unknown, task: { output: string; skip: (reason?: string) => void }) => {
         setProgressSink((msg) => { task.output = msg; });
         try {
           const result = await engine.scan(ctx);
+          if (result.status === 'skipped') {
+            engineResults.set(engine.id, result);
+            task.skip('not enabled in config');
+            return;
+          }
           engineResults.set(engine.id, result);
         } catch (err) {
           engineResults.set(engine.id, err instanceof Error ? err : new Error(String(err)));
