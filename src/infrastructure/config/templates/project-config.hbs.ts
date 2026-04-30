@@ -68,12 +68,13 @@ outputs:
 scanners:
   sonarqube:
     enabled: true
-    # mode: 'external' (default) — sonar.host.url and sonar.projectKey come from
+    # mode: 'managed' (default) — the CLI provisions an ephemeral SonarQube
+    #       container via Docker, generates a token automatically, tears it
+    #       down on exit. Requires Docker. No external SonarQube server needed.
+    # mode: 'external' — sonar.host.url and sonar.projectKey come from
     #       sonar-project.properties at your project root; SONAR_TOKEN env var
-    #       provides auth.
-    # mode: 'managed' — the CLI provisions an ephemeral SonarQube container via
-    #       Docker, generates a token automatically, tears it down on exit.
-    mode: 'external'
+    #       provides auth. Use this when you have an existing SonarQube server.
+    mode: 'managed'
     on_failure: 'warn'
     # ce_task_timeout_seconds: 120     # optional — seconds to wait for Compute Engine task before
     #                                  #   fetching quality gate; 0 disables waiting (default: 120)
@@ -98,7 +99,7 @@ scanners:
 # scanners:                              # optional — additional scanner engines
 #   sonarqube:
 #     enabled: true
-#     mode: 'external'                   # 'external' (default) | 'managed'
+#     mode: 'managed'                    # 'managed' (default) | 'external'
 #     on_failure: 'warn'                 # 'warn' (default) | 'fail'
 #     # ce_task_timeout_seconds: 120     # optional — seconds to wait for CE task (0 = disable; default: 120)
 #     # send_branch_name: false          # optional — requires Developer Edition or higher
