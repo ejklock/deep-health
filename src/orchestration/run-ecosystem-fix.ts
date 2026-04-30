@@ -23,7 +23,7 @@ import type { ResidualVerification } from '@core/types/report';
 import type { EcosystemPlugin } from '@modules/ecosystem/types';
 import { GateValidationError } from '@core/errors';
 import { validateEcosystemGate } from '@core/gates/validator';
-import { logger } from '@infra/utils/logger';
+import { logger, setProgressSink, makeProgressSink } from '@infra/utils/logger';
 import { OsvDockerRunner } from '@infra/provisioner/osv-runner';
 import { OsvContainerCommandRunner } from '@infra/executor/osv-container-runner';
 import { resolveEcosystemRuntime } from '@infra/ecosystem-runtime';
@@ -85,13 +85,11 @@ export async function runEcosystemFix(
       (authorizeBreaking && ecosystemResult.breaking > 0));
 
   if (!hasUpdates) {
-    logger.info(
-      `Phase: Skipping ${plugin.name} — no auto-safe vulnerabilities`,
-    );
+    logger.skip(`Skipping ${plugin.name} — no auto-safe vulnerabilities`);
     return { status: 'skipped', reason: 'no-updates' };
   }
 
-  logger.info(`=== Phase: ${plugin.name} Updates ===`);
+  logger.phase(plugin.id);
 
   // Resolve effective runner via the ecosystem runtime module
   const effectiveRunner: CommandRunner = plugin.runtimeSpec
@@ -158,13 +156,19 @@ export async function runEcosystemFix(
       }
     }
 
-    const fixResult = await applyOsvFixViaStaging({
-      cwd,
-      osvConfig: config.scanners?.osv,
-      osvFixSpec: plugin.osvFixSpec,
-      fixLockfileOverride,
-      dryRun,
-    });
+    setProgressSink(makeProgressSink());
+    let fixResult: Awaited<ReturnType<typeof applyOsvFixViaStaging>>;
+    try {
+      fixResult = await applyOsvFixViaStaging({
+        cwd,
+        osvConfig: config.scanners?.osv,
+        osvFixSpec: plugin.osvFixSpec,
+        fixLockfileOverride,
+        dryRun,
+      });
+    } finally {
+      setProgressSink(null);
+    }
     preFixBackups = fixResult.backups;
     osvFixOutcome = {
       applied: fixResult.applied,
@@ -174,22 +178,29 @@ export async function runEcosystemFix(
 
   // Dry-run planned-changes preview
   if (dryRun) {
+    logger.header(plugin.id, 'Dry-run preview');
     logDryRunPreview(plugin.id, ecosystemResult, authorizeBreaking);
   }
 
-  const updateResult = await plugin.runUpdater({
-    runner: effectiveRunner,
-    config,
-    scanResult,
-    cwd,
-    authorizeBreaking,
-    validationCommands,
-    fixerStrategy,
-    preFixBackups,
-    osvFixOutcome,
-    preRunSnapshots:
-      preRunSnapshots && preRunSnapshots.size > 0 ? preRunSnapshots : undefined,
-  });
+  setProgressSink(makeProgressSink());
+  let updateResult: Awaited<ReturnType<typeof plugin.runUpdater>>;
+  try {
+    updateResult = await plugin.runUpdater({
+      runner: effectiveRunner,
+      config,
+      scanResult,
+      cwd,
+      authorizeBreaking,
+      validationCommands,
+      fixerStrategy,
+      preFixBackups,
+      osvFixOutcome,
+      preRunSnapshots:
+        preRunSnapshots && preRunSnapshots.size > 0 ? preRunSnapshots : undefined,
+    });
+  } finally {
+    setProgressSink(null);
+  }
 
   // === Post-updater: Breaking packages install (generic, via plugin hook) ===
   if (

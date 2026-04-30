@@ -12,7 +12,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@infra/utils/logger.js', () => ({
-  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn() },
+  setProgressSink: vi.fn(), makeProgressSink: vi.fn(),
 }));
 
 vi.mock('@infra/utils/git-branch.js', () => ({

@@ -1,5 +1,6 @@
 import { runScanner } from "@modules/scanner/index";
 import { runOrchestrator } from "@orchestration/orchestrator";
+import { selectRenderer } from "@app/progress-reporter";
 import {
   generateExecutiveReport,
   executiveReportFilename,
@@ -78,6 +79,7 @@ async function runFixPipeline(
     verbose: opts.verbose,
     phases,
     authorizeBreaking: authorizeBreakingRecord,
+    rendererType: selectRenderer({ verbose: opts.verbose, quiet: opts.quiet, json: opts.json }),
   });
 
   // Emit non-blocking warnings for ecosystems with breaking vulns and no authorization.

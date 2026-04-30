@@ -3,7 +3,7 @@ import type { CommandRunner, CommandResult } from "@core/types/common";
 
 // ── Module-level mocks ───────────────────────────────────────────────────────
 vi.mock("@infra/utils/logger.js", () => ({
-  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn() },
 }));
 
 import { runValidations } from "@modules/ecosystem/utils/validation-runner";

@@ -11,7 +11,7 @@ vi.mock('@infra/utils/git.js', () => ({
 }));
 
 vi.mock('@infra/utils/logger.js', () => ({
-  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn() },
 }));
 
 // npm-audit fixer reads package-lock.json before and after running npm audit fix.

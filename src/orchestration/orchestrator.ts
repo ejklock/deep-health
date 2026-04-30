@@ -9,8 +9,11 @@ import type {
 } from "@modules/scanner/types";
 import { validateGateA } from "@core/gates/validator";
 import { GateValidationError } from "@core/errors";
-import { logger } from "@infra/utils/logger";
+import { logger, setProgressSink } from "@infra/utils/logger";
+import { badge } from "@infra/utils/ui";
 import { detectGitBranch } from "@infra/utils/git-branch";
+import { Listr } from "listr2";
+import type { RendererType } from "@app/progress-reporter";
 // Ecosystem registry — plugins are registered via modules/ecosystem/index.ts side-effects
 import { EcosystemRegistry, defaultRegistry } from "@modules/ecosystem/index";
 // Scanner registry — engines are bootstrapped lazily via bootstrapDefaultEngines()
@@ -52,6 +55,11 @@ export interface OrchestratorOptions {
    * Defaults to defaultScannerRegistry (OSV + SonarQube registered).
    */
   scannerRegistry?: ScannerEngineRegistry;
+  /**
+   * Listr2 renderer type to use for the scan progress display.
+   * Defaults to 'default'.
+   */
+  rendererType?: RendererType;
 }
 
 export interface OrchestratorResult {
@@ -157,6 +165,7 @@ async function runAllEngines(
   ctx: ScannerEngineContext,
   config: ProjectConfig,
   primaryEngineId: string,
+  rendererType: RendererType,
 ): Promise<{
   engineEntries: Array<{ engineId: string; result: ScanResultJson }>;
   warnings: EngineWarning[];
@@ -165,28 +174,60 @@ async function runAllEngines(
   const engineEntries: Array<{ engineId: string; result: ScanResultJson }> = [];
   const warnings: EngineWarning[] = [];
 
+  // Collect raw scan results (or errors) from each engine via listr2 tasks.
+  const engineResults = new Map<string, ScanResultJson | Error>();
+
+  const taskList = new Listr(
+    engines.map((engine) => ({
+      title: `${badge(engine.id)} ${engine.name}`,
+      task: async (_: unknown, task: { output: string }) => {
+        setProgressSink((msg) => { task.output = msg; });
+        try {
+          const result = await engine.scan(ctx);
+          engineResults.set(engine.id, result);
+        } catch (err) {
+          engineResults.set(engine.id, err instanceof Error ? err : new Error(String(err)));
+          throw err; // so listr2 marks the task as failed visually
+        } finally {
+          setProgressSink(null);
+        }
+      },
+    })),
+    {
+      renderer: rendererType,
+      exitOnError: false, // let all tasks run even if one fails
+      concurrent: false,
+    },
+  );
+
+  try {
+    await taskList.run();
+  } catch {
+    // listr2 may throw a ListrError when exitOnError:false — we handle errors below
+  }
+
+  // Apply the on_failure logic using the collected results.
   for (const engine of engines) {
     // Primary classification is by engine id — not by registration order.
     const isPrimary = engine.id === primaryEngineId;
 
-    let result: ScanResultJson;
-    try {
-      result = await engine.scan(ctx);
-    } catch (err) {
+    const resultOrError = engineResults.get(engine.id);
+
+    if (resultOrError instanceof Error) {
       if (isPrimary) {
         // Primary engine (OSV) failure is always fatal — re-throw immediately
-        throw err;
+        throw resultOrError;
       }
 
       // Secondary engine threw — check on_failure config
       const onFailure = resolveOnFailure(engine.id, config);
-      const message = err instanceof Error ? err.message : String(err);
+      const message = resultOrError.message;
 
       if (onFailure === "fail") {
         logger.error(
           `${engine.name}: scan failed (on_failure=fail) — ${message}`,
         );
-        throw err;
+        throw resultOrError;
       }
 
       // on_failure='warn' — record warning and continue
@@ -194,6 +235,13 @@ async function runAllEngines(
       warnings.push({ engineId: engine.id, message });
       continue;
     }
+
+    // Engine did not produce a result at all (should not happen if tasks ran)
+    if (resultOrError === undefined) {
+      continue;
+    }
+
+    const result = resultOrError;
 
     // Engine returned a result — check if it encoded a failure via status='error'
     if (result.status === "error" && !isPrimary) {
@@ -256,7 +304,7 @@ export async function runOrchestrator(
     return result;
   }
 
-  logger.info("=== Vulnerability Scan ===");
+  logger.phase('Vulnerability Scan');
 
   const ecosystemRegistry = options.registry ?? defaultRegistry;
   const engineRegistry = options.scannerRegistry ?? defaultScannerRegistry;
@@ -298,6 +346,7 @@ export async function runOrchestrator(
     ctx,
     config,
     primaryEngineId,
+    options.rendererType ?? 'default',
   );
   result.warnings = warnings;
 

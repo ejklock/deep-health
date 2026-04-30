@@ -6,7 +6,7 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 vi.mock('@infra/utils/logger.js', () => ({
-  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn() },
 }));
 
 import { mkdir, writeFile } from 'node:fs/promises';
