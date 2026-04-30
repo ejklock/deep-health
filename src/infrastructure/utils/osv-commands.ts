@@ -68,6 +68,58 @@ export function buildOsvToolArgs(lockfileArgs: string[]): string[] {
  *                       Pass `false` when the container needs to write files (e.g. `osv-scanner fix`).
  * @returns Full `docker` args array (i.e. everything after the `docker` binary).
  */
+/**
+ * Validates a single scan path entry at runtime.
+ *
+ * These checks mirror the Zod schema validations in ScanPathsConfigSchema and
+ * serve as a defence-in-depth guard for paths that arrive at the engine layer
+ * without going through schema parsing (e.g. programmatic callers).
+ *
+ * @throws {Error} when the path violates any security constraint.
+ */
+export function validateScanPath(p: string): void {
+  if (p.startsWith('/')) {
+    throw new Error(`scan.paths: "${p}" must be relative (no leading /)`);
+  }
+  if (p.split('/').some((seg) => seg === '..')) {
+    throw new Error(`scan.paths: "${p}" must not contain .. segments`);
+  }
+  if (/[*?]/.test(p)) {
+    throw new Error(
+      `scan.paths: "${p}" — glob patterns not supported, use a directory path ending with / (e.g. "app/")`,
+    );
+  }
+}
+
+/**
+ * Converts an array of validated scan path entries into osv-scanner CLI args.
+ *
+ * - Paths ending with `/` (directories) → `-r <path>` (recursive scan)
+ * - Paths without a `.` in the final segment (directory-style) → `-r <path>`
+ * - All other paths (explicit files) → `--lockfile <path>`
+ * - Each exclusion → `--experimental-exclude <exclusion>`
+ *
+ * Caller must validate each path with `validateScanPath` before calling this.
+ *
+ * @param paths    - Validated relative path entries from `scan.paths`.
+ * @param excludes - Optional exclusion paths (from `scan.exclude`).
+ * @returns Flat array of osv-scanner CLI arguments.
+ */
+export function resolveScanPathArgs(paths: string[], excludes: string[] = []): string[] {
+  const args: string[] = [];
+  for (const p of paths) {
+    if (p.endsWith('/') || !p.includes('.')) {
+      args.push('-r', p);
+    } else {
+      args.push('--lockfile', p);
+    }
+  }
+  for (const ex of excludes) {
+    args.push('--experimental-exclude', ex);
+  }
+  return args;
+}
+
 export function buildOsvDockerRunArgs(
   projectDir: string,
   image: string,

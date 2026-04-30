@@ -9,6 +9,8 @@ import {
   buildScanCommand,
   OSV,
   OSV_DEFAULT_IMAGE,
+  validateScanPath,
+  resolveScanPathArgs,
 } from '@infra/utils/osv-commands';
 import { classifyPackage } from '@core/policy/safe-update';
 import { getPlatformInstallHint } from '@infra/utils/platform';
@@ -384,6 +386,26 @@ export class OsvScannerEngine implements ScannerEngine {
       const useDocker = runnerMode === 'docker' ||
         (runnerMode === 'auto' && !(await this.isLocalAvailable(ctx)));
 
+      // ── Resolve scan args (scan.paths takes precedence over plugin defaults) ──
+      const scanConfig = config.scan;
+      let rawArgs: string[];
+
+      if (scanConfig?.paths && scanConfig.paths.length > 0) {
+        for (const p of scanConfig.paths) {
+          validateScanPath(p);
+        }
+        rawArgs = resolveScanPathArgs(scanConfig.paths, scanConfig.exclude ?? []);
+        if (rawArgs.length === 0) {
+          throw new PhaseError(
+            'scan.paths is configured but resolved to zero lockfile args — ' +
+            'this would silently report zero vulnerabilities',
+            'scanner',
+          );
+        }
+      } else {
+        rawArgs = activePlugins.flatMap((p) => p.buildScanArgs());
+      }
+
       if (runner.dryRun) {
         if (useDocker) {
           logger.info(`[DRY-RUN] Would execute osv-scanner via Docker container`);
@@ -399,11 +421,11 @@ export class OsvScannerEngine implements ScannerEngine {
 
       if (useDocker) {
         // ── Docker path ────────────────────────────────────────────────────────
-        // Raw plugin args are passed directly — no path translation needed.
+        // Raw args are passed directly — no path translation needed.
         // `OsvDockerRunner` sets `--workdir /project` so relative paths from
-        // plugin.buildScanArgs() resolve correctly inside the container.
+        // plugin.buildScanArgs() (or scan.paths entries) resolve correctly inside
+        // the container.
         const image = config.scanners?.osv?.image ?? OSV_DEFAULT_IMAGE;
-        const rawArgs = activePlugins.flatMap((p) => p.buildScanArgs());
 
         logger.debug(`Running OSV scan via Docker (image: ${image})`);
         const dockerRunner = new OsvDockerRunner({ projectDir: cwd, image });
@@ -413,7 +435,8 @@ export class OsvScannerEngine implements ScannerEngine {
         stderr = result.stderr;
       } else {
         // ── Local path ─────────────────────────────────────────────────────────
-        const cmd = buildScanCommand(activePlugins);
+        const args = [...rawArgs, '--format', 'json'];
+        const cmd = `osv-scanner ${args.join(' ')}`;
         logger.debug(`Running: ${cmd}`);
         const result = await runner.run(cmd, { cwd });
         stdout = result.stdout;

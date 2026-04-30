@@ -131,10 +131,38 @@ export async function runEcosystemFix(
     (fixerStrategy === 'osv' || fixerStrategy === 'osv-then-audit') &&
     plugin.osvFixSpec
   ) {
+    // When scan.paths is configured, derive the fix lockfile path from the
+    // first explicit file path whose basename matches the plugin's fixLockfile.
+    // For directory paths (ending with /), construct: '<dir><fixLockfile>'.
+    // Falls back to plugin default (osvFixSpec.fixLockfile) when no match is found.
+    let fixLockfileOverride: string | undefined;
+    const scanPaths = config.scan?.paths;
+    if (scanPaths && scanPaths.length > 0) {
+      const pluginLockfile = plugin.osvFixSpec.fixLockfile;
+      for (const p of scanPaths) {
+        if (p.endsWith('/')) {
+          // directory entry — construct the full path
+          fixLockfileOverride = `${p}${pluginLockfile}`;
+          break;
+        } else if (p.endsWith(`/${pluginLockfile}`) || p === pluginLockfile) {
+          // explicit file path matching the plugin's lockfile
+          fixLockfileOverride = p;
+          break;
+        }
+      }
+      if (!fixLockfileOverride) {
+        logger.warn(
+          `[OSV fix] scan.paths is configured but no entry matches "${pluginLockfile}". ` +
+          `Falling back to default fix lockfile path.`,
+        );
+      }
+    }
+
     const fixResult = await applyOsvFixViaStaging({
       cwd,
       osvConfig: config.scanners?.osv,
       osvFixSpec: plugin.osvFixSpec,
+      fixLockfileOverride,
       dryRun,
     });
     preFixBackups = fixResult.backups;

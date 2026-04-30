@@ -14,6 +14,13 @@ export interface OsvFixApplyInput {
     fixLockfile: string;            // e.g. 'package-lock.json'
     backupFiles: readonly string[]; // files to stage
   };
+  /**
+   * When `scan.paths` is configured, the caller may supply an explicit lockfile
+   * path (relative to /project) that overrides `osvFixSpec.fixLockfile`.
+   * For example: 'app/package-lock.json' instead of 'package-lock.json'.
+   * When absent, `osvFixSpec.fixLockfile` is used (default behaviour).
+   */
+  fixLockfileOverride?: string;
   dryRun: boolean;
 }
 
@@ -112,7 +119,17 @@ function claimIsSatisfiedOnDisk(
 export async function applyOsvFixViaStaging(
   input: OsvFixApplyInput,
 ): Promise<OsvFixApplyResult> {
-  const { cwd, osvConfig, osvFixSpec, dryRun } = input;
+  const { cwd, osvConfig, osvFixSpec, fixLockfileOverride, dryRun } = input;
+
+  // When scan.paths is configured the caller may supply a path-qualified lockfile
+  // (e.g. 'app/package-lock.json').  Fall back to plugin default when absent.
+  const effectiveFixLockfile = fixLockfileOverride ?? osvFixSpec.fixLockfile;
+
+  if (fixLockfileOverride && fixLockfileOverride !== osvFixSpec.fixLockfile) {
+    logger.debug(
+      `[OSV fix] scan.paths override: using lockfile "${effectiveFixLockfile}" instead of "${osvFixSpec.fixLockfile}"`,
+    );
+  }
 
   if (dryRun) {
     logger.info('[DRY-RUN] Would run osv-scanner fix in staging temp dir');
@@ -152,7 +169,7 @@ export async function applyOsvFixViaStaging(
       '--strategy=in-place',
       '--format=json',
       '-L',
-      osvFixSpec.fixLockfile,
+      effectiveFixLockfile,
     ]);
 
     logger.debug(`[OSV fix] osv-scanner fix exited with code ${result.exitCode}`);
@@ -172,7 +189,13 @@ export async function applyOsvFixViaStaging(
 
     const claimedUpdates = parseOsvFixJson(result.stdout);
 
-    const fixedContent = await readFile(join(stagingDir, osvFixSpec.fixLockfile), 'utf-8');
+    // The staging dir contains the lockfile at effectiveFixLockfile (which may include
+    // a subdirectory prefix, e.g. 'app/package-lock.json'). Use the basename to resolve
+    // the staging path because files were copied by filename only.
+    const stagingLockfileName = effectiveFixLockfile.includes('/')
+      ? effectiveFixLockfile.split('/').pop()!
+      : effectiveFixLockfile;
+    const fixedContent = await readFile(join(stagingDir, stagingLockfileName), 'utf-8');
     const backupContent = backups.get(osvFixSpec.fixLockfile) ?? '';
     const bytesChanged = fixedContent !== backupContent;
 
@@ -247,7 +270,7 @@ export async function applyOsvFixViaStaging(
       };
     }
 
-    await writeFile(resolve(cwd, osvFixSpec.fixLockfile), fixedContent, 'utf-8');
+    await writeFile(resolve(cwd, effectiveFixLockfile), fixedContent, 'utf-8');
 
     // Propagate package.json to host disk if osv-scanner fix also modified it.
     if (backups.has('package.json')) {

@@ -133,6 +133,14 @@ scanners:
 {{/if}}
 {{/if}}
 
+# scan:                                   # optional — explicit scan path configuration
+#   paths:
+#     - app/                             # directory — scans recursively for lock files
+#     - frontend/package-lock.json       # explicit file path
+#   exclude:
+#     - node_modules/
+#   auto_discover: true                  # set to false to disable root-level scan
+
 # workflow:                               # optional — git/PR automation for fix runs
 #   create_branch: false                 # create a branch + commit before applying fixes
 #   open_pr: false                       # push branch and open a GitHub PR (implies create_branch)

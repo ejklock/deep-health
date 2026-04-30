@@ -14,7 +14,90 @@ import {
   buildOsvToolArgs,
   buildOsvDockerRunArgs,
   OSV_DEFAULT_IMAGE,
+  validateScanPath,
+  resolveScanPathArgs,
 } from '@infra/utils/osv-commands';
+
+// ─── validateScanPath ─────────────────────────────────────────────────────────
+
+describe('validateScanPath', () => {
+  it('does not throw on a valid directory path (trailing slash)', () => {
+    expect(() => validateScanPath('app/')).not.toThrow();
+  });
+
+  it('does not throw on a valid explicit file path', () => {
+    expect(() => validateScanPath('app/package-lock.json')).not.toThrow();
+  });
+
+  it('does not throw on a simple relative filename', () => {
+    expect(() => validateScanPath('package-lock.json')).not.toThrow();
+  });
+
+  it('throws when path starts with /', () => {
+    expect(() => validateScanPath('/etc/passwd')).toThrow(/must be relative/);
+  });
+
+  it('throws when path contains .. segment', () => {
+    expect(() => validateScanPath('../escape')).toThrow(/\.\./);
+  });
+
+  it('throws when path contains .. in middle', () => {
+    expect(() => validateScanPath('app/../escape')).toThrow(/\.\./);
+  });
+
+  it('throws when path contains * glob', () => {
+    expect(() => validateScanPath('services/*/lock.json')).toThrow(/glob/);
+  });
+
+  it('throws when path contains ? glob', () => {
+    expect(() => validateScanPath('services/?/lock.json')).toThrow(/glob/);
+  });
+});
+
+// ─── resolveScanPathArgs ──────────────────────────────────────────────────────
+
+describe('resolveScanPathArgs', () => {
+  it('converts directory path (trailing /) to -r <path>', () => {
+    expect(resolveScanPathArgs(['app/'])).toEqual(['-r', 'app/']);
+  });
+
+  it('converts explicit lockfile path to --lockfile <path>', () => {
+    expect(resolveScanPathArgs(['app/package-lock.json'])).toEqual([
+      '--lockfile',
+      'app/package-lock.json',
+    ]);
+  });
+
+  it('converts path without a dot (directory-style without slash) to -r', () => {
+    // A path with no dot in it is treated as a directory
+    expect(resolveScanPathArgs(['app'])).toEqual(['-r', 'app']);
+  });
+
+  it('handles mixed directory and file paths', () => {
+    expect(resolveScanPathArgs(['app/', 'frontend/package-lock.json'])).toEqual([
+      '-r', 'app/',
+      '--lockfile', 'frontend/package-lock.json',
+    ]);
+  });
+
+  it('appends --experimental-exclude for each exclude entry', () => {
+    expect(resolveScanPathArgs(['app/'], ['node_modules/'])).toEqual([
+      '-r', 'app/',
+      '--experimental-exclude', 'node_modules/',
+    ]);
+  });
+
+  it('handles multiple excludes', () => {
+    expect(resolveScanPathArgs([], ['node_modules/', 'vendor/'])).toEqual([
+      '--experimental-exclude', 'node_modules/',
+      '--experimental-exclude', 'vendor/',
+    ]);
+  });
+
+  it('returns empty array for empty paths and no excludes', () => {
+    expect(resolveScanPathArgs([])).toEqual([]);
+  });
+});
 
 // ─── buildOsvToolArgs ─────────────────────────────────────────────────────────
 

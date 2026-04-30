@@ -513,6 +513,82 @@ describe('project.name — newline injection prevention', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Group F-2 — ScanPathsConfig path traversal prevention
+// ---------------------------------------------------------------------------
+
+describe('ScanPathsConfig — path traversal prevention', () => {
+  function makeScanConfig(scan: Record<string, unknown>) {
+    return { ...minimalConfig, scan };
+  }
+
+  it('accepts valid relative paths (directory and explicit file)', () => {
+    const result = ProjectConfigSchema.safeParse(
+      makeScanConfig({ paths: ['app/', 'frontend/package-lock.json'] }),
+    );
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects path containing .. segments', () => {
+    const result = ProjectConfigSchema.safeParse(
+      makeScanConfig({ paths: ['../escape'] }),
+    );
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.map((i) => i.message).join(' ')).toMatch(/\.\./);
+    }
+  });
+
+  it('rejects path with leading / (absolute)', () => {
+    const result = ProjectConfigSchema.safeParse(
+      makeScanConfig({ paths: ['/etc/passwd'] }),
+    );
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.map((i) => i.message).join(' ')).toMatch(/leading \//);
+    }
+  });
+
+  it('rejects glob pattern with *', () => {
+    const result = ProjectConfigSchema.safeParse(
+      makeScanConfig({ paths: ['services/*/lock.json'] }),
+    );
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.map((i) => i.message).join(' ')).toMatch(/glob/);
+    }
+  });
+
+  it('rejects glob pattern with ?', () => {
+    const result = ProjectConfigSchema.safeParse(
+      makeScanConfig({ paths: ['services/?/lock.json'] }),
+    );
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.map((i) => i.message).join(' ')).toMatch(/glob/);
+    }
+  });
+
+  it('accepts empty paths array at schema level', () => {
+    const result = ProjectConfigSchema.safeParse(
+      makeScanConfig({ paths: [] }),
+    );
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts scan config with auto_discover only (no paths)', () => {
+    const result = ProjectConfigSchema.safeParse(
+      makeScanConfig({ auto_discover: true }),
+    );
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts scan config when scan key is absent entirely', () => {
+    const result = ProjectConfigSchema.safeParse(minimalConfig);
+    expect(result.success).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Group G — Removed deprecated composer fields
 // ---------------------------------------------------------------------------
 

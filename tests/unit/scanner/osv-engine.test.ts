@@ -541,6 +541,101 @@ describe('OsvScannerEngine.scan() — multi-range safeVersion selection', () => 
   });
 });
 
+// ─── scan() — scan.paths feature ─────────────────────────────────────────────
+
+describe('OsvScannerEngine.scan() — scan.paths', () => {
+  const engine = new OsvScannerEngine();
+
+  beforeEach(() => {
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout: MINIMAL_SCAN_JSON, stderr: '' });
+    vi.mocked(OsvDockerRunner).mockClear();
+    mockDockerRun.mockClear();
+  });
+
+  afterEach(() => vi.clearAllMocks());
+
+  it('passes resolveScanPathArgs output to Docker runner when scan.paths is set', async () => {
+    const runner = new MockRunner({ 'docker': { exitCode: 0 } });
+    const config = makeConfig({ osv: { runner: 'docker' } });
+    const ctx: ScannerEngineContext = {
+      runner,
+      config: { ...config, scan: { auto_discover: true, paths: ['app/'] } },
+      cwd: '/my/project',
+      ecosystemRegistry: makeEcosystemRegistry(['--lockfile', 'package-lock.json']),
+      branch: null,
+    };
+
+    await engine.scan(ctx);
+    // 'app/' is a directory → resolveScanPathArgs produces ['-r', 'app/']
+    expect(mockDockerRun).toHaveBeenCalledWith(['-r', 'app/']);
+  });
+
+  it('passes explicit file path as --lockfile when scan.paths contains a file', async () => {
+    const runner = new MockRunner({ 'docker': { exitCode: 0 } });
+    const config = makeConfig({ osv: { runner: 'docker' } });
+    const ctx: ScannerEngineContext = {
+      runner,
+      config: { ...config, scan: { auto_discover: true, paths: ['app/package-lock.json'] } },
+      cwd: '/my/project',
+      ecosystemRegistry: makeEcosystemRegistry(['--lockfile', 'package-lock.json']),
+      branch: null,
+    };
+
+    await engine.scan(ctx);
+    expect(mockDockerRun).toHaveBeenCalledWith(['--lockfile', 'app/package-lock.json']);
+  });
+
+  it('falls back to plugin buildScanArgs when scan config is absent', async () => {
+    const rawPluginArgs = ['--lockfile', 'package-lock.json'];
+    const registry = makeEcosystemRegistry(rawPluginArgs);
+    const runner = new MockRunner({ 'docker': { exitCode: 0 } });
+    const ctx: ScannerEngineContext = {
+      runner,
+      config: makeConfig({ osv: { runner: 'docker' } }),
+      cwd: '/my/project',
+      ecosystemRegistry: registry,
+      branch: null,
+    };
+
+    await engine.scan(ctx);
+    // No scan.paths → falls back to plugin args
+    expect(mockDockerRun).toHaveBeenCalledWith(rawPluginArgs);
+  });
+
+  it('falls back to plugin buildScanArgs when scan.paths is an empty array', async () => {
+    const rawPluginArgs = ['--lockfile', 'package-lock.json'];
+    const registry = makeEcosystemRegistry(rawPluginArgs);
+    const runner = new MockRunner({ 'docker': { exitCode: 0 } });
+    const config = makeConfig({ osv: { runner: 'docker' } });
+    const ctx: ScannerEngineContext = {
+      runner,
+      config: { ...config, scan: { auto_discover: true, paths: [] } },
+      cwd: '/my/project',
+      ecosystemRegistry: registry,
+      branch: null,
+    };
+
+    await engine.scan(ctx);
+    // Empty paths → falls back to plugin args
+    expect(mockDockerRun).toHaveBeenCalledWith(rawPluginArgs);
+  });
+
+  it('throws PhaseError when scan.paths contains a path traversal attempt at runtime', async () => {
+    const runner = new MockRunner({ 'docker': { exitCode: 0 } });
+    const config = makeConfig({ osv: { runner: 'docker' } });
+    const ctx: ScannerEngineContext = {
+      runner,
+      config: { ...config, scan: { auto_discover: true, paths: ['../escape'] } },
+      cwd: '/my/project',
+      ecosystemRegistry: makeEcosystemRegistry([]),
+      branch: null,
+    };
+
+    // The engine validates each path at runtime — should propagate as PhaseError
+    await expect(engine.scan(ctx)).rejects.toThrow(/\.\./);
+  });
+});
+
 // ─── id / name contract ───────────────────────────────────────────────────────
 
 describe('OsvScannerEngine — identity', () => {

@@ -401,6 +401,42 @@ const ScannersConfigSchema = z
   })
   .strict();
 
+/**
+ * Scan path configuration — controls which paths osv-scanner inspects.
+ *
+ * Entries in `paths` are validated at schema level and again at runtime:
+ * - No leading `/` (must be relative to /project inside the container)
+ * - No `..` segments (path traversal prevention)
+ * - No glob patterns (`*`, `?`) — use directory paths ending with `/` instead
+ */
+const ScanPathsConfigSchema = z.object({
+  auto_discover: z.boolean().default(true),
+  paths: z.array(
+    z.string().superRefine((val, ctx) => {
+      if (val.startsWith('/')) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'scan.paths entries must be relative (no leading /)',
+        });
+      }
+      if (val.split('/').some((seg) => seg === '..')) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'scan.paths entries must not contain .. segments',
+        });
+      }
+      if (/[*?]/.test(val)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            'scan.paths does not support glob patterns — use a directory path ending with / instead (e.g. "app/")',
+        });
+      }
+    }),
+  ).optional(),
+  exclude: z.array(z.string()).optional(),
+}).strict();
+
 const WorkflowConfigSchema = z
   .object({
     /**
@@ -474,6 +510,7 @@ export const ProjectConfigSchema = z
     conflict_resolution: z.string(),
     report_language: z.enum(["pt-br", "en"]).optional(),
     cloud_storage: CloudStorageConfigSchema.optional(),
+    scan: ScanPathsConfigSchema.optional(),
     scanners: ScannersConfigSchema.optional(),
     outputs: OutputsConfigSchema.optional(),
     workflow: WorkflowConfigSchema.optional(),

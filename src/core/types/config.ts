@@ -482,6 +482,32 @@ export interface WorkflowConfig {
   pr_title?: string;
 }
 
+/**
+ * Scan path configuration — controls which paths osv-scanner inspects.
+ *
+ * All entries in `paths` must be relative (no leading `/`) and must not
+ * contain `..` segments or glob characters. Paths resolve relative to
+ * `/project` inside the container.
+ */
+export interface ScanPathsConfig {
+  /**
+   * When true (default), the scanner also scans the project root for lock files.
+   * Set to false to restrict scanning to only the paths listed in `paths`.
+   */
+  auto_discover: boolean;
+  /**
+   * Explicit paths to scan. Directories (ending with `/`) are scanned
+   * recursively via `-r`. Explicit file paths are passed via `--lockfile`.
+   * When absent or empty, the scanner falls back to plugin-resolved lockfile args.
+   */
+  paths?: string[];
+  /**
+   * Paths to exclude from the scan.
+   * Passed as `--experimental-exclude <path>` to osv-scanner.
+   */
+  exclude?: string[];
+}
+
 export interface ProjectConfig {
   /**
    * Schema version for forward-compatibility detection.
@@ -502,6 +528,8 @@ export interface ProjectConfig {
   conflict_resolution: string;
   report_language?: SupportedLocale;
   cloud_storage?: CloudStorageConfig;
+  /** Top-level scan path configuration — controls which paths osv-scanner inspects. */
+  scan?: ScanPathsConfig;
   scanners?: ScannersConfig;
   outputs?: OutputsConfig;
   workflow?: WorkflowConfig;
