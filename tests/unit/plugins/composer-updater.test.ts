@@ -30,7 +30,11 @@ vi.mock('@core/types/scan.js', async (importOriginal) => {
   };
 });
 
-import { runComposerUpdater } from '@modules/ecosystem/plugins/composer-updater';
+vi.mock('node:fs/promises', () => ({
+  readFile: vi.fn(),
+}));
+
+import { runComposerUpdater, extractComposerLockVersions, buildComposerPackagesUpdated } from '@modules/ecosystem/plugins/composer-updater';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -179,7 +183,7 @@ describe('runComposerUpdater — dry-run paths', () => {
     expect(result.agent).toBe('composer-safe-update');
   });
 
-  it('dry-run packages_updated reflects auto_safe_packages from scan', async () => {
+  it('dry-run packages_updated is empty [] (post-update version not knowable in dry-run)', async () => {
     const runner = makeRunner({ dryRun: true });
     const scan = baseScan(['vendor/safe-pkg@1.2.3']);
 
@@ -192,7 +196,7 @@ describe('runComposerUpdater — dry-run paths', () => {
       [{ name: 'tests', command: 'vendor/bin/phpunit' }],
     );
 
-    expect(result.packages_updated).toEqual(['vendor/safe-pkg@1.2.3']);
+    expect(result.packages_updated).toEqual([]);
   });
 });
 
@@ -519,5 +523,150 @@ describe('composer-updater additional branch coverage', () => {
     await expect(
       runComposerUpdater(runner, baseConfig(), baseScan(), '/tmp/project', false, []),
     ).rejects.toThrow('Composer updater phase failed: string-composer-error');
+  });
+});
+
+// ── extractComposerLockVersions unit tests ───────────────────────────────────
+
+describe('extractComposerLockVersions', () => {
+  it('returns versions from packages and packages-dev', () => {
+    const lock = JSON.stringify({
+      packages: [
+        { name: 'vendor/pkg-a', version: '1.0.0' },
+      ],
+      'packages-dev': [
+        { name: 'vendor/dev-pkg', version: '2.3.4' },
+      ],
+    });
+    const result = extractComposerLockVersions(lock);
+    expect(result.get('vendor/pkg-a')).toBe('1.0.0');
+    expect(result.get('vendor/dev-pkg')).toBe('2.3.4');
+  });
+
+  it('returns empty Map on malformed JSON', () => {
+    const result = extractComposerLockVersions('{not valid json}');
+    expect(result.size).toBe(0);
+  });
+
+  it('returns empty Map when packages key is missing', () => {
+    const result = extractComposerLockVersions(JSON.stringify({ _readme: [] }));
+    expect(result.size).toBe(0);
+  });
+
+  it('returns empty Map on empty string input', () => {
+    const result = extractComposerLockVersions('');
+    expect(result.size).toBe(0);
+  });
+
+  it('skips entries missing name or version fields', () => {
+    const lock = JSON.stringify({
+      packages: [
+        { name: 'vendor/ok', version: '1.0.0' },
+        { version: '1.0.0' },  // missing name
+        { name: 'vendor/no-version' },  // missing version
+      ],
+      'packages-dev': [],
+    });
+    const result = extractComposerLockVersions(lock);
+    expect(result.size).toBe(1);
+    expect(result.get('vendor/ok')).toBe('1.0.0');
+  });
+});
+
+// ── buildComposerPackagesUpdated unit tests ──────────────────────────────────
+
+describe('buildComposerPackagesUpdated', () => {
+  it('emits name@versionTo for changed packages', () => {
+    const before = new Map([['vendor/pkg', '1.0.0']]);
+    const after = new Map([['vendor/pkg', '1.0.1']]);
+    const result = buildComposerPackagesUpdated(['vendor/pkg'], before, after);
+    expect(result).toEqual(['vendor/pkg@1.0.1']);
+  });
+
+  it('unchanged version is filtered', () => {
+    const before = new Map([['vendor/pkg', '1.0.0']]);
+    const after = new Map([['vendor/pkg', '1.0.0']]);
+    const result = buildComposerPackagesUpdated(['vendor/pkg'], before, after);
+    expect(result).toEqual([]);
+  });
+
+  it('package absent in afterVersions is filtered', () => {
+    const before = new Map([['vendor/pkg', '1.0.0']]);
+    const after = new Map<string, string>();
+    const result = buildComposerPackagesUpdated(['vendor/pkg'], before, after);
+    expect(result).toEqual([]);
+  });
+
+  it('package absent in beforeVersions but present in after (new install) is emitted', () => {
+    const before = new Map<string, string>();
+    const after = new Map([['vendor/new', '2.0.0']]);
+    const result = buildComposerPackagesUpdated(['vendor/new'], before, after);
+    expect(result).toEqual(['vendor/new@2.0.0']);
+  });
+
+  it('handles empty target list', () => {
+    const before = new Map([['vendor/pkg', '1.0.0']]);
+    const after = new Map([['vendor/pkg', '1.0.1']]);
+    const result = buildComposerPackagesUpdated([], before, after);
+    expect(result).toEqual([]);
+  });
+});
+
+// ── packages_updated post-update version tests ───────────────────────────────
+
+function makeLockJson(packages: Array<{ name: string; version: string }>): string {
+  return JSON.stringify({ packages, 'packages-dev': [] });
+}
+
+describe('runComposerUpdater — packages_updated post-update version', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('emits post-update version in packages_updated for changed packages (AC1)', async () => {
+    const { backupFiles } = await import('@infra/utils/git.js');
+    const { readFile } = await import('node:fs/promises');
+
+    const preLock = makeLockJson([{ name: 'phpseclib/phpseclib', version: '3.0.50' }]);
+    const postLock = makeLockJson([{ name: 'phpseclib/phpseclib', version: '3.0.51' }]);
+
+    (backupFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Map([['composer.lock', preLock]]),
+    );
+    (readFile as ReturnType<typeof vi.fn>).mockResolvedValueOnce(postLock);
+
+    const runArgsMock = vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '', command: '', dryRun: false });
+    const runner = makeRunner({ runArgs: runArgsMock });
+    const scan = baseScan(['phpseclib/phpseclib@3.0.50']);
+
+    const result = await runComposerUpdater(runner, baseConfig(), scan, '/tmp/project', false, []);
+
+    expect(result.status).toBe('success');
+    expect(result.packages_updated).toEqual(['phpseclib/phpseclib@3.0.51']);
+  });
+
+  it('dry-run test — packages_updated must be [] (AC3)', async () => {
+    const runner = makeRunner({ dryRun: true });
+    const result = await runComposerUpdater(runner, baseConfig(), baseScan(['vendor/pkg@1.0.0']), '/tmp/project', false, []);
+    expect(result.packages_updated).toEqual([]);
+  });
+
+  it('falls back when post-update lock read fails — result remains success (AC5)', async () => {
+    const { backupFiles } = await import('@infra/utils/git.js');
+    const { readFile } = await import('node:fs/promises');
+
+    const preLock = makeLockJson([{ name: 'vendor/pkg', version: '1.0.0' }]);
+    (backupFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Map([['composer.lock', preLock]]),
+    );
+    (readFile as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('ENOENT: no such file'));
+
+    const runArgsMock = vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '', command: '', dryRun: false });
+    const runner = makeRunner({ runArgs: runArgsMock });
+    const scan = baseScan(['vendor/pkg@1.0.0']);
+
+    const result = await runComposerUpdater(runner, baseConfig(), scan, '/tmp/project', false, []);
+
+    expect(result.status).toBe('success');
+    // fallback to auto_safe_packages from scan
+    expect(result.packages_updated).toEqual(['vendor/pkg@1.0.0']);
   });
 });

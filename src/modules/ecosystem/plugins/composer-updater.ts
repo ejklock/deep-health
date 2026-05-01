@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { CommandRunner, CommandResult } from '@core/types/common';
 import type { ProjectConfig, ValidationCommandConfig } from '@core/types/config';
 import type { UpdateResultJson, ValidationEntry } from '@core/types/update';
@@ -10,6 +12,59 @@ import { runValidations } from '../utils/validation-runner';
 import { beginUpdaterTransaction } from '../utils/updater-transaction';
 
 const COMPOSER_FILES = ['composer.json', 'composer.lock'];
+
+/**
+ * Parse a composer.lock JSON string and return a Map of package name → version.
+ * Reads from both `packages` and `packages-dev` arrays.
+ * Returns an empty Map on parse failure or missing fields (logs a warning).
+ */
+export function extractComposerLockVersions(lockJsonText: string): Map<string, string> {
+  try {
+    const parsed = JSON.parse(lockJsonText) as Record<string, unknown>;
+    const result = new Map<string, string>();
+    const sections = ['packages', 'packages-dev'] as const;
+    for (const section of sections) {
+      const pkgs = parsed[section];
+      if (!Array.isArray(pkgs)) continue;
+      for (const pkg of pkgs) {
+        if (pkg && typeof pkg === 'object') {
+          const p = pkg as Record<string, unknown>;
+          if (typeof p['name'] === 'string' && typeof p['version'] === 'string') {
+            result.set(p['name'], p['version']);
+          }
+        }
+      }
+    }
+    return result;
+  } catch {
+    logger.warn('composer-updater: failed to parse composer.lock JSON — version extraction skipped');
+    return new Map();
+  }
+}
+
+/**
+ * Build `packages_updated` array from pre/post lock version maps.
+ *
+ * For each target package name:
+ * - Skip if the post-update version is absent (package not in new lockfile).
+ * - Skip if pre-update version equals post-update version (no real change).
+ * - Otherwise emit `name@<postVersion>`.
+ */
+export function buildComposerPackagesUpdated(
+  targetNames: string[],
+  beforeVersions: Map<string, string>,
+  afterVersions: Map<string, string>,
+): string[] {
+  const updated: string[] = [];
+  for (const name of targetNames) {
+    const versionTo = afterVersions.get(name);
+    if (versionTo === undefined) continue;
+    const versionFrom = beforeVersions.get(name);
+    if (versionFrom === versionTo) continue;
+    updated.push(`${name}@${versionTo}`);
+  }
+  return updated;
+}
 
 function extractPackageNames(packageRefs: string[]): string[] {
   return packageRefs.map((ref) => {
@@ -142,7 +197,7 @@ export async function runComposerUpdater(
         : [{ name: 'validation', status: 'skipped', detail: 'No validation commands configured — skipped' }];
     return {
       ...base,
-      packages_updated: composerEcosystem.auto_safe_packages,
+      packages_updated: [],
       validations: dryRunEntries,
     };
   }
@@ -201,8 +256,24 @@ export async function runComposerUpdater(
       });
     }
 
+    // Derive packages_updated from pre/post composer.lock versions
+    const beforeLockText = tx.backups.get('composer.lock') ?? '';
+    const beforeVersions = extractComposerLockVersions(beforeLockText);
+
+    let packagesUpdated: string[];
+    try {
+      const afterLockText = await readFile(join(cwd, 'composer.lock'), 'utf-8');
+      const afterVersions = extractComposerLockVersions(afterLockText);
+      packagesUpdated = buildComposerPackagesUpdated(packageNamesToUpdate, beforeVersions, afterVersions);
+    } catch (readErr) {
+      logger.warn(
+        `composer-updater: could not read post-update composer.lock (${readErr instanceof Error ? readErr.message : String(readErr)}) — falling back to scan package list`,
+      );
+      packagesUpdated = composerEcosystem.auto_safe_packages;
+    }
+
     return tx.success({
-      packages_updated: composerEcosystem.auto_safe_packages,
+      packages_updated: packagesUpdated,
       validations: validationResult.entries,
     });
   } catch (err) {
