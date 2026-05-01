@@ -53,9 +53,6 @@ vi.mock('@orchestration/osv-fix-applier.js', () => ({
     backups: new Map(),
   }),
 }));
-vi.mock('@orchestration/lockfile-inspect.js', () => ({
-  readNpmLockfileVersion: vi.fn().mockResolvedValue(null),
-}));
 vi.mock('@modules/advisor/index.js', () => ({
   runAdvisors: vi.fn().mockResolvedValue([]),
 }));

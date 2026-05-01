@@ -2,8 +2,8 @@ import { vi, describe, it, expect, beforeEach } from "vitest";
 import { readFile } from "node:fs/promises";
 import {
   collectNpmLockfileVersions,
-  readNpmLockfileVersion,
 } from "@orchestration/lockfile-inspect";
+import { readNpmLockfileVersion } from "@modules/ecosystem/utils/lockfile-utils";
 
 vi.mock("node:fs/promises", () => ({ readFile: vi.fn() }));
 

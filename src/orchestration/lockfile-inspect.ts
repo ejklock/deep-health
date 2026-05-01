@@ -8,10 +8,6 @@
  * behavior where the JSON output lists patches that never get written).
  */
 
-// Re-exported for backward compat. Primary definition lives in
-// src/modules/ecosystem/utils/lockfile-utils.ts
-export { readNpmLockfileVersion } from '@modules/ecosystem/utils/lockfile-utils';
-
 /**
  * Collect all (packageName, version) pairs from an npm package-lock.json string.
  *

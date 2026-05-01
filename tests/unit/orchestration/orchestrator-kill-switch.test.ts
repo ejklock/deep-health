@@ -60,11 +60,6 @@ vi.mock("@orchestration/osv-fix-applier.js", () => ({
     backups: new Map(),
   }),
 }));
-vi.mock("@orchestration/lockfile-inspect.js", () => ({
-  readNpmLockfileVersion: vi.fn().mockResolvedValue(null),
-}));
-// readNpmLockfileVersion now lives in lockfile-utils; the re-export in lockfile-inspect
-// keeps backward compat but the npm plugin imports from the canonical location.
 vi.mock("@modules/ecosystem/utils/lockfile-utils.js", () => ({
   readNpmLockfileVersion: vi.fn().mockResolvedValue(null),
 }));
