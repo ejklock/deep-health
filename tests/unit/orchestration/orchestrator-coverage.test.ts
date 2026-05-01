@@ -31,9 +31,13 @@ vi.mock('@infra/executor/osv-container-runner.js', () => ({
     environment: 'local',
   })),
 }));
-vi.mock('@infra/ecosystem-runtime', () => ({
-  resolveEcosystemRuntime: vi.fn().mockImplementation((_plugin: unknown, hostRunner: unknown) => Promise.resolve(hostRunner)),
-}));
+vi.mock('@infra/ecosystem-runtime', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@infra/ecosystem-runtime')>();
+  return {
+    ...actual,
+    resolveEcosystemRuntime: vi.fn().mockImplementation((_plugin: unknown, hostRunner: unknown) => Promise.resolve(hostRunner)),
+  };
+});
 vi.mock('@infra/provisioner/npm-runner.js', () => ({
   NpmDockerRunner: vi.fn().mockImplementation(() => ({})),
   resolveNpmDockerImage: vi.fn(() => 'node:lts'),

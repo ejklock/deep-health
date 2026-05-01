@@ -52,6 +52,14 @@ export interface EphemeralEcosystemContainerOptions {
    * the ecosystem CLI command.  Produced by `buildProjectImage()`.
    */
   entrypointOverride?: string;
+  /**
+   * When true, the project directory is mounted read-only (`:ro`) inside the
+   * container. Defaults to `false`.
+   *
+   * Use for scan-only tools (e.g. osv-scanner in residual-verify mode) that
+   * must not write files into the project directory.
+   */
+  readonly?: boolean;
 }
 
 // ─── EphemeralEcosystemContainer ─────────────────────────────────────────────
@@ -79,6 +87,7 @@ export class EphemeralEcosystemContainer implements EphemeralContainerRunner<str
   private readonly runMode: RunMode;
   private readonly logPrefix: string;
   private readonly entrypointOverride: string | undefined;
+  private readonly mountReadonly: boolean;
 
   constructor(options: EphemeralEcosystemContainerOptions) {
     this.image = options.image;
@@ -87,6 +96,7 @@ export class EphemeralEcosystemContainer implements EphemeralContainerRunner<str
     this.runMode = options.runMode;
     this.logPrefix = options.logPrefix;
     this.entrypointOverride = options.entrypointOverride;
+    this.mountReadonly = options.readonly ?? false;
   }
 
   /**
@@ -312,7 +322,8 @@ export class EphemeralEcosystemContainer implements EphemeralContainerRunner<str
       args.push('--entrypoint', this.entrypointOverride);
     }
 
-    args.push('--volume', `${cwd ?? this.projectDir}:/project`);
+    const mountSuffix = this.mountReadonly ? ':ro' : '';
+    args.push('--volume', `${cwd ?? this.projectDir}:/project${mountSuffix}`);
     args.push('--workdir', '/project');
 
     if (needsHostGateway()) {

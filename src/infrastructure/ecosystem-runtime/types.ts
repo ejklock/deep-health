@@ -53,6 +53,12 @@ export interface EcosystemRuntimeSpec {
    * See `RunMode` for the two supported shapes.
    */
   readonly runMode: RunMode;
+
+  /**
+   * When true, the project directory is mounted read-only (:ro) inside the container.
+   * Defaults to false. Use for scan-only tools (e.g. osv-scanner in residual-verify mode).
+   */
+  readonly mountReadonly?: boolean;
 }
 
 /**

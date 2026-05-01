@@ -24,9 +24,8 @@ import type { EcosystemPlugin } from '@modules/ecosystem/types';
 import { GateValidationError } from '@core/errors';
 import { validateEcosystemGate } from '@core/gates/validator';
 import { logger, setProgressSink, makeProgressSink } from '@infra/utils/logger';
-import { OsvDockerRunner } from '@infra/provisioner/osv-runner';
-import { OsvContainerCommandRunner } from '@infra/executor/osv-container-runner';
-import { resolveEcosystemRuntime } from '@infra/ecosystem-runtime';
+import { EphemeralEcosystemContainer, EcosystemContainerCommandRunner, resolveEcosystemRuntime } from '@infra/ecosystem-runtime';
+import { osvRuntimeSpec } from '@infra/ecosystem-runtime/osv-runtime-spec';
 import { applyOsvFixViaStaging } from './osv-fix-applier';
 import { logDryRunPreview } from './dry-run-preview';
 
@@ -260,42 +259,49 @@ export async function runEcosystemFix(
 /**
  * Resolve a dedicated CommandRunner for OSV residual-verification commands.
  *
- * - `runner: 'docker'` (default): wraps an `OsvDockerRunner` (read-only mount)
- *   in an `OsvContainerCommandRunner` so `osv-scanner …` strings execute inside
- *   the container, while non-OSV commands fall back to the host runner.
- * - `runner: 'local'`: returns the host fallback unchanged.
- *
- * `dryRun` is hardcoded `false` on the container runner because the residual
- * verification flow is gated on its own `dryRun` check upstream.
+ * - `runner: 'docker'` (default): instantiates an `EcosystemContainerCommandRunner`
+ *   for osv-scanner via the shared Ecosystem Runtime module. The project
+ *   directory is mounted read-only inside the container.
+ * - `runner: 'local'`: returns the host runner unchanged.
  */
 function resolveOsvCommandRunner(
   config: ProjectConfig,
   cwd: string,
-  fallback: CommandRunner,
+  hostRunner: CommandRunner,
 ): CommandRunner {
   const osvConfig = config.scanners?.osv;
   const mode = osvConfig?.runner ?? 'docker';
 
   if (mode === 'local') {
-    logger.debug(
-      '[OSV runner] mode=local: using local runner for OSV commands',
-    );
-    return fallback;
+    logger.debug('[OSV runner] mode=local: using local runner for OSV commands');
+    return hostRunner;
   }
 
-  const image = osvConfig?.image;
-  const osvDockerRunner = new OsvDockerRunner({
+  const specWithImage: typeof osvRuntimeSpec = osvConfig?.image
+    ? { ...osvRuntimeSpec, defaultImage: osvConfig.image, resolveImage: () => osvConfig.image! }
+    : osvRuntimeSpec;
+
+  const image = specWithImage.resolveImage(undefined);
+
+  logger.tagged(
+    'osv',
+    'OSV runner',
+    `Dedicated OSV container runner (mode: ${mode}, mount: read-only${osvConfig?.image ? `, image: ${osvConfig.image}` : ''})`,
+  );
+
+  const container = new EphemeralEcosystemContainer({
+    runMode: specWithImage.runMode,
     projectDir: cwd,
     image,
-    readonly: true,
+    logPrefix: 'osv',
+    readonly: specWithImage.mountReadonly ?? false,
   });
 
-  logger.tagged('osv', 'OSV runner', `Dedicated OSV container runner (mode: ${mode}, mount: read-only${image ? `, image: ${image}` : ''})`);
-
-  return new OsvContainerCommandRunner({
-    container: osvDockerRunner,
-    fallback,
-    dryRun: false,
+  return new EcosystemContainerCommandRunner({
+    container,
+    hostRunner,
+    spec: specWithImage,
+    dryRun: hostRunner.dryRun,
   });
 }
 

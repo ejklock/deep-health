@@ -152,6 +152,7 @@ export async function resolveEcosystemRuntime(
     image,
     logPrefix: plugin.id,
     entrypointOverride,
+    readonly: spec.mountReadonly ?? false,
   });
 
   return new EcosystemContainerCommandRunner({
