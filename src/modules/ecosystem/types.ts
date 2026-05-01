@@ -113,6 +113,17 @@ export interface EcosystemPlugin {
   readonly postUpdateOsvVerify: 'always' | 'osv-strategy-only' | 'never';
 
   /**
+   * Override the default fixer strategy for this plugin at runtime.
+   * Called by runEcosystemFix before any mutations. Must not throw.
+   *
+   * When present, the orchestration layer delegates fixer resolution entirely
+   * to the plugin (including any ecosystem-specific auto-demotion logic).
+   * When absent, runEcosystemFix falls back to its own inline resolution:
+   * `ecoConfigEntry?.fixer ?? (plugin.supportedFixers[0] ?? 'osv')`.
+   */
+  resolveEffectiveFixer?(config: ProjectConfig, cwd: string): Promise<FixerStrategyId>;
+
+  /**
    * Optional hook: install authorized breaking-change packages after the
    * non-breaking updater phase. Called only when authorizeBreaking=true.
    * Undefined means the plugin handles breaking internally (e.g. composer-updater).

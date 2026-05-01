@@ -63,6 +63,11 @@ vi.mock("@orchestration/osv-fix-applier.js", () => ({
 vi.mock("@orchestration/lockfile-inspect.js", () => ({
   readNpmLockfileVersion: vi.fn().mockResolvedValue(null),
 }));
+// readNpmLockfileVersion now lives in lockfile-utils; the re-export in lockfile-inspect
+// keeps backward compat but the npm plugin imports from the canonical location.
+vi.mock("@modules/ecosystem/utils/lockfile-utils.js", () => ({
+  readNpmLockfileVersion: vi.fn().mockResolvedValue(null),
+}));
 vi.mock("@modules/advisor/index.js", () => ({
   runAdvisors: vi.fn().mockResolvedValue([]),
 }));
@@ -275,7 +280,9 @@ describe("runOrchestrator — lockfileVersion 1 warning (lines 783-789)", () => 
   beforeEach(() => vi.clearAllMocks());
 
   it('warns when package-lock.json has lockfileVersion 1 and fixer is osv', async () => {
-    const { readNpmLockfileVersion } = await import('@orchestration/lockfile-inspect.js');
+    // readNpmLockfileVersion is now called by the npm plugin's resolveEffectiveFixer hook,
+    // which imports from @modules/ecosystem/utils/lockfile-utils (the canonical location).
+    const { readNpmLockfileVersion } = await import('@modules/ecosystem/utils/lockfile-utils.js');
     vi.mocked(readNpmLockfileVersion).mockResolvedValueOnce(1);
 
     const runUpdaterSpy = vi.spyOn(npmPlugin, 'runUpdater').mockResolvedValue({

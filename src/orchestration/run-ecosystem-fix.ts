@@ -29,7 +29,6 @@ import { OsvContainerCommandRunner } from '@infra/executor/osv-container-runner'
 import { resolveEcosystemRuntime } from '@infra/ecosystem-runtime';
 import { applyOsvFixViaStaging } from './osv-fix-applier';
 import { logDryRunPreview } from './dry-run-preview';
-import { readNpmLockfileVersion } from './lockfile-inspect';
 
 export interface RunEcosystemFixParams {
   plugin: EcosystemPlugin;
@@ -72,11 +71,9 @@ export async function runEcosystemFix(
   const validationCommands =
     ecoConfigEntry?.validationCommands ?? plugin.defaultValidationCommands;
 
-  let fixerStrategy: FixerStrategyId =
-    ecoConfigEntry?.fixer ??
-    ((plugin.supportedFixers.length > 0
-      ? plugin.supportedFixers[0]
-      : 'osv') as FixerStrategyId);
+  const fixerStrategy: FixerStrategyId = plugin.resolveEffectiveFixer
+    ? await plugin.resolveEffectiveFixer(config, cwd)
+    : (ecoConfigEntry?.fixer ?? (plugin.supportedFixers[0] ?? 'osv') as FixerStrategyId);
 
   const ecosystemResult = scanResult.ecosystems[plugin.id];
   const hasUpdates =
@@ -108,20 +105,6 @@ export async function runEcosystemFix(
         }>;
       }
     | undefined;
-
-  // npm + osv/osv-then-audit: auto-demote to npm-audit when lockfileVersion=1.
-  // osv-scanner cannot patch v1 lockfiles in-place, so continuing with the osv
-  // strategy would silently drop all fixable patches. Switching to npm-audit
-  // also skips applyOsvFixViaStaging (the guard below checks fixerStrategy).
-  if (plugin.id === 'npm' && (fixerStrategy === 'osv' || fixerStrategy === 'osv-then-audit')) {
-    const lockVer = await readNpmLockfileVersion(cwd);
-    if (lockVer === 1) {
-      logger.tagged('osv', 'OSV fix', `package-lock.json has lockfileVersion: 1 (npm 6 / Node ≤12). ` +
-          `osv-scanner cannot patch lockfileVersion 1 lockfiles in-place. ` +
-          `Auto-switching fixer: '${fixerStrategy}' → 'npm-audit'.`, 'warn');
-      fixerStrategy = 'npm-audit';
-    }
-  }
 
   if (
     (fixerStrategy === 'osv' || fixerStrategy === 'osv-then-audit') &&

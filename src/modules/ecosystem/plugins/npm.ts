@@ -1,13 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import type { EcosystemPlugin, EcosystemUpdaterContext } from '../types';
-import type { ProjectConfig, ProtectedPackage } from '@core/types/config';
+import type { ProjectConfig, ProtectedPackage, FixerStrategyId } from '@core/types/config';
 import type { CommandRunner } from '@core/types/common';
 import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
 import { emptyEcosystem } from '@core/types/scan';
 import { logger } from '@infra/utils/logger';
 import { collectRootNpmLockfileVersions } from '@orchestration/lockfile-inspect';
+import { readNpmLockfileVersion } from '@modules/ecosystem/utils/lockfile-utils';
 import { runNpmUpdater } from './npm-updater';
 import { resolveNpmDockerImage } from '@infra/provisioner/npm-runner';
 
@@ -126,6 +127,39 @@ export const npmPlugin: EcosystemPlugin = {
 
   getProtectedPackages(config: ProjectConfig): ProtectedPackage[] {
     return config.protected_packages['npm'] ?? [];
+  },
+
+  /**
+   * Resolve the effective fixer strategy for npm at runtime.
+   *
+   * If the configured strategy is `'osv'` or `'osv-then-audit'` and the
+   * project's `package-lock.json` has `lockfileVersion: 1` (npm 6 / Node ≤12),
+   * osv-scanner cannot patch the lockfile in-place. The strategy is
+   * automatically demoted to `'npm-audit'` with a warning.
+   *
+   * Must not throw. Returns the original strategy when the lockfile is missing
+   * or unreadable.
+   */
+  async resolveEffectiveFixer(config: ProjectConfig, cwd: string): Promise<FixerStrategyId> {
+    const ecoConfigEntry = config.ecosystems.find((e) => e.id === 'npm');
+    const strategy: FixerStrategyId = (ecoConfigEntry?.fixer ?? this.supportedFixers[0]) as FixerStrategyId;
+
+    if (strategy === 'osv' || strategy === 'osv-then-audit') {
+      const lockVer = await readNpmLockfileVersion(cwd);
+      if (lockVer === 1) {
+        logger.tagged(
+          'osv',
+          'OSV fix',
+          `package-lock.json has lockfileVersion: 1 (npm 6 / Node ≤12). ` +
+            `osv-scanner cannot patch lockfileVersion 1 lockfiles in-place. ` +
+            `Auto-switching fixer: '${strategy}' → 'npm-audit'.`,
+          'warn',
+        );
+        return 'npm-audit';
+      }
+    }
+
+    return strategy;
   },
 
   async runUpdater(ctx: EcosystemUpdaterContext): Promise<UpdateResultJson> {
