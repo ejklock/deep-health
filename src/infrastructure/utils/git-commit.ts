@@ -4,6 +4,7 @@ import { logger } from '@infra/utils/logger';
 export interface CreateBranchResult {
   branch: string;
   committed: boolean;
+  exitCode: number;
 }
 
 /**
@@ -12,7 +13,8 @@ export interface CreateBranchResult {
  * Contract:
  * - Creates the branch BEFORE any mutation.
  * - Runs `fn()` (the fix pipeline).
- * - If fn() succeeds: stages all changes and creates a commit.
+ * - If fn() returns 0: stages all changes and creates a commit; returns { branch, committed, exitCode: 0 }.
+ * - If fn() returns non-zero: rolls back (checkout originalBranch, branch -D); returns { branch, committed: false, exitCode: N } without throwing.
  * - If fn() throws: checks out originalBranch, re-throws so the caller sees the error.
  * - Always uses runArgs — never runner.run('git ' + ...) — branch names are external data.
  *
@@ -21,7 +23,7 @@ export interface CreateBranchResult {
  * @param originalBranch Branch to return to on failure (from detectGitBranch).
  * @param branchName    Name of the new branch to create.
  * @param commitMessage Commit message.
- * @param fn            Async callback that performs the fix pipeline. Must throw on failure.
+ * @param fn            Async callback that performs the fix pipeline. Returns an exit code (0 = success).
  */
 export async function createBranchAndCommit(
   runner: CommandRunner,
@@ -29,7 +31,7 @@ export async function createBranchAndCommit(
   originalBranch: string | null,
   branchName: string,
   commitMessage: string,
-  fn: () => Promise<void>,
+  fn: () => Promise<number>,
 ): Promise<CreateBranchResult> {
   // Create the new branch
   const checkoutResult = await runner.runArgs('git', ['checkout', '-b', branchName], { cwd });
@@ -41,7 +43,21 @@ export async function createBranchAndCommit(
   logger.info(`Created branch: ${branchName}`);
 
   try {
-    await fn();
+    const exitCode = await fn();
+    if (exitCode !== 0) {
+      // Pipeline ran but returned a non-zero code — rollback without throwing
+      logger.warn(`Fix pipeline returned exit code ${exitCode} — rolling back to ${originalBranch ?? 'previous state'}`);
+      if (originalBranch) {
+        await runner.runArgs('git', ['checkout', originalBranch], { cwd });
+        const deleteResult = await runner.runArgs('git', ['branch', '-D', branchName], { cwd });
+        if (deleteResult.exitCode === 0) {
+          logger.info(`Deleted empty branch: ${branchName}`);
+        } else {
+          logger.warn(`Could not delete branch ${branchName}: ${deleteResult.stderr || deleteResult.stdout}`);
+        }
+      }
+      return { branch: branchName, committed: false, exitCode };
+    }
   } catch (err) {
     // Pipeline failed — switch back to original branch and delete the empty fix branch
     logger.warn(`Fix pipeline failed — rolling back to ${originalBranch ?? 'previous state'}`);
@@ -58,7 +74,7 @@ export async function createBranchAndCommit(
     throw err;
   }
 
-  // Pipeline succeeded — stage and commit
+  // Pipeline succeeded (exitCode === 0) — stage and commit
   await runner.runArgs('git', ['add', '-A'], { cwd });
   const commitResult = await runner.runArgs('git', ['commit', '-m', commitMessage], { cwd });
 
@@ -67,13 +83,13 @@ export async function createBranchAndCommit(
     const msg = (commitResult.stdout + commitResult.stderr).toLowerCase();
     if (msg.includes('nothing to commit') || msg.includes('nothing added to commit')) {
       logger.info('No changes to commit after fix — working tree is clean.');
-      return { branch: branchName, committed: false };
+      return { branch: branchName, committed: false, exitCode: 0 };
     }
     throw new Error(`git commit failed: ${commitResult.stderr || commitResult.stdout}`);
   }
 
   logger.info(`Committed changes on branch: ${branchName}`);
-  return { branch: branchName, committed: true };
+  return { branch: branchName, committed: true, exitCode: 0 };
 }
 
 /**

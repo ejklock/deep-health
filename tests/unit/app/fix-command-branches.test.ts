@@ -447,7 +447,7 @@ describe('createBranchAndCommit()', () => {
     });
     const runner = { runArgs, run: vi.fn(), dryRun: false, environment: 'local' as const };
 
-    await createBranchAndCommit(runner, '/repo', 'main', 'my-branch', 'fix: test', async () => {});
+    await createBranchAndCommit(runner, '/repo', 'main', 'my-branch', 'fix: test', async () => 0);
 
     expect(runArgs).toHaveBeenCalledWith('git', ['checkout', '-b', 'my-branch'], { cwd: '/repo' });
   });
@@ -460,12 +460,13 @@ describe('createBranchAndCommit()', () => {
     });
     const runner = { runArgs, run: vi.fn(), dryRun: false, environment: 'local' as const };
 
-    const result = await createBranchAndCommit(runner, '/repo', 'main', 'new-branch', 'fix: apply', async () => {});
+    const result = await createBranchAndCommit(runner, '/repo', 'main', 'new-branch', 'fix: apply', async () => 0);
 
     expect(runArgs).toHaveBeenCalledWith('git', ['add', '-A'], { cwd: '/repo' });
     expect(runArgs).toHaveBeenCalledWith('git', ['commit', '-m', 'fix: apply'], { cwd: '/repo' });
     expect(result.committed).toBe(true);
     expect(result.branch).toBe('new-branch');
+    expect(result.exitCode).toBe(0);
   });
 
   it('rolls back to originalBranch when fn() throws and re-throws the error', async () => {
@@ -483,6 +484,31 @@ describe('createBranchAndCommit()', () => {
     expect(runArgs).toHaveBeenCalledWith('git', ['checkout', 'main'], { cwd: '/repo' });
   });
 
+  it('returns { committed: false, exitCode: N } without throwing when fn() returns non-zero', async () => {
+    const runArgs = makeRunArgs({
+      'checkout -b nonzero-branch': { exitCode: 0 },
+      'checkout main': { exitCode: 0 },
+      'branch -D nonzero-branch': { exitCode: 0 },
+    });
+    const runner = { runArgs, run: vi.fn(), dryRun: false, environment: 'local' as const };
+
+    const result = await createBranchAndCommit(runner, '/repo', 'main', 'nonzero-branch', 'fix: x', async () => 2);
+
+    // Must NOT throw
+    expect(result.committed).toBe(false);
+    expect(result.exitCode).toBe(2);
+
+    // Rollback: checkout originalBranch then branch -D
+    expect(runArgs).toHaveBeenCalledWith('git', ['checkout', 'main'], { cwd: '/repo' });
+    expect(runArgs).toHaveBeenCalledWith('git', ['branch', '-D', 'nonzero-branch'], { cwd: '/repo' });
+
+    // git add -A must NOT have been called (no commit on non-zero exit)
+    const addCalls = runArgs.mock.calls.filter(
+      ([_file, args]: [string, string[]]) => args[0] === 'add',
+    );
+    expect(addCalls).toHaveLength(0);
+  });
+
   it('returns committed=false when commit reports nothing to commit', async () => {
     const runArgs = makeRunArgs({
       'checkout -b clean-branch': { exitCode: 0 },
@@ -491,9 +517,10 @@ describe('createBranchAndCommit()', () => {
     });
     const runner = { runArgs, run: vi.fn(), dryRun: false, environment: 'local' as const };
 
-    const result = await createBranchAndCommit(runner, '/repo', 'main', 'clean-branch', 'fix: x', async () => {});
+    const result = await createBranchAndCommit(runner, '/repo', 'main', 'clean-branch', 'fix: x', async () => 0);
 
     expect(result.committed).toBe(false);
+    expect(result.exitCode).toBe(0);
   });
 });
 

@@ -19,7 +19,6 @@ import {
 import type { RunContext } from "@app/run-context";
 import { writeAuditTrail, resolveCliVersion } from "@app/audit-trail";
 import { createBranchAndCommit, buildBranchName } from "@infra/utils/git-commit";
-import type { CreateBranchResult } from "@infra/utils/git-commit";
 import { detectGitBranch } from "@infra/utils/git-branch";
 import type { CommandRunner } from "@core/types/common";
 
@@ -232,37 +231,21 @@ export async function runFixCommand(
     const originalBranch = await detectGitBranch(opts.cwd, runner);
     const branchName = buildBranchName(branchPrefix);
 
-    let capturedExitCode = 0;
-    let branchResult: CreateBranchResult | null = null;
+    const branchResult = await createBranchAndCommit(
+      runner,
+      opts.cwd,
+      originalBranch,
+      branchName,
+      'fix: apply safe dependency updates [deep-health]',
+      async () => runFixPipeline(ctx, opts),
+    );
 
-    try {
-      branchResult = await createBranchAndCommit(
-        runner,
-        opts.cwd,
-        originalBranch,
-        branchName,
-        'fix: apply safe dependency updates [deep-health]',
-        async () => {
-          capturedExitCode = await runFixPipeline(ctx, opts);
-          if (capturedExitCode !== 0) {
-            throw new Error(`__pipeline_exit_${capturedExitCode}`);
-          }
-        },
-      );
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : '';
-      if (msg.startsWith('__pipeline_exit_')) {
-        return capturedExitCode;
-      }
-      throw err;
-    }
-
-    if (effectiveOpenPr && branchResult?.committed) {
+    if (effectiveOpenPr && branchResult.committed) {
       const effectivePrTitle = opts.prTitle ?? wf?.pr_title;
       await openPullRequest(runner, opts.cwd, branchResult.branch, effectivePrTitle, ctx);
     }
 
-    return capturedExitCode;
+    return branchResult.exitCode;
   }
 
   return runFixPipeline(ctx, opts);
