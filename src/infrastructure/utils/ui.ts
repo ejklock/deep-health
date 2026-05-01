@@ -44,6 +44,18 @@ export function divider(label?: string): string {
   );
 }
 
+// ─── Tag ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Returns a colored badge for `id` followed by the literal bracket label.
+ * Example: tag('osv', 'OSV verify') → '\x1b[...][OSV]\x1b[m] [OSV verify]'
+ * The `[<label>]` substring is always preserved verbatim so downstream string
+ * assertions remain intact.
+ */
+export function tag(id: string, label: string): string {
+  return `${badge(id)} [${label}]`;
+}
+
 // ─── Semantic chalk shortcuts ─────────────────────────────────────────────────
 
 export const dim = chalk.dim;

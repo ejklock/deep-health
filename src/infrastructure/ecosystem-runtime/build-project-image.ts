@@ -173,9 +173,7 @@ export async function buildProjectImage(
 
   const alreadyBuilt = await probeImageExists(image);
   if (alreadyBuilt) {
-    logger.info(
-      `[ecosystem-runtime/${logPrefix}] Reusing cached project image: ${image}`,
-    );
+    logger.tagged(logPrefix, `ecosystem-runtime/${logPrefix}`, `Reusing cached project image: ${image}`);
     // Binary probe must run even on cache hits — the cached image may lack required
     // ecosystem tools (e.g. image was built without the right base or was manually tagged).
     if (options.requiredBinaries && options.requiredBinaries.length > 0) {
@@ -190,10 +188,9 @@ export async function buildProjectImage(
 
   // ── 4. Build the image ────────────────────────────────────────────────────
 
-  logger.info(
-    `[ecosystem-runtime/${logPrefix}] Building project image from ${dockerfilePath} → ${image}` +
-      (buildContext ? ` (context: ${buildContext})` : ''),
-  );
+  logger.tagged(logPrefix, `ecosystem-runtime/${logPrefix}`,
+    `Building project image from ${dockerfilePath} → ${image}` +
+      (buildContext ? ` (context: ${buildContext})` : ''));
 
   const dockerBuildArgs = [
     'build',
@@ -215,7 +212,7 @@ export async function buildProjectImage(
     const { stderr } = await execFileAsync('docker', dockerBuildArgs);
     if (stderr.trim()) {
       for (const line of stderr.split('\n')) {
-        if (line.trim()) logger.debug(`[${logPrefix}/build] ${line}`);
+        if (line.trim()) logger.tagged(logPrefix, `${logPrefix}/build`, line, 'debug');
       }
     }
   } catch (err: unknown) {
@@ -232,7 +229,7 @@ export async function buildProjectImage(
     await probeBinariesInImage(image, options.requiredBinaries, logPrefix);
   }
 
-  logger.info(`[ecosystem-runtime/${logPrefix}] Project image built: ${image}`);
+  logger.tagged(logPrefix, `ecosystem-runtime/${logPrefix}`, `Project image built: ${image}`);
 
   return { image, entrypointOverride: '' };
 }
@@ -272,9 +269,10 @@ async function warnIfLargeContext(
         .then(() => true)
         .catch(() => false);
       if (!hasDockerignore) {
-        logger.warn(
-          `[ecosystem-runtime/${logPrefix}] Build context is large (~${Math.round(bytes / (1024 * 1024))} MB). ` +
+        logger.tagged(logPrefix, `ecosystem-runtime/${logPrefix}`,
+          `Build context is large (~${Math.round(bytes / (1024 * 1024))} MB). ` +
             `Consider adding a .dockerignore to exclude node_modules, vendor, .git, etc.`,
+          'warn',
         );
       }
     }
@@ -303,9 +301,7 @@ async function probeBinariesInImage(
   const missing: string[] = [];
 
   for (const binary of binaries) {
-    logger.debug(
-      `[ecosystem-runtime/${logPrefix}] Probing binary "${binary}" in image ${image}`,
-    );
+    logger.tagged(logPrefix, `ecosystem-runtime/${logPrefix}`, `Probing binary "${binary}" in image ${image}`, 'debug');
     try {
       await execFileAsync('docker', [
         'run',
@@ -317,13 +313,9 @@ async function probeBinariesInImage(
         '-c',
         `which ${binary}`,
       ]);
-      logger.debug(
-        `[ecosystem-runtime/${logPrefix}] Binary "${binary}" found in image ${image}`,
-      );
+      logger.tagged(logPrefix, `ecosystem-runtime/${logPrefix}`, `Binary "${binary}" found in image ${image}`, 'debug');
     } catch {
-      logger.debug(
-        `[ecosystem-runtime/${logPrefix}] Binary "${binary}" NOT found in image ${image}`,
-      );
+      logger.tagged(logPrefix, `ecosystem-runtime/${logPrefix}`, `Binary "${binary}" NOT found in image ${image}`, 'debug');
       missing.push(binary);
     }
   }

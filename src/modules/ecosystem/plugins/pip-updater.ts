@@ -186,10 +186,10 @@ export async function runPipUpdater(
   }
 
   if (runner.dryRun) {
-    logger.info(`[DRY-RUN] Would execute: pip install -U ${packageNamesToUpdate.join(' ')}`);
+    logger.tagged('pip', 'DRY-RUN', `Would execute: pip install -U ${packageNamesToUpdate.join(' ')}`);
     if (validationCommands.length > 0) {
       for (const vc of validationCommands) {
-        logger.info(`[DRY-RUN] Would execute: ${vc.command}`);
+        logger.tagged('pip', 'DRY-RUN', `Would execute: ${vc.command}`);
       }
     }
     const dryRunEntries: ValidationEntry[] =

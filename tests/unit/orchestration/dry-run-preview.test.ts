@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@infra/utils/logger.js", () => ({
-  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn() },
+  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn(), tagged: vi.fn() },
 }));
 
 import { logDryRunPreview } from "@orchestration/dry-run-preview";
@@ -42,8 +42,8 @@ describe("logDryRunPreview", () => {
   it("1. logs 'no planned changes' when ecosystem has no auto_safe vulns", () => {
     const eco = makeEcosystem([]);
     logDryRunPreview("npm", eco, false);
-    expect(logger.info).toHaveBeenCalledWith(
-      "[DRY-RUN] npm: no planned changes",
+    expect(logger.tagged).toHaveBeenCalledWith(
+      "npm", "DRY-RUN", "npm: no planned changes",
     );
   });
 
@@ -102,8 +102,8 @@ describe("logDryRunPreview", () => {
     logDryRunPreview("npm", eco, false);
     const calls = vi.mocked(logger.info).mock.calls.map((c) => c[0] as string);
     expect(calls.some((c) => c.includes("[breaking]"))).toBe(false);
-    expect(logger.info).toHaveBeenCalledWith(
-      "[DRY-RUN] npm: no planned changes",
+    expect(logger.tagged).toHaveBeenCalledWith(
+      "npm", "DRY-RUN", "npm: no planned changes",
     );
   });
 
@@ -116,8 +116,8 @@ describe("logDryRunPreview", () => {
     expect(
       calls.some((c) => c.includes("[breaking]") && c.includes("react")),
     ).toBe(false);
-    expect(logger.info).toHaveBeenCalledWith(
-      "[DRY-RUN] npm: no planned changes",
+    expect(logger.tagged).toHaveBeenCalledWith(
+      "npm", "DRY-RUN", "npm: no planned changes",
     );
   });
 

@@ -5,7 +5,7 @@
 import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('@infra/utils/logger', () => ({
-  logger: { warn: vi.fn(), debug: vi.fn(), info: vi.fn(), error: vi.fn() },
+  logger: { warn: vi.fn(), debug: vi.fn(), info: vi.fn(), error: vi.fn(), tagged: vi.fn() },
 }));
 
 import { validateGateA, validateEcosystemGate } from '@core/gates/validator';

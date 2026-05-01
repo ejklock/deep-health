@@ -65,8 +65,8 @@ describe('EphemeralEcosystemContainer runStreaming (pip mode)', () => {
     expect(result.stdout).toContain('Collecting requests');
     expect(result.stderr).toContain('WARNING: pip is out of date');
 
-    const writes = stderrSpy.mock.calls.map((c) => String(c[0]));
-    expect(writes.some((line) => line.includes('[INFO]  [pip] Collecting requests'))).toBe(true);
+    const writes = stderrSpy.mock.calls.map((c) => String(c[0]).replace(/\x1B\[[0-9;]*m/g, ''));
+    expect(writes.some((line) => line.includes('[pip] Collecting requests'))).toBe(true);
   });
 
   it('returns spawn error diagnostics when docker process fails to start', async () => {

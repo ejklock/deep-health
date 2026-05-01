@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // ── Module-level mocks ────────────────────────────────────────────────────────
 
 vi.mock('@infra/utils/logger.js', () => ({
-  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn() },
+  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn(), tagged: vi.fn() },
 }));
 
 vi.mock('@infra/utils/git.js', () => ({
@@ -237,8 +237,8 @@ describe('applyOsvFixViaStaging — container failure modes', () => {
     expect(result.applied).toBe(false);
     expect(result.packagesUpdated).toHaveLength(0);
     expect(hostWriteCall()).toBeUndefined();
-    expect((logger.warn as ReturnType<typeof vi.fn>).mock.calls.some((c) =>
-      String(c[0]).includes('Could not parse osv-scanner fix JSON output'),
+    expect((logger.tagged as ReturnType<typeof vi.fn>).mock.calls.some((c) =>
+      String(c[2]).includes('Could not parse osv-scanner fix JSON output'),
     )).toBe(true);
   });
 });
@@ -284,8 +284,8 @@ describe('applyOsvFixViaStaging — regression: unverifiable JSON claims must ne
     expect(result.applied).toBe(false);
     expect(result.packagesUpdated).toHaveLength(0);
     expect(hostWriteCall()).toBeUndefined();
-    expect((logger.warn as ReturnType<typeof vi.fn>).mock.calls.some((c) =>
-      String(c[0]).includes('2 patch(es) in JSON but the staging lockfile is byte-identical'),
+    expect((logger.tagged as ReturnType<typeof vi.fn>).mock.calls.some((c) =>
+      String(c[2]).includes('2 patch(es) in JSON but the staging lockfile is byte-identical'),
     )).toBe(true);
   });
 
@@ -329,8 +329,8 @@ describe('applyOsvFixViaStaging — regression: unverifiable JSON claims must ne
     expect(result.applied).toBe(false);
     expect(result.packagesUpdated).toHaveLength(0);
     expect(hostWriteCall()).toBeUndefined();
-    expect((logger.warn as ReturnType<typeof vi.fn>).mock.calls.some((c) =>
-      String(c[0]).includes('none of the 2 claimed upgrade(s) were verifiable'),
+    expect((logger.tagged as ReturnType<typeof vi.fn>).mock.calls.some((c) =>
+      String(c[2]).includes('none of the 2 claimed upgrade(s) were verifiable'),
     )).toBe(true);
   });
 
@@ -367,8 +367,8 @@ describe('applyOsvFixViaStaging — regression: unverifiable JSON claims must ne
     expect(host).toBeDefined();
     expect(host![1]).toBe(fixedContent);
 
-    expect((logger.warn as ReturnType<typeof vi.fn>).mock.calls.some((c) =>
-      String(c[0]).includes('2 of 5 osv-scanner patch(es) could not be verified'),
+    expect((logger.tagged as ReturnType<typeof vi.fn>).mock.calls.some((c) =>
+      String(c[2]).includes('2 of 5 osv-scanner patch(es) could not be verified'),
     )).toBe(true);
   });
 
@@ -482,8 +482,8 @@ describe('applyOsvFixViaStaging — package.json propagation branches (lines 257
 
     await applyOsvFixViaStaging(makeInput());
 
-    expect((logger.debug as ReturnType<typeof vi.fn>).mock.calls.some(
-      (c: unknown[]) => String(c[0]).includes('package.json unchanged'),
+    expect((logger.tagged as ReturnType<typeof vi.fn>).mock.calls.some(
+      (c: unknown[]) => String(c[2]).includes('package.json unchanged'),
     )).toBe(true);
   });
 
@@ -523,8 +523,8 @@ describe('applyOsvFixViaStaging — rm throws in finally (lines 289-290)', () =>
       osvFixSpec: { fixLockfile: 'package-lock.json', backupFiles: ['package-lock.json'] as const },
     }));
 
-    expect((logger.warn as ReturnType<typeof vi.fn>).mock.calls.some(
-      (c: unknown[]) => String(c[0]).includes('Failed to clean staging dir'),
+    expect((logger.tagged as ReturnType<typeof vi.fn>).mock.calls.some(
+      (c: unknown[]) => String(c[2]).includes('Failed to clean staging dir'),
     )).toBe(true);
   });
 });

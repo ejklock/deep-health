@@ -17,7 +17,7 @@ vi.mock('node:fs/promises', async (importActual) => {
 });
 
 vi.mock('@infra/utils/logger', () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() },
+  logger: { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn(), tagged: vi.fn() },
 }));
 
 import {

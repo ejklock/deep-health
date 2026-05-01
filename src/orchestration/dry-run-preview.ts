@@ -55,7 +55,7 @@ export function logDryRunPreview(
   }
 
   if (uniqueAutoSafe.size === 0 && uniqueBreaking.size === 0) {
-    logger.info(`[DRY-RUN] ${pluginId}: no planned changes`);
+    logger.tagged(pluginId, 'DRY-RUN', `${pluginId}: no planned changes`);
     return;
   }
 

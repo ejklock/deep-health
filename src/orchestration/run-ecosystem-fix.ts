@@ -116,11 +116,9 @@ export async function runEcosystemFix(
   if (plugin.id === 'npm' && (fixerStrategy === 'osv' || fixerStrategy === 'osv-then-audit')) {
     const lockVer = await readNpmLockfileVersion(cwd);
     if (lockVer === 1) {
-      logger.warn(
-        `[OSV fix] package-lock.json has lockfileVersion: 1 (npm 6 / Node ≤12). ` +
+      logger.tagged('osv', 'OSV fix', `package-lock.json has lockfileVersion: 1 (npm 6 / Node ≤12). ` +
           `osv-scanner cannot patch lockfileVersion 1 lockfiles in-place. ` +
-          `Auto-switching fixer: '${fixerStrategy}' → 'npm-audit'.`,
-      );
+          `Auto-switching fixer: '${fixerStrategy}' → 'npm-audit'.`, 'warn');
       fixerStrategy = 'npm-audit';
     }
   }
@@ -149,10 +147,8 @@ export async function runEcosystemFix(
         }
       }
       if (!fixLockfileOverride) {
-        logger.warn(
-          `[OSV fix] scan.paths is configured but no entry matches "${pluginLockfile}". ` +
-          `Falling back to default fix lockfile path.`,
-        );
+        logger.tagged('osv', 'OSV fix', `scan.paths is configured but no entry matches "${pluginLockfile}". ` +
+          `Falling back to default fix lockfile path.`, 'warn');
       }
     }
 
@@ -240,13 +236,9 @@ export async function runEcosystemFix(
     const osvVerifyRunner = resolveOsvCommandRunner(config, cwd, hostRunner);
     const osvVerifyMode = config.scanners?.osv?.runner ?? 'docker';
     if (osvVerifyMode === 'local') {
-      logger.info(
-        '[OSV verify] Using local osv-scanner binary for residual verification',
-      );
+      logger.tagged('osv', 'OSV verify', 'Using local osv-scanner binary for residual verification');
     } else {
-      logger.info(
-        '[OSV verify] Using OSV container runner with read-only mount for residual verification',
-      );
+      logger.tagged('osv', 'OSV verify', 'Using OSV container runner with read-only mount for residual verification');
     }
     const verifyScanArgs = plugin.buildScanArgs();
     const verifyCmd = `osv-scanner ${verifyScanArgs.join(' ')} --format json`;
@@ -315,9 +307,7 @@ function resolveOsvCommandRunner(
     readonly: true,
   });
 
-  logger.info(
-    `[OSV runner] Dedicated OSV container runner (mode: ${mode}, mount: read-only${image ? `, image: ${image}` : ''})`,
-  );
+  logger.tagged('osv', 'OSV runner', `Dedicated OSV container runner (mode: ${mode}, mount: read-only${image ? `, image: ${image}` : ''})`);
 
   return new OsvContainerCommandRunner({
     container: osvDockerRunner,
@@ -337,19 +327,17 @@ async function runOsvResidualVerification(
   command: string,
 ): Promise<ResidualVerification> {
   if (dryRun) {
-    logger.info(`[DRY-RUN] Would execute: ${command}`);
+    logger.tagged('osv', 'DRY-RUN', `Would execute: ${command}`);
     return { status: 'skipped' };
   }
-  logger.info(`[OSV verify] Running post-update OSV verification: ${command}`);
+  logger.tagged('osv', 'OSV verify', `Running post-update OSV verification: ${command}`);
   try {
     const cmdResult = await osvRunner.run(command, { cwd });
     let parsed: ScanResultJson;
     try {
       parsed = JSON.parse(cmdResult.stdout) as ScanResultJson;
     } catch {
-      logger.warn(
-        '[OSV verify] Could not parse osv-scanner JSON output — treating as non-fatal',
-      );
+      logger.tagged('osv', 'OSV verify', 'Could not parse osv-scanner JSON output — treating as non-fatal', 'warn');
       return { status: 'skipped' };
     }
     const summary: Record<string, number> = {};
@@ -358,18 +346,14 @@ async function runOsvResidualVerification(
     }
     const hasResidual = Object.values(summary).some((n) => n > 0);
     if (hasResidual) {
-      logger.warn(
-        '[OSV verify] Residual CVEs detected after update — see summary for details',
-      );
+      logger.tagged('osv', 'OSV verify', 'Residual CVEs detected after update — see summary for details', 'warn');
     }
     return hasResidual
       ? { status: 'unverified', summary }
       : { status: 'verified', summary };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    logger.warn(
-      `[OSV verify] Post-update OSV verification failed (non-fatal): ${message}`,
-    );
+    logger.tagged('osv', 'OSV verify', `Post-update OSV verification failed (non-fatal): ${message}`, 'warn');
     return { status: 'skipped' };
   }
 }

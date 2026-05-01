@@ -116,8 +116,8 @@ export async function runNpmUpdater(
   };
 
   if (runner.dryRun) {
-    logger.info(`[DRY-RUN] Would execute fixer strategy: ${fixerStrategy}`);
-    if (authorizeBreaking) logger.info('[DRY-RUN] Would install authorized breaking-change packages');
+    logger.tagged('npm', 'DRY-RUN', `Would execute fixer strategy: ${fixerStrategy}`);
+    if (authorizeBreaking) logger.tagged('npm', 'DRY-RUN', 'Would install authorized breaking-change packages');
     return { ...base, validations: skippedValidations };
   }
 
@@ -199,12 +199,10 @@ export async function runNpmUpdater(
 
       // osv-then-audit: before a full revert, try to preserve the post-OSV state
       if (fixerStrategy === 'osv-then-audit' && fixerResult.intermediateBackup) {
-        logger.warn(
-          '[osv-then-audit] Validation failed after audit-fix. Reverting audit-fix changes, keeping OSV state...',
-        );
+        logger.tagged('npm', 'osv-then-audit', 'Validation failed after audit-fix. Reverting audit-fix changes, keeping OSV state...', 'warn');
         await restoreFiles(fixerResult.intermediateBackup, cwd);
 
-        logger.info('[osv-then-audit] Running npm ci after partial revert...');
+          logger.tagged('npm', 'osv-then-audit', 'Running npm ci after partial revert...');
         const reCiResult = await runner.runArgs('npm', ['ci'], { cwd, stream: true });
 
         if (reCiResult.exitCode === 0) {
@@ -214,22 +212,16 @@ export async function runNpmUpdater(
           await restoreFiles(fixerResult.intermediateBackup, cwd);
           const reValidation = await runValidations({ runner, cwd, commands: validationCommands });
           if (reValidation.allPassed) {
-            logger.info(
-              '[osv-then-audit] Post-OSV state validates successfully. Audit-fix changes reverted; OSV changes preserved.',
-            );
+            logger.tagged('npm', 'osv-then-audit', 'Post-OSV state validates successfully. Audit-fix changes reverted; OSV changes preserved.');
             const osvOnly = osvFixOutcome?.packagesUpdated.map((p) => `${p.name}@${p.versionTo}`) ?? [];
             return tx.success({
               packages_updated: osvOnly,
               validations: reValidation.entries,
             });
           }
-          logger.warn(
-            '[osv-then-audit] Post-OSV state also failed validation. Performing full revert...',
-          );
+          logger.tagged('npm', 'osv-then-audit', 'Post-OSV state also failed validation. Performing full revert...', 'warn');
         } else {
-          logger.warn(
-            '[osv-then-audit] npm ci failed after partial revert. Performing full revert...',
-          );
+          logger.tagged('npm', 'osv-then-audit', 'npm ci failed after partial revert. Performing full revert...', 'warn');
         }
       }
 

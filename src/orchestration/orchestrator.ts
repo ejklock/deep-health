@@ -298,7 +298,7 @@ export async function runOrchestrator(
       const content = await readFile(join(options.cwd, filename), 'utf-8');
       preRunSnapshots.set(filename, content as string);
     } catch {
-      logger.debug(`[pre-run] Could not read ${filename} — skipping pre-run snapshot`);
+      logger.tagged('pre-run', 'pre-run', `Could not read ${filename} — skipping pre-run snapshot`, 'debug');
     }
   }
 
@@ -413,7 +413,7 @@ export async function runOrchestrator(
     const ecoConfigEntry = config.ecosystems.find((e) => e.id === plugin.id);
     const advisors = ecoConfigEntry?.advisors ?? plugin.defaultAdvisors;
     if (advisors.length > 0) {
-      logger.info(`[Advisor Step] Running advisors for ${plugin.name}...`);
+      logger.tagged(plugin.id, 'Advisor Step', `Running advisors for ${plugin.name}...`);
       result.advisorResults[plugin.id] = await runAdvisors(
         runner,
         options.cwd,

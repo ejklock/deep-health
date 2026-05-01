@@ -76,7 +76,7 @@ function parseOsvFixJson(stdout: string): PackageUpdate[] {
 
     return Array.from(dedupe.values());
   } catch (err) {
-    logger.warn(`[OSV fix] Could not parse osv-scanner fix JSON output: ${err}`);
+    logger.tagged('osv', 'OSV fix', `Could not parse osv-scanner fix JSON output: ${err}`, 'warn');
     return [];
   }
 }
@@ -132,7 +132,7 @@ export async function applyOsvFixViaStaging(
   }
 
   if (dryRun) {
-    logger.info('[DRY-RUN] Would run osv-scanner fix in staging temp dir');
+    logger.tagged('osv', 'DRY-RUN', 'Would run osv-scanner fix in staging temp dir');
     return {
       applied: false,
       packagesUpdated: [],
@@ -172,12 +172,10 @@ export async function applyOsvFixViaStaging(
       effectiveFixLockfile,
     ]);
 
-    logger.debug(`[OSV fix] osv-scanner fix exited with code ${result.exitCode}`);
+    logger.tagged('osv', 'OSV fix', `osv-scanner fix exited with code ${result.exitCode}`, 'debug');
 
     if (result.exitCode !== 0) {
-      logger.warn(
-        '[OSV fix] osv-scanner fix exited with non-zero exit code (no changes applied)',
-      );
+      logger.tagged('osv', 'OSV fix', 'osv-scanner fix exited with non-zero exit code (no changes applied)', 'warn');
       return {
         applied: false,
         packagesUpdated: [],
@@ -204,14 +202,9 @@ export async function applyOsvFixViaStaging(
     // drop them so the report does not overclaim.
     if (!bytesChanged) {
       if (claimedUpdates.length > 0) {
-        logger.warn(
-          `[OSV fix] osv-scanner reported ${claimedUpdates.length} patch(es) in JSON but the staging lockfile is byte-identical to the host lockfile. ` +
-            'This is a known osv-scanner limitation on lockfileVersion 1 (npm 6). Dropping unverifiable claims.',
-        );
+        logger.tagged('osv', 'OSV fix', `osv-scanner reported ${claimedUpdates.length} patch(es) in JSON but the staging lockfile is byte-identical to the host lockfile. This is a known osv-scanner limitation on lockfileVersion 1 (npm 6). Dropping unverifiable claims.`, 'warn');
       } else {
-        logger.info(
-          '[OSV fix] No lockfile changes produced (lockfile already compliant or no patches found)',
-        );
+        logger.tagged('osv', 'OSV fix', 'No lockfile changes produced (lockfile already compliant or no patches found)');
       }
       return {
         applied: false,
@@ -230,9 +223,7 @@ export async function applyOsvFixViaStaging(
     if (versionsInStaging.size === 0) {
       // Parser could not extract any package versions from the patched lockfile.
       // We refuse to write changes we cannot reason about.
-      logger.warn(
-        `[OSV fix] Staging lockfile differs from host but could not be parsed; refusing to propagate ${claimedUpdates.length} unverifiable claim(s) to host disk.`,
-      );
+      logger.tagged('osv', 'OSV fix', `Staging lockfile differs from host but could not be parsed; refusing to propagate ${claimedUpdates.length} unverifiable claim(s) to host disk.`, 'warn');
       return {
         applied: false,
         packagesUpdated: [],
@@ -257,10 +248,7 @@ export async function applyOsvFixViaStaging(
     if (verified.length === 0) {
       // Bytes changed but nothing we can attribute to a concrete upgrade.
       // Refuse to write a change we cannot explain.
-      logger.warn(
-        `[OSV fix] Staging lockfile differs from host but none of the ${claimedUpdates.length} claimed upgrade(s) were verifiable in its contents. ` +
-          'Refusing to write host disk — likely a non-functional normalization from osv-scanner.',
-      );
+      logger.tagged('osv', 'OSV fix', `Staging lockfile differs from host but none of the ${claimedUpdates.length} claimed upgrade(s) were verifiable in its contents. Refusing to write host disk — likely a non-functional normalization from osv-scanner.`, 'warn');
       return {
         applied: false,
         packagesUpdated: [],
@@ -277,10 +265,10 @@ export async function applyOsvFixViaStaging(
       try {
         const stagingManifest = await readFile(join(stagingDir, 'package.json'), 'utf-8');
         if (stagingManifest === backups.get('package.json')) {
-          logger.debug('[OSV fix] package.json unchanged in staging');
+          logger.tagged('osv', 'OSV fix', 'package.json unchanged in staging', 'debug');
         } else {
           await writeFile(resolve(cwd, 'package.json'), stagingManifest, 'utf-8');
-          logger.info('[OSV fix] package.json also updated on host disk (manifest range changed by osv-scanner fix)');
+          logger.tagged('osv', 'OSV fix', 'package.json also updated on host disk (manifest range changed by osv-scanner fix)');
         }
       } catch {
         // Staging package.json does not exist — skip silently.
@@ -288,15 +276,11 @@ export async function applyOsvFixViaStaging(
     }
 
     if (dropped.length > 0) {
-      logger.warn(
-        `[OSV fix] ${dropped.length} of ${claimedUpdates.length} osv-scanner patch(es) could not be verified in the lockfile and were excluded from the report: ` +
-          dropped.map((p) => `${p.name}@${p.versionTo}`).join(', '),
-      );
+      logger.tagged('osv', 'OSV fix', `${dropped.length} of ${claimedUpdates.length} osv-scanner patch(es) could not be verified in the lockfile and were excluded from the report: ` +
+          dropped.map((p) => `${p.name}@${p.versionTo}`).join(', '), 'warn');
     }
 
-    logger.info(
-      `[OSV fix] Applied and verified ${verified.length} package upgrade(s) on host disk`,
-    );
+    logger.tagged('osv', 'OSV fix', `Applied and verified ${verified.length} package upgrade(s) on host disk`);
 
     return {
       applied: true,
@@ -309,7 +293,7 @@ export async function applyOsvFixViaStaging(
     try {
       await rm(stagingDir, { recursive: true, force: true });
     } catch (e) {
-      logger.warn(`[OSV fix] Failed to clean staging dir: ${e}`);
+      logger.tagged('osv', 'OSV fix', `Failed to clean staging dir: ${e}`, 'warn');
     }
   }
 }

@@ -3,7 +3,7 @@
  * Pure string-builder module — no I/O side effects.
  */
 import { describe, it, expect } from 'vitest';
-import { SCANNER_COLORS, badge, divider } from '@infra/utils/ui';
+import { SCANNER_COLORS, badge, divider, tag } from '@infra/utils/ui';
 
 // Strips SGR ANSI escape sequences so we can assert on plain text.
 function stripAnsi(str: string): string {
@@ -77,5 +77,31 @@ describe('divider()', () => {
   it('uses the divider character for a label-less line', () => {
     const raw = stripAnsi(divider());
     expect(raw).toMatch(/^─+$/);
+  });
+});
+
+// ─── tag() ────────────────────────────────────────────────────────────────────
+
+describe('tag()', () => {
+  it('contains the literal bracket label substring for a known id', () => {
+    const result = tag('osv', 'OSV verify');
+    expect(stripAnsi(result)).toContain('[OSV verify]');
+  });
+
+  it('prepends a badge before the bracket label', () => {
+    const result = stripAnsi(tag('npm', 'npm-audit fix'));
+    expect(result).toMatch(/^\[NPM\] \[npm-audit fix\]$/);
+  });
+
+  it('falls back gracefully for an unknown id', () => {
+    const result = tag('unknown-xyz', 'My Label');
+    const plain = stripAnsi(result);
+    expect(plain).toContain('[My Label]');
+    expect(plain).toContain('[UNKNOWN-XYZ]');
+  });
+
+  it('preserves the label verbatim (no uppercasing of label)', () => {
+    const result = stripAnsi(tag('osv', 'OSV fix'));
+    expect(result).toContain('[OSV fix]');
   });
 });

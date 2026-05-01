@@ -114,7 +114,7 @@ export class EphemeralEcosystemContainer implements EphemeralContainerRunner<str
         const text = chunk.toString();
         stdoutChunks.push(text);
         for (const line of text.split('\n')) {
-          if (line.trim()) logger.info(`[${this.logPrefix}] ${line}`);
+          if (line.trim()) logger.tagged(this.logPrefix, this.logPrefix, line);
         }
       });
 
@@ -122,7 +122,7 @@ export class EphemeralEcosystemContainer implements EphemeralContainerRunner<str
         const text = chunk.toString();
         stderrChunks.push(text);
         for (const line of text.split('\n')) {
-          if (line.trim()) logger.info(`[${this.logPrefix}] ${line}`);
+          if (line.trim()) logger.tagged(this.logPrefix, this.logPrefix, line);
         }
       });
 

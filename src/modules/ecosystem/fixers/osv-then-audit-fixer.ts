@@ -83,7 +83,7 @@ export async function applyOsvThenAuditFix(opts: FixerCallOptions): Promise<Fixe
 
   const versionsPreAudit = collectNpmLockfileVersions(postOsvContent);
   if (versionsPreAudit.size === 0) {
-    logger.warn('[osv-then-audit] Could not parse package-lock.json before audit fix; skipping');
+    logger.tagged('npm', 'osv-then-audit', 'Could not parse package-lock.json before audit fix; skipping', 'warn');
     return { breakingInstallError: null, packagesUpdated: [] };
   }
 
@@ -91,11 +91,9 @@ export async function applyOsvThenAuditFix(opts: FixerCallOptions): Promise<Fixe
   let postOsvManifest: string | undefined;
   try {
     postOsvManifest = await readFile(join(cwd, 'package.json'), 'utf-8');
-    logger.debug('[osv-then-audit] package.json included in intermediateBackup');
+    logger.tagged('npm', 'osv-then-audit', 'package.json included in intermediateBackup', 'debug');
   } catch {
-    logger.warn(
-      '[osv-then-audit] package.json not found before audit fix; partial revert will not restore manifest',
-    );
+      logger.tagged('npm', 'osv-then-audit', 'package.json not found before audit fix; partial revert will not restore manifest', 'warn');
   }
 
   const intermediateBackup = new Map<string, string>([
@@ -104,12 +102,10 @@ export async function applyOsvThenAuditFix(opts: FixerCallOptions): Promise<Fixe
   ]);
 
   // ── npm audit fix ────────────────────────────────────────────────────────────
-  logger.info('[osv-then-audit] Running npm audit fix on top of OSV changes...');
+  logger.tagged('npm', 'osv-then-audit', 'Running npm audit fix on top of OSV changes...');
   const auditResult = await runner.runArgs('npm', ['audit', 'fix'], { cwd, stream: true });
   if (auditResult.exitCode !== 0) {
-    logger.warn(
-      `[osv-then-audit] npm audit fix exited with ${auditResult.exitCode}; checking lockfile for partial upgrades`,
-    );
+    logger.tagged('npm', 'osv-then-audit', `npm audit fix exited with ${auditResult.exitCode}; checking lockfile for partial upgrades`, 'warn');
   }
 
   // ── Snapshot pós-audit ───────────────────────────────────────────────────────
@@ -117,7 +113,7 @@ export async function applyOsvThenAuditFix(opts: FixerCallOptions): Promise<Fixe
   try {
     postAuditContent = await readFile(join(cwd, 'package-lock.json'), 'utf-8');
   } catch (err) {
-    logger.warn(`[osv-then-audit] Could not read package-lock.json after audit fix (${err})`);
+    logger.tagged('npm', 'osv-then-audit', `Could not read package-lock.json after audit fix (${err})`, 'warn');
     postAuditContent = postOsvContent;
   }
 
@@ -145,14 +141,10 @@ export async function applyOsvThenAuditFix(opts: FixerCallOptions): Promise<Fixe
     }
   }
 
-  logger.info(
-    `[osv-then-audit] Verified ${auditVerified.length} of ${npmEcosystem.auto_safe_packages.length} audit-fix upgrade(s) on disk`,
-  );
+  logger.tagged('npm', 'osv-then-audit', `Verified ${auditVerified.length} of ${npmEcosystem.auto_safe_packages.length} audit-fix upgrade(s) on disk`);
 
   if (auditFalsePositives.length > 0) {
-    logger.warn(
-      `[osv-then-audit] ${auditFalsePositives.length} package(s) classified auto_safe but not upgraded by audit fix: ${auditFalsePositives.join(', ')}`,
-    );
+    logger.tagged('npm', 'osv-then-audit', `${auditFalsePositives.length} package(s) classified auto_safe but not upgraded by audit fix: ${auditFalsePositives.join(', ')}`, 'warn');
   }
 
   return {

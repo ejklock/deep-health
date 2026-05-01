@@ -111,7 +111,7 @@ export class EcosystemContainerCommandRunner implements CommandRunner {
     if (firstToken && matchesContainerBinary(firstToken, this.spec.containerBinaries)) {
       // Route to container — argv shape depends on runMode
       const containerTokens = this._buildContainerTokensFromRun(firstToken, tokens);
-      logger.debug(`[ecosystem-runtime] routing to container: ${trimmed}`);
+      logger.tagged('ecosystem-runtime', 'ecosystem-runtime', `routing to container: ${trimmed}`, 'debug');
       const result = await this._runContainer(containerTokens, options?.stream);
       return {
         stdout: result.stdout,
@@ -123,7 +123,7 @@ export class EcosystemContainerCommandRunner implements CommandRunner {
     }
 
     if (hasRunShell(this.container) && !isHostOnlyCommand(firstToken)) {
-      logger.debug(`[ecosystem-runtime] routing to container shell: ${trimmed}`);
+      logger.tagged('ecosystem-runtime', 'ecosystem-runtime', `routing to container shell: ${trimmed}`, 'debug');
       const result = await this.container.runShell(trimmed, { cwd: options?.cwd });
       return {
         stdout: result.stdout,
@@ -146,7 +146,7 @@ export class EcosystemContainerCommandRunner implements CommandRunner {
     if (matchesContainerBinary(file, this.spec.containerBinaries)) {
       // Route to container — argv shape depends on runMode
       const containerTokens = this._buildContainerTokensFromRunArgs(file, args);
-      logger.debug(`[ecosystem-runtime] routing to container: ${file} ${args.join(' ')}`);
+      logger.tagged('ecosystem-runtime', 'ecosystem-runtime', `routing to container: ${file} ${args.join(' ')}`, 'debug');
       const result = await this._runContainer(containerTokens, options?.stream);
       const command = `${file} ${args.join(' ')}`;
       return {
@@ -160,7 +160,7 @@ export class EcosystemContainerCommandRunner implements CommandRunner {
 
     if (hasRunShell(this.container) && !isHostOnlyCommand(file)) {
       const shellCmd = [file, ...args].join(' ');
-      logger.debug(`[ecosystem-runtime] routing to container shell: ${shellCmd}`);
+      logger.tagged('ecosystem-runtime', 'ecosystem-runtime', `routing to container shell: ${shellCmd}`, 'debug');
       const result = await this.container.runShell(shellCmd, { cwd: options?.cwd });
       return {
         stdout: result.stdout,

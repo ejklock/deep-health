@@ -34,7 +34,7 @@ export async function runAdvisors(
   const results: AdvisorResult[] = [];
 
   for (const advisor of advisors) {
-    logger.info(`[Advisor] ${ecosystemId}/${advisor.name}: ${advisor.command}`);
+    logger.tagged(ecosystemId, 'Advisor', `${ecosystemId}/${advisor.name}: ${advisor.command}`);
     const isJsonFormat = advisor.format === 'json';
 
     try {
@@ -49,7 +49,7 @@ export async function runAdvisors(
         } catch (parseErr) {
           // Malformed / unparseable JSON → classify as error, not clean
           const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
-          logger.warn(`[Advisor] ${ecosystemId}/${advisor.name} JSON parse failed (non-fatal): ${parseMsg}`);
+          logger.tagged(ecosystemId, 'Advisor', `${ecosystemId}/${advisor.name} JSON parse failed (non-fatal): ${parseMsg}`, 'warn');
           results.push({
             name: advisor.name,
             command: advisor.command,
@@ -84,7 +84,7 @@ export async function runAdvisors(
     } catch (err) {
       // Advisor failure is always non-fatal
       const message = err instanceof Error ? err.message : String(err);
-      logger.warn(`[Advisor] ${ecosystemId}/${advisor.name} failed (non-fatal): ${message}`);
+      logger.tagged(ecosystemId, 'Advisor', `${ecosystemId}/${advisor.name} failed (non-fatal): ${message}`, 'warn');
       results.push({
         name: advisor.name,
         command: advisor.command,

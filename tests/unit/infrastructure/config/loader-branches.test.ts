@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 
 vi.mock('@infra/utils/logger', () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), tagged: vi.fn() },
 }));
 
 import { loadConfig, validateEcosystemsAgainstRegistry } from '@infra/config/loader';

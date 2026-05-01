@@ -125,11 +125,11 @@ export async function runComposerUpdater(
   }
 
   if (runner.dryRun) {
-    logger.info(`[DRY-RUN] Would execute: composer install ${automationArgs.join(' ')} (env-check)`);
-    logger.info(`[DRY-RUN] Would execute: composer update ${packageNamesToUpdate.join(' ')} ${automationArgs.join(' ')}`);
+    logger.tagged('composer', 'DRY-RUN', `Would execute: composer install ${automationArgs.join(' ')} (env-check)`);
+    logger.tagged('composer', 'DRY-RUN', `Would execute: composer update ${packageNamesToUpdate.join(' ')} ${automationArgs.join(' ')}`);
     if (validationCommands.length > 0) {
       for (const vc of validationCommands) {
-        logger.info(`[DRY-RUN] Would execute: ${vc.command}`);
+        logger.tagged('composer', 'DRY-RUN', `Would execute: ${vc.command}`);
       }
     }
     const dryRunEntries: ValidationEntry[] =
@@ -152,12 +152,12 @@ export async function runComposerUpdater(
     // Runs `composer install` to validate the environment before any mutations.
     // Returns a structured error result (not a thrown exception) so the caller can
     // surface the diagnostic cleanly without aborting the pipeline unexpectedly.
-    logger.info(`[composer env-check] Running composer install ${automationArgs.join(' ')} to verify environment...`);
+    logger.tagged('composer', 'composer env-check', `Running composer install ${automationArgs.join(' ')} to verify environment...`);
     // SEC: static args only — no variable data
     const envCheckResult = await runner.runArgs('composer', ['install', ...automationArgs], { cwd });
     if (envCheckResult.exitCode !== 0) {
       const detail = envCheckResult.stderr || envCheckResult.stdout || '(no output)';
-      logger.error('[composer env-check] Environment check failed — aborting update.');
+      logger.tagged('composer', 'composer env-check', 'Environment check failed — aborting update.', 'error');
       return {
         ...base,
         status: 'error',
@@ -165,7 +165,7 @@ export async function runComposerUpdater(
         error: `Composer environment mismatch: composer install exited with code ${envCheckResult.exitCode}.\n${detail}`,
       };
     }
-    logger.info('[composer env-check] Environment check passed.');
+      logger.tagged('composer', 'composer env-check', 'Environment check passed.');
 
     const tx = await beginUpdaterTransaction({ files: COMPOSER_FILES, base, cwd });
 

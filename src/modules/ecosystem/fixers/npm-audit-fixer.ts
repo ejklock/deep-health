@@ -115,7 +115,7 @@ export async function applyNpmAuditFix(opts: NpmAuditFixerOptions): Promise<NpmA
   try {
     postAutoSafeLockfile = await readFile(join(cwd, 'package-lock.json'), 'utf-8');
   } catch (err) {
-    logger.warn(`[npm-audit fix] Could not read package-lock.json after npm audit fix (${err})`);
+    logger.tagged('npm', 'npm-audit fix', `Could not read package-lock.json after npm audit fix (${err})`, 'warn');
     postAutoSafeLockfile = preLockfileContent;
   }
 
@@ -143,14 +143,10 @@ export async function applyNpmAuditFix(opts: NpmAuditFixerOptions): Promise<NpmA
     }
   }
 
-  logger.info(
-    `[npm-audit fix] Verified ${autoSafeVerified.length} of ${npmEcosystem.auto_safe_packages.length} auto-safe upgrade(s) on host disk`,
-  );
+  logger.tagged('npm', 'npm-audit fix', `Verified ${autoSafeVerified.length} of ${npmEcosystem.auto_safe_packages.length} auto-safe upgrade(s) on host disk`);
 
   if (autoSafeFalsePositives.length > 0) {
-    logger.warn(
-      `[npm-audit fix] Scanner classified ${autoSafeFalsePositives.length} package(s) as auto_safe but post-fix lockfile has no newer version: ${autoSafeFalsePositives.join(', ')}`,
-    );
+    logger.tagged('npm', 'npm-audit fix', `Scanner classified ${autoSafeFalsePositives.length} package(s) as auto_safe but post-fix lockfile has no newer version: ${autoSafeFalsePositives.join(', ')}`, 'warn');
   }
 
   const packagesUpdated = [...autoSafeVerified];
@@ -163,10 +159,8 @@ export async function applyNpmAuditFix(opts: NpmAuditFixerOptions): Promise<NpmA
   const skippedProtected = npmEcosystem.vulnerabilities
     .filter((v) => v.classification === 'breaking' && v.breakingReason === 'protected-constraint');
   if (skippedProtected.length > 0) {
-    logger.warn(
-      `[npm-audit fix] Skipping ${skippedProtected.length} protected-constraint package(s) — cannot be installed automatically: ` +
-      skippedProtected.map((v) => v.package).join(', '),
-    );
+    logger.tagged('npm', 'npm-audit fix', `Skipping ${skippedProtected.length} protected-constraint package(s) — cannot be installed automatically: ` +
+      skippedProtected.map((v) => v.package).join(', '), 'warn');
   }
   const breakingPkgs = npmEcosystem.vulnerabilities
     .filter((v) => v.classification === 'breaking' && v.safeVersion && v.breakingReason !== 'protected-constraint')
@@ -190,7 +184,7 @@ export async function applyNpmAuditFix(opts: NpmAuditFixerOptions): Promise<NpmA
   try {
     postBreakingLockfile = await readFile(join(cwd, 'package-lock.json'), 'utf-8');
   } catch (err) {
-    logger.warn(`[npm-audit fix] Could not read package-lock.json after breaking install (${err})`);
+    logger.tagged('npm', 'npm-audit fix', `Could not read package-lock.json after breaking install (${err})`, 'warn');
     postBreakingLockfile = postAutoSafeLockfile;
   }
 
@@ -223,9 +217,7 @@ export async function applyNpmAuditFix(opts: NpmAuditFixerOptions): Promise<NpmA
   }
 
   if (breakingUnverified.length > 0) {
-    logger.warn(
-      `[npm-audit fix] ${breakingVerified.length} of ${breakingPkgs.size} authorized breaking upgrade(s) verified on disk; unverified: ${breakingUnverified.join(', ')}`,
-    );
+    logger.tagged('npm', 'npm-audit fix', `${breakingVerified.length} of ${breakingPkgs.size} authorized breaking upgrade(s) verified on disk; unverified: ${breakingUnverified.join(', ')}`, 'warn');
   }
 
   packagesUpdated.push(...breakingVerified);

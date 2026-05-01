@@ -7,7 +7,7 @@
 import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('@infra/utils/logger', () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() },
+  logger: { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn(), tagged: vi.fn() },
 }));
 
 import { writeAuditTrail, resolveCliVersion } from '@app/audit-trail';

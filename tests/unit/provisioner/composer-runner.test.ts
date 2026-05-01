@@ -69,8 +69,8 @@ describe('EphemeralEcosystemContainer runStreaming (composer mode)', () => {
     expect(result.stdout).toContain('Installing dependencies');
     expect(result.stderr).toContain('Composer warning');
 
-    const writes = stderrSpy.mock.calls.map((c) => String(c[0]));
-    expect(writes.some((line) => line.includes('[INFO]  [composer] Installing dependencies'))).toBe(true);
+    const writes = stderrSpy.mock.calls.map((c) => String(c[0]).replace(/\x1B\[[0-9;]*m/g, ''));
+    expect(writes.some((line) => line.includes('[composer] Installing dependencies'))).toBe(true);
   });
 });
 

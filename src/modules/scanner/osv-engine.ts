@@ -409,9 +409,9 @@ export class OsvScannerEngine implements ScannerEngine {
 
       if (runner.dryRun) {
         if (useDocker) {
-          logger.info(`[DRY-RUN] Would execute osv-scanner via Docker container`);
+          logger.tagged('osv', 'DRY-RUN', 'Would execute osv-scanner via Docker container');
         } else {
-          logger.info(`[DRY-RUN] Would execute: ${buildScanCommand(activePlugins)}`);
+          logger.tagged('osv', 'DRY-RUN', `Would execute: ${buildScanCommand(activePlugins)}`);
         }
         return base;
       }

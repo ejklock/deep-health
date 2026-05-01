@@ -173,10 +173,10 @@ export const npmPlugin: EcosystemPlugin = {
 
     const specArgs = [...breakingPkgs.entries()].map(([name, ver]) => `${name}@${ver}`);
     const specs = specArgs.join(' ');
-    logger.info(`[OSV strategy] Installing authorized breaking-change packages via npm: ${specs}`);
+    logger.tagged('npm', 'OSV strategy', `Installing authorized breaking-change packages via npm: ${specs}`);
 
     if (args.dryRun) {
-      logger.info(`[DRY-RUN] Would execute: npm install ${specs}`);
+      logger.tagged('npm', 'DRY-RUN', `Would execute: npm install ${specs}`);
       return { status: 'success' };
     }
 

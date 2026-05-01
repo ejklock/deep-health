@@ -11,7 +11,7 @@ vi.mock('@infra/utils/git.js', () => ({
 }));
 
 vi.mock('@infra/utils/logger.js', () => ({
-  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn() },
+  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn(), tagged: vi.fn() },
 }));
 
 // npm-audit fixer reads package-lock.json before and after running npm audit fix.
@@ -1552,8 +1552,8 @@ describe('runNpmUpdater — osv-then-audit strategy', () => {
 
     expect(result.status).toBe('error');
     const { logger: mockLogger } = await import('@infra/utils/logger.js');
-    const warnCalls = (mockLogger.warn as ReturnType<typeof vi.fn>).mock.calls;
-    expect(warnCalls.some((c) => String(c[0]).includes('npm ci failed after partial revert'))).toBe(true);
+    const warnCalls = (mockLogger.tagged as ReturnType<typeof vi.fn>).mock.calls;
+    expect(warnCalls.some((c) => String(c[2]).includes('npm ci failed after partial revert'))).toBe(true);
   });
 });
 
@@ -1779,8 +1779,8 @@ describe('npm-updater additional branch coverage', () => {
     const { logger } = await import('@infra/utils/logger.js');
     const result = await runNpmUpdater(runner, baseConfig(), scan, '/tmp/project', true, []);
     expect(result).toBeDefined();
-    expect((logger.info as ReturnType<typeof vi.fn>).mock.calls.some(
-      (c: unknown[]) => typeof c[0] === 'string' && c[0].includes('Would install authorized breaking-change packages'),
+    expect((logger.tagged as ReturnType<typeof vi.fn>).mock.calls.some(
+      (c: unknown[]) => typeof c[2] === 'string' && c[2].includes('Would install authorized breaking-change packages'),
     )).toBe(true);
   });
 

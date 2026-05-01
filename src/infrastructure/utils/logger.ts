@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import { badge, divider } from './ui';
+import { badge, divider, tag } from './ui';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -67,6 +67,16 @@ export const logger = {
   /** Renders a badge + label header line to stderr. */
   header(id: string, label: string): void {
     process.stderr.write(`${badge(id)} ${label}\n`);
+  },
+
+  /**
+   * Emits a tagged log line: `${badge(id)} [${label}] ${message}`.
+   * The `[<label>]` substring is preserved verbatim so existing string assertions
+   * remain intact. Defaults to 'info' level (honors progressSink).
+   */
+  tagged(id: string, label: string, message: string, level: LogLevel = 'info'): void {
+    const text = `${tag(id, label)} ${message}`;
+    logger[level](text);
   },
 };
 

@@ -7,7 +7,7 @@
 import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('@infra/utils/logger', () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn() },
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn(), tagged: vi.fn() },
   setProgressSink: vi.fn(), makeProgressSink: vi.fn(),
 }));
 

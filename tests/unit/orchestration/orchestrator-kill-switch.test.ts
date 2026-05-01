@@ -15,7 +15,7 @@ import { logger } from "@infra/utils/logger";
 // ── Module-level mocks ───────────────────────────────────────────────────────
 
 vi.mock("@infra/utils/logger.js", () => ({
-  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn() },
+  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn(), tagged: vi.fn() },
   setProgressSink: vi.fn(), makeProgressSink: vi.fn(),
 }));
 
@@ -305,8 +305,8 @@ describe("runOrchestrator — lockfileVersion 1 warning (lines 783-789)", () => 
       scannerRegistry: makeRegistry(),
     });
 
-    const warnCalls = (logger.warn as ReturnType<typeof vi.fn>).mock.calls;
-    expect(warnCalls.some((c: unknown[]) => String(c[0]).includes('lockfileVersion: 1'))).toBe(true);
+    const taggedCalls = (logger.tagged as ReturnType<typeof vi.fn>).mock.calls;
+    expect(taggedCalls.some((c: unknown[]) => String(c[2]).includes('lockfileVersion: 1'))).toBe(true);
 
     runUpdaterSpy.mockRestore();
   });

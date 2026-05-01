@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // ── Module-level mocks ────────────────────────────────────────────────────────
 
 vi.mock('@infra/utils/logger.js', () => ({
-  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn() },
+  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn(), tagged: vi.fn() },
 }));
 
 // Using vi.hoisted() so the vi.fn() instances are initialized before the
@@ -189,9 +189,9 @@ describe('applyNpmAuditFix — false positive from scanner', () => {
     expect(result.breakingInstallError).toBeNull();
     expect(result.packagesUpdated).toHaveLength(0);
 
-    const warnCalls = (logger.warn as ReturnType<typeof vi.fn>).mock.calls;
+    const warnCalls = (logger.tagged as ReturnType<typeof vi.fn>).mock.calls;
     expect(
-      warnCalls.some((c) => String(c[0]).includes('no newer version')),
+      warnCalls.some((c) => String(c[2]).includes('no newer version')),
     ).toBe(true);
   });
 });
@@ -236,8 +236,8 @@ describe('applyNpmAuditFix — partial success', () => {
     expect(result.packagesUpdated).toHaveLength(1);
     expect(result.packagesUpdated[0]).toBe('a@1.1.0');
 
-    const warnCalls = (logger.warn as ReturnType<typeof vi.fn>).mock.calls;
-    expect(warnCalls.some((c) => String(c[0]).includes('no newer version'))).toBe(true);
+    const warnCalls = (logger.tagged as ReturnType<typeof vi.fn>).mock.calls;
+    expect(warnCalls.some((c) => String(c[2]).includes('no newer version'))).toBe(true);
   });
 });
 
@@ -427,8 +427,8 @@ describe('applyNpmAuditFix — breaking install partial', () => {
     expect(result.packagesUpdated).toContain('pkg-b@2.0.0');
     expect(result.packagesUpdated).not.toContain('pkg-c@2.0.0');
 
-    const warnCalls = (logger.warn as ReturnType<typeof vi.fn>).mock.calls;
-    expect(warnCalls.some((c) => String(c[0]).includes('unverified'))).toBe(true);
+    const warnCalls = (logger.tagged as ReturnType<typeof vi.fn>).mock.calls;
+    expect(warnCalls.some((c) => String(c[2]).includes('unverified'))).toBe(true);
   });
 });
 
@@ -514,8 +514,8 @@ describe('applyNpmAuditFix — disk regression (version lower than pre-fix)', ()
 
     expect(result.packagesUpdated).toHaveLength(0);
 
-    const warnCalls = (logger.warn as ReturnType<typeof vi.fn>).mock.calls;
-    expect(warnCalls.some((c) => String(c[0]).includes('no newer version'))).toBe(true);
+    const warnCalls = (logger.tagged as ReturnType<typeof vi.fn>).mock.calls;
+    expect(warnCalls.some((c) => String(c[2]).includes('no newer version'))).toBe(true);
   });
 });
 
@@ -620,8 +620,8 @@ describe('applyNpmAuditFix — readFile failure after breaking install (lines 19
     });
 
     // Falls back to postAutoSafeLockfile which has ajv@6.0.0, not 8.18.0 → unverified
-    expect((logger.warn as ReturnType<typeof vi.fn>).mock.calls.some(
-      (c) => String(c[0]).includes('Could not read package-lock.json after breaking install'),
+    expect((logger.tagged as ReturnType<typeof vi.fn>).mock.calls.some(
+      (c) => String(c[2]).includes('Could not read package-lock.json after breaking install'),
     )).toBe(true);
   });
 });
@@ -767,8 +767,8 @@ describe('applyNpmAuditFix — post-audit lockfile unreadable (lines 118-120)', 
       authorizeBreaking: false,
     });
 
-    expect((logger.warn as ReturnType<typeof vi.fn>).mock.calls.some(
-      (c) => String(c[0]).includes('Could not read package-lock.json after npm audit fix'),
+    expect((logger.tagged as ReturnType<typeof vi.fn>).mock.calls.some(
+      (c) => String(c[2]).includes('Could not read package-lock.json after npm audit fix'),
     )).toBe(true);
     // Falls back to pre-lockfile, so ms is not upgraded
     expect(result.packagesUpdated).toHaveLength(0);
@@ -947,8 +947,8 @@ describe('regression: lockfileVersion 1 nested dedup must NOT produce false posi
 
     // Root was NOT upgraded — nested dedup copy must not trigger false positive
     expect(result.packagesUpdated).toHaveLength(0);
-    const warnCalls = (logger.warn as ReturnType<typeof vi.fn>).mock.calls;
-    expect(warnCalls.some((c) => String(c[0]).includes('no newer version'))).toBe(true);
+    const warnCalls = (logger.tagged as ReturnType<typeof vi.fn>).mock.calls;
+    expect(warnCalls.some((c) => String(c[2]).includes('no newer version'))).toBe(true);
   });
 
   it('returns packagesUpdated with new version when root IS genuinely upgraded on lockfileVersion 1', async () => {
@@ -1092,8 +1092,8 @@ describe('applyNpmAuditFix — auto_safe package absent from post-lockfile (L55,
     // afterSet is undefined → semverMax(new Set()) = undefined → isUpgraded(before, undefined) = false
     // false positive: packagesUpdated empty, warn logged
     expect(result.packagesUpdated).toHaveLength(0);
-    const warnCalls = (logger.warn as ReturnType<typeof vi.fn>).mock.calls;
-    expect(warnCalls.some((c) => String(c[0]).includes('no newer version'))).toBe(true);
+    const warnCalls = (logger.tagged as ReturnType<typeof vi.fn>).mock.calls;
+    expect(warnCalls.some((c) => String(c[2]).includes('no newer version'))).toBe(true);
   });
 });
 
@@ -1223,8 +1223,8 @@ describe('applyNpmAuditFix — protected-constraint packages skipped with warnin
     });
 
     // skippedProtected.length > 0 → warning logged
-    const warnCalls = (logger.warn as ReturnType<typeof vi.fn>).mock.calls;
-    expect(warnCalls.some((c) => String(c[0]).includes('protected-constraint'))).toBe(true);
+    const warnCalls = (logger.tagged as ReturnType<typeof vi.fn>).mock.calls;
+    expect(warnCalls.some((c) => String(c[2]).includes('protected-constraint'))).toBe(true);
     // breakingPkgs is empty → L182 branch fires → early return
     expect(result.packagesUpdated).toHaveLength(0);
     expect(result.breakingInstallError).toBeNull();

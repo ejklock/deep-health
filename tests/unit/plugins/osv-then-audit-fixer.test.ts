@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // ── Module-level mocks ────────────────────────────────────────────────────────
 
 vi.mock('@infra/utils/logger.js', () => ({
-  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn() },
+  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn(), tagged: vi.fn() },
 }));
 
 // Using vi.hoisted() so the vi.fn() instances are initialized before the
@@ -207,9 +207,9 @@ describe('applyOsvThenAuditFix — audit-fix makes no changes', () => {
     // intermediateBackup MUST still be present even when audit-fix changed nothing
     expect(result.intermediateBackup).toBeDefined();
 
-    const warnCalls = (logger.warn as ReturnType<typeof vi.fn>).mock.calls;
+    const warnCalls = (logger.tagged as ReturnType<typeof vi.fn>).mock.calls;
     expect(
-      warnCalls.some((c) => String(c[0]).includes('not upgraded by audit fix')),
+      warnCalls.some((c) => String(c[2]).includes('not upgraded by audit fix')),
     ).toBe(true);
   });
 });
@@ -482,8 +482,8 @@ describe('applyOsvThenAuditFix — multiple packages with partial verification',
     expect(result.packagesUpdated).toContain('pkg-b@2.1.0');
     expect(result.packagesUpdated).not.toContain('pkg-c@3.1.0');
 
-    const warnCalls = (logger.warn as ReturnType<typeof vi.fn>).mock.calls;
-    expect(warnCalls.some((c) => String(c[0]).includes('not upgraded by audit fix'))).toBe(true);
+    const warnCalls = (logger.tagged as ReturnType<typeof vi.fn>).mock.calls;
+    expect(warnCalls.some((c) => String(c[2]).includes('not upgraded by audit fix'))).toBe(true);
   });
 });
 
@@ -509,8 +509,8 @@ describe('applyOsvThenAuditFix — package.json readFile failure (lines 96-99)',
       authorizeBreaking: false,
     });
 
-    expect((logger.warn as ReturnType<typeof vi.fn>).mock.calls.some(
-      (c) => String(c[0]).includes('package.json not found before audit fix'),
+    expect((logger.tagged as ReturnType<typeof vi.fn>).mock.calls.some(
+      (c) => String(c[2]).includes('package.json not found before audit fix'),
     )).toBe(true);
     expect(result.packagesUpdated).toContain('minimist@1.2.8');
   });
@@ -538,8 +538,8 @@ describe('applyOsvThenAuditFix — post-audit package-lock.json readFile failure
       authorizeBreaking: false,
     });
 
-    expect((logger.warn as ReturnType<typeof vi.fn>).mock.calls.some(
-      (c) => String(c[0]).includes('Could not read package-lock.json after audit fix'),
+    expect((logger.tagged as ReturnType<typeof vi.fn>).mock.calls.some(
+      (c) => String(c[2]).includes('Could not read package-lock.json after audit fix'),
     )).toBe(true);
     // Falls back to preLockfile (no upgrade), so packagesUpdated is empty
     expect(result.packagesUpdated).toHaveLength(0);

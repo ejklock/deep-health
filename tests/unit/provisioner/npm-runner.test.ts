@@ -65,9 +65,9 @@ describe('EphemeralEcosystemContainer runStreaming (npm mode)', () => {
     expect(result.stdout).toContain('installing dependencies');
     expect(result.stderr).toContain('npm WARN deprecated x');
 
-    const writes = stderrSpy.mock.calls.map((c) => String(c[0]));
-    expect(writes.some((line) => line.includes('[INFO]  [npm] installing dependencies'))).toBe(true);
-    expect(writes.some((line) => line.includes('[INFO]  [npm] npm WARN deprecated x'))).toBe(true);
+    const writes = stderrSpy.mock.calls.map((c) => String(c[0]).replace(/\x1B\[[0-9;]*m/g, ''));
+    expect(writes.some((line) => line.includes('[npm] installing dependencies'))).toBe(true);
+    expect(writes.some((line) => line.includes('[npm] npm WARN deprecated x'))).toBe(true);
   });
 
   it('returns spawn error diagnostics when docker process fails to start', async () => {

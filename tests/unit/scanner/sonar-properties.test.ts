@@ -19,7 +19,7 @@ import {
 } from '@modules/scanner/sonar-properties';
 
 vi.mock('@infra/utils/logger', () => ({
-  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn() },
+  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn(), tagged: vi.fn() },
 }));
 
 // ─── parsePropertiesFile ─────────────────────────────────────────────────────
