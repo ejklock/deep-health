@@ -20,4 +20,4 @@ coverage/
 *.tsbuildinfo
 .tmp-vitest-report.json
 .agent-memory-store
-.claude/worktrees
+.claude/worktrees/*
