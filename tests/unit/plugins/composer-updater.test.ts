@@ -237,7 +237,8 @@ describe('runComposerUpdater — update failure path', () => {
     const runArgsMock = vi.fn()
       .mockResolvedValueOnce(ok()) // composer install --no-interaction --no-scripts (env-check)
       .mockResolvedValueOnce(ok()) // composer outdated --direct
-      .mockResolvedValueOnce(fail('Your requirements could not be resolved'));
+      .mockResolvedValueOnce(fail('Your requirements could not be resolved'))
+      .mockResolvedValueOnce(ok()); // composer install (revert bootstrap)
 
     const runner = makeRunner({ runArgs: runArgsMock });
 
@@ -252,7 +253,8 @@ describe('runComposerUpdater — update failure path', () => {
     const runArgsMock = vi.fn()
       .mockResolvedValueOnce(ok()) // composer install (env-check)
       .mockResolvedValueOnce(ok()) // composer outdated --direct
-      .mockResolvedValueOnce(fail('conflict detected'));
+      .mockResolvedValueOnce(fail('conflict detected'))
+      .mockResolvedValueOnce(ok()); // composer install (revert bootstrap)
 
     const runner = makeRunner({ runArgs: runArgsMock });
 
@@ -271,7 +273,8 @@ describe('runComposerUpdater — update failure path', () => {
     const runArgsMock = vi.fn()
       .mockResolvedValueOnce(ok()) // composer install (env-check)
       .mockResolvedValueOnce(ok()) // composer outdated --direct
-      .mockResolvedValueOnce(fail('version conflict'));
+      .mockResolvedValueOnce(fail('version conflict'))
+      .mockResolvedValueOnce(ok()); // composer install (revert bootstrap)
 
     const runner = makeRunner({ runArgs: runArgsMock });
 

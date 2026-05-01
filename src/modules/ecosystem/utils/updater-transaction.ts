@@ -1,5 +1,22 @@
-import { backupFiles } from '@infra/utils/git';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import type { CommandRunner } from '@core/types/common';
 import type { UpdateResultJson, ValidationEntry } from '@core/types/update';
+import { backupFiles, restoreFiles } from '@infra/utils/git';
+import { logger } from '@infra/utils/logger';
+
+/**
+ * Describes how to reinstall dependencies during a revert.
+ * Binary + args are static per updater and passed directly to runner.runArgs
+ * (shell: false) — no variable data, no shell injection risk.
+ *
+ * Covers revert bootstrap only, NOT pre-flight env-checks.
+ */
+export interface BootstrapSpec {
+  binary: string;
+  args: readonly string[];
+  label: string;
+}
 
 export interface BeginUpdaterTransactionOptions {
   /** Files to back up at transaction start (skipped if preExistingBackups provided). */
@@ -7,11 +24,20 @@ export interface BeginUpdaterTransactionOptions {
   /** Pre-built success-shaped UpdateResultJson (with skippedEntries already populated). */
   base: UpdateResultJson;
   cwd: string;
+  /** CommandRunner to use for the revert bootstrap and any revert I/O. */
+  runner: CommandRunner;
+  /** Describes how to reinstall dependencies during revert (e.g. `npm ci`, `composer install …`). */
+  bootstrapSpec: BootstrapSpec;
   /**
    * Caller-provided backups (e.g. from osv-scanner staging-fix pre-phase).
    * When present, the transaction adopts them and does NOT take its own backup.
    */
   preExistingBackups?: Map<string, string>;
+  /**
+   * Snapshot of file contents taken before any mutation. Used for a warn-only
+   * dirty-tree check after the revert completes. When absent the check is skipped.
+   */
+  preRunSnapshots?: Map<string, string>;
 }
 
 export interface UpdaterTransaction {
@@ -22,22 +48,87 @@ export interface UpdaterTransaction {
   success(opts: { packages_updated: string[]; validations: ValidationEntry[] }): UpdateResultJson;
 
   /**
-   * Run revert and build an error-shaped result.
+   * Run the revert protocol and build an error-shaped result.
    *
-   * - `revert` is invoked exactly once. Errors thrown by `revert` propagate to
-   *   the caller — this is intentional. The decision to swallow vs propagate
-   *   belongs to the ecosystem-specific revert helper (e.g. pip/composer log
-   *   and continue; npm throws on failed `npm ci` to surface ambiguous on-disk
-   *   state). The outer try/catch in each updater wraps propagated errors as
-   *   PhaseError, preserving the existing error-surfacing behavior.
-   * - When `revert` succeeds, the returned result has status='error', the
-   *   provided error string, and the provided validation entries.
+   * Protocol: restoreFiles → bootstrapSpec (stream:true) → restoreFiles again (in finally) →
+   *           warn-only dirty-tree check vs preRunSnapshots.
+   *
+   * Throws when the bootstrap exits non-zero — callers' outer try/catch wraps
+   * propagated errors as PhaseError, preserving the existing error-surfacing contract
+   * at the orchestration boundary.
    */
   abortWithError(opts: {
     error: string;
     validations: ValidationEntry[];
-    revert: () => Promise<void>;
   }): Promise<UpdateResultJson>;
+}
+
+/**
+ * Internal: run the full revert protocol.
+ *
+ * restore → bootstrap (stream:true) → restore again (in finally) → warn-only dirty-tree check
+ *
+ * Throws when the bootstrap exits non-zero. The second restore runs inside a `try/finally`
+ * so it fires even when the bootstrap command throws (e.g. runner disconnects mid-stream).
+ */
+async function revertWithBootstrap(
+  runner: CommandRunner,
+  bootstrapSpec: BootstrapSpec,
+  backups: Map<string, string>,
+  cwd: string,
+  preRunSnapshots?: Map<string, string>,
+): Promise<void> {
+  // ── Step 1: restore before bootstrap ──
+  await restoreFiles(backups, cwd);
+
+  // ── Step 2: run bootstrap; re-restore in finally ──
+  logger.info(`Running ${bootstrapSpec.label} to restore dependencies after revert...`);
+  try {
+    const revertResult = await runner.runArgs(bootstrapSpec.binary, [...bootstrapSpec.args], {
+      cwd,
+      stream: true,
+    });
+    if (revertResult.exitCode !== 0) {
+      logger.error(
+        [
+          `${bootstrapSpec.label} failed!`,
+          `  command : ${revertResult.command}`,
+          `  exit    : ${revertResult.exitCode}`,
+          revertResult.stdout ? `  stdout  :\n${revertResult.stdout}` : null,
+          revertResult.stderr ? `  stderr  :\n${revertResult.stderr}` : null,
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      );
+      throw new Error(
+        `${bootstrapSpec.label} failed (exit ${revertResult.exitCode}): ${revertResult.stderr || revertResult.stdout || '(no output)'}`,
+      );
+    }
+  } finally {
+    // The bootstrap can mutate the lockfile even on exit 0 (format normalization, etc.).
+    // Re-restore from the in-memory snapshot so the on-disk files are byte-identical
+    // to the pre-update state regardless of what the bootstrap did.
+    await restoreFiles(backups, cwd);
+  }
+
+  // ── Step 3: warn-only dirty-tree check ──
+  // Best-effort only — warn and continue; never fail the revert.
+  if (preRunSnapshots && preRunSnapshots.size > 0) {
+    for (const [filename, preRunContent] of preRunSnapshots) {
+      let onDiskContent: string | undefined;
+      try {
+        onDiskContent = (await readFile(join(cwd, filename), 'utf-8')) as string;
+      } catch {
+        // File not readable — skip comparison for this file
+        continue;
+      }
+      if (onDiskContent !== preRunContent) {
+        logger.warn(
+          `[revert] ${filename} on disk after revert differs from pre-run state — external changes during the run may have been lost`,
+        );
+      }
+    }
+  }
 }
 
 export async function beginUpdaterTransaction(
@@ -52,8 +143,14 @@ export async function beginUpdaterTransaction(
     success({ packages_updated, validations }) {
       return { ...opts.base, packages_updated, validations };
     },
-    async abortWithError({ error, validations, revert }) {
-      await revert();
+    async abortWithError({ error, validations }) {
+      await revertWithBootstrap(
+        opts.runner,
+        opts.bootstrapSpec,
+        backups,
+        opts.cwd,
+        opts.preRunSnapshots,
+      );
       return { ...opts.base, status: 'error', validations, error };
     },
   };

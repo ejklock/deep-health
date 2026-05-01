@@ -392,34 +392,32 @@ describe('stripPipVersion', () => {
   });
 });
 
-describe('runPipUpdater — revert pip install fails (lines 55-66)', () => {
+describe('runPipUpdater — revert pip install fails (Resolution 5: now throws)', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('logs error when pip install -r requirements.txt during revert exits non-zero', async () => {
+  it('throws when pip install -r requirements.txt during revert exits non-zero', async () => {
     const runMock = vi.fn()
       .mockResolvedValueOnce(fail('pip check failed'));
 
     const runArgsMock = vi.fn()
       .mockResolvedValueOnce(ok())              // pip list --outdated
       .mockResolvedValueOnce(ok())              // pip install -U
-      .mockResolvedValueOnce(fail('revert err', 1)); // pip install -r requirements.txt (revert FAILS)
+      .mockResolvedValueOnce(fail('revert err')); // pip install -r requirements.txt (revert FAILS)
 
     const runner = makeRunner({ run: runMock, runArgs: runArgsMock });
 
-    const result = await runPipUpdater(
-      runner,
-      baseConfig(),
-      baseScan(),
-      '/tmp/project',
-      false,
-      [{ name: 'check', command: 'pip check' }],
-    );
-
-    // The updater should still return an error result (validation failed)
-    expect(result.status).toBe('error');
-    const { logger: mockLogger } = await import('@infra/utils/logger.js');
-    const errorCalls = (mockLogger.error as ReturnType<typeof vi.fn>).mock.calls;
-    expect(errorCalls.some((c) => String(c[0]).includes('requirements.txt (revert) failed!'))).toBe(true);
+    // Behavior change per ADR-0003 Resolution 5: revert-bootstrap failure now throws
+    // (was: silently log error and continue)
+    await expect(
+      runPipUpdater(
+        runner,
+        baseConfig(),
+        baseScan(),
+        '/tmp/project',
+        false,
+        [{ name: 'check', command: 'pip check' }],
+      ),
+    ).rejects.toThrow(/pip install -r requirements\.txt \(revert\)/i);
   });
 });
 

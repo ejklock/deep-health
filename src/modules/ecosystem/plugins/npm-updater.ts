@@ -1,5 +1,3 @@
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import type { CommandRunner } from '@core/types/common';
 import type { FixerStrategyId, ValidationCommandConfig } from '@core/types/config';
 import type { UpdateResultJson, ValidationEntry } from '@core/types/update';
@@ -21,60 +19,6 @@ async function checkCurrentState(runner: CommandRunner, cwd: string): Promise<vo
   logger.debug('Running npm outdated and npm audit (informational)...');
   await runner.runArgs('npm', ['outdated'], { cwd });
   await runner.runArgs('npm', ['audit'], { cwd });
-}
-
-async function revertNpmChanges(
-  runner: CommandRunner,
-  backups: Map<string, string>,
-  cwd: string,
-  preRunSnapshots?: Map<string, string>,
-): Promise<void> {
-  await restoreFiles(backups, cwd);
-  logger.info('Running npm ci to restore dependencies after revert...');
-  try {
-    const revertResult = await runner.runArgs('npm', ['ci'], { cwd, stream: true });
-    if (revertResult.exitCode !== 0) {
-      logger.error(
-        [
-          'npm ci (revert) failed!',
-          `  command : ${revertResult.command}`,
-          `  exit    : ${revertResult.exitCode}`,
-          revertResult.stdout ? `  stdout  :\n${revertResult.stdout}` : null,
-          revertResult.stderr ? `  stderr  :\n${revertResult.stderr}` : null,
-        ]
-          .filter(Boolean)
-          .join('\n'),
-      );
-      // Surface to caller so the error is not silently swallowed
-      throw new Error(
-        `npm ci (revert) failed (exit ${revertResult.exitCode}): ${revertResult.stderr || revertResult.stdout || '(no output)'}`,
-      );
-    }
-  } finally {
-    // npm ci can mutate package-lock.json (lockfile-format migration or normalization)
-    // even when it exits 0. Re-restore from the in-memory snapshot so the on-disk lockfile
-    // is byte-identical to the pre-update state regardless of what npm did.
-    await restoreFiles(backups, cwd);
-  }
-
-  // Dirty-tree detection: compare on-disk state after full revert against pre-run snapshots.
-  // Best-effort only — warn and continue; never fail the revert.
-  if (preRunSnapshots && preRunSnapshots.size > 0) {
-    for (const [filename, preRunContent] of preRunSnapshots) {
-      let onDiskContent: string | undefined;
-      try {
-        onDiskContent = await readFile(join(cwd, filename), 'utf-8') as string;
-      } catch {
-        // File not readable — skip comparison for this file
-        continue;
-      }
-      if (onDiskContent !== preRunContent) {
-        logger.warn(
-          `[revert] ${filename} on disk after revert differs from pre-run state — external changes during the run may have been lost`,
-        );
-      }
-    }
-  }
 }
 
 export async function runNpmUpdater(
@@ -141,7 +85,10 @@ export async function runNpmUpdater(
       files: NPM_FILES, // unused when preExistingBackups provided, but required by type
       base,
       cwd,
+      runner,
+      bootstrapSpec: { binary: 'npm', args: ['ci'], label: 'npm ci (revert)' },
       preExistingBackups: new Map([...primaryBackups, ...advisorBackups]),
+      preRunSnapshots,
     });
 
     await checkCurrentState(runner, cwd);
@@ -154,7 +101,6 @@ export async function runNpmUpdater(
       return tx.abortWithError({
         error: fixerResult.breakingInstallError,
         validations: [{ name: 'validation', status: 'fail', detail: fixerResult.breakingInstallError }],
-        revert: async () => {},
       });
     }
 
@@ -176,7 +122,6 @@ export async function runNpmUpdater(
         return tx.abortWithError({
           error: 'npm ci failed before validation — changes reverted',
           validations: [{ name: 'npm ci', status: 'fail', detail }],
-          revert: () => revertNpmChanges(runner, tx.backups, cwd, preRunSnapshots),
         });
       }
     }
@@ -197,6 +142,7 @@ export async function runNpmUpdater(
         );
       }
 
+      // TODO: move osv-then-audit partial-revert into the fixer (ADR-0003 follow-up)
       // osv-then-audit: before a full revert, try to preserve the post-OSV state
       if (fixerStrategy === 'osv-then-audit' && fixerResult.intermediateBackup) {
         logger.tagged('npm', 'osv-then-audit', 'Validation failed after audit-fix. Reverting audit-fix changes, keeping OSV state...', 'warn');
@@ -208,7 +154,7 @@ export async function runNpmUpdater(
         if (reCiResult.exitCode === 0) {
           // npm ci can mutate the lockfile even when it exits 0 (format normalization).
           // Re-restore from the snapshot so disk is byte-identical to the pre-audit-fix state
-          // before running re-validation, mirroring the double-restore in revertNpmChanges.
+          // before running re-validation, mirroring the double-restore in the transaction revert.
           await restoreFiles(fixerResult.intermediateBackup, cwd);
           const reValidation = await runValidations({ runner, cwd, commands: validationCommands });
           if (reValidation.allPassed) {
@@ -229,7 +175,6 @@ export async function runNpmUpdater(
       return tx.abortWithError({
         error: 'Validation failed after npm update — changes reverted',
         validations: validationResult.entries,
-        revert: () => revertNpmChanges(runner, tx.backups, cwd, preRunSnapshots),
       });
     }
 

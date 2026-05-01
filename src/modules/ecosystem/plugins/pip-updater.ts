@@ -4,7 +4,6 @@ import type { UpdateResultJson, ValidationEntry } from '@core/types/update';
 import type { ScanResultJson } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
 import { PhaseError } from '@core/errors';
-import { restoreFiles } from '@infra/utils/git';
 import { logger } from '@infra/utils/logger';
 import { runValidations } from '../utils/validation-runner';
 import { beginUpdaterTransaction } from '../utils/updater-transaction';
@@ -112,36 +111,6 @@ async function checkCurrentState(runner: CommandRunner, cwd: string): Promise<vo
   await runner.runArgs('pip', ['list', '--outdated'], { cwd });
 }
 
-async function revertPipChanges(
-  runner: CommandRunner,
-  backups: Map<string, string>,
-  cwd: string,
-): Promise<void> {
-  await restoreFiles(backups, cwd);
-  logger.info('Running pip install -r requirements.txt to restore dependencies after revert...');
-  try {
-    // SEC: use runArgs (shell: false) — static args only, no variable data
-    const revertResult = await runner.runArgs('pip', ['install', '-r', 'requirements.txt'], { cwd, stream: true });
-    if (revertResult.exitCode !== 0) {
-      logger.error(
-        [
-          'pip install -r requirements.txt (revert) failed!',
-          `  command : ${revertResult.command}`,
-          `  exit    : ${revertResult.exitCode}`,
-          revertResult.stdout ? `  stdout  :\n${revertResult.stdout}` : null,
-          revertResult.stderr ? `  stderr  :\n${revertResult.stderr}` : null,
-        ]
-          .filter(Boolean)
-          .join('\n'),
-      );
-    }
-  } finally {
-    // Re-restore after pip install in case any tool in the resolver chain rewrote
-    // requirements.txt (pip-tools compile, constraint files, etc).
-    await restoreFiles(backups, cwd);
-  }
-}
-
 export async function runPipUpdater(
   runner: CommandRunner,
   _config: unknown,
@@ -208,7 +177,17 @@ export async function runPipUpdater(
   }
 
   try {
-    const tx = await beginUpdaterTransaction({ files: PIP_FILES, base, cwd });
+    const tx = await beginUpdaterTransaction({
+      files: PIP_FILES,
+      base,
+      cwd,
+      runner,
+      bootstrapSpec: {
+        binary: 'pip',
+        args: ['install', '-r', 'requirements.txt'],
+        label: 'pip install -r requirements.txt (revert)',
+      },
+    });
 
     await checkCurrentState(runner, cwd);
 
@@ -224,7 +203,6 @@ export async function runPipUpdater(
       return tx.abortWithError({
         error: `pip install -U failed: ${updateResult.stderr}`,
         validations: [{ name: 'validation', status: 'skipped', detail: 'pip install -U failed — changes reverted' }],
-        revert: () => revertPipChanges(runner, tx.backups, cwd),
       });
     }
 
@@ -245,7 +223,6 @@ export async function runPipUpdater(
       return tx.abortWithError({
         error: 'Validations failed after pip update — changes reverted',
         validations: validationResult.entries,
-        revert: () => revertPipChanges(runner, tx.backups, cwd),
       });
     }
 

@@ -110,3 +110,76 @@ The pattern applies uniformly to **all** Updaters: npm, composer, and any future
 | `src/modules/ecosystem/npm/npm-updater.ts` | Remove hand-rolled `revertNpmChanges`; pass bootstrap spec to transaction |
 | `src/modules/ecosystem/composer/composer-updater.ts` | Remove hand-rolled `revertComposerChanges`; pass bootstrap spec to transaction |
 | `src/modules/ecosystem/pip/pip-updater.ts` *(if exists)* | Adopt same pattern on creation |
+
+---
+
+## Refinement — 2026-05-01
+
+A grilling session on 2026-05-01 walked the implementation against the actual code and surfaced five points where the original "Agreed Decisions" did not survive contact with reality. The original decisions remain valid in spirit; the resolutions below sharpen them.
+
+### Resolution 1 — `osv-then-audit` partial-revert is OUT of scope
+
+The npm updater's `osv-then-audit` strategy has a *partial* revert path (restore intermediate backup → `npm ci` → restore again → re-run validation → either `tx.success` with OSV-only packages or fall through to full revert). This is not the standard restore→bootstrap→restore protocol — it can terminate in success.
+
+**Decision:** the Updater Transaction does NOT cover this partial-revert. It remains hard-coded inside `npm-updater.ts` for now, marked with a `TODO: move into fixer` comment. A separate follow-up TaskEnvelope will move the partial-revert into the `osv-then-audit` fixer (`src/modules/ecosystem/fixers/`), so the npm updater sees the fixer as opaque.
+
+### Resolution 2 — Working-tree dirty-tree check stays warn-only
+
+The original ADR said "any residual modification is itself treated as a failure." Code reality (npm-updater.ts:60–77) treats dirty-tree as warn-only because external edits during a run are a legitimate cause and should not abort the pipeline.
+
+**Decision:** the Updater Transaction performs the dirty-tree check as **warn-only**. This supersedes the original "Working-tree check" subsection which said dirty-tree is a failure.
+
+### Resolution 3 — `bootstrapSpec` covers revert only, not pre-flight env-check
+
+The composer updater runs `composer install --no-interaction --no-scripts` twice: once before the transaction begins (env-check), and once during revert. The original spec was ambiguous about whether `bootstrapSpec` should cover both.
+
+**Decision:** `bootstrapSpec` describes the **revert** bootstrap only. The composer pre-flight env-check stays where it is (before `beginUpdaterTransaction`), unchanged. Inflating the spec to cover env-check would force npm and pip into env-check semantics they do not have.
+
+### Resolution 4 — Module name remains "Updater Transaction"
+
+No rename. The term is already in `CONTEXT.md` and the database-transaction analogy fits the begin → mutate → commit-or-rollback shape.
+
+### Resolution 5 — Revert bootstrap failure ALWAYS throws
+
+Today the three updaters diverge: npm throws on `npm ci` revert failure; pip logs and continues silently; composer does not check the exit code at all.
+
+**Decision:** the Updater Transaction always throws when the revert bootstrap exits non-zero. This unifies behavior and surfaces ambiguous on-disk state. **Behavior change:** pip and composer move from silent-on-revert-failure to throw-on-revert-failure. Each updater's outer `try/catch` wraps the propagated error as `PhaseError`, preserving the existing error-surfacing contract at the orchestration boundary.
+
+### Updated contract summary
+
+```ts
+export interface BootstrapSpec {
+  binary: string;
+  args: readonly string[];
+  label: string;
+}
+
+export interface BeginUpdaterTransactionOptions {
+  files: readonly string[];
+  base: UpdateResultJson;
+  cwd: string;
+  runner: CommandRunner;
+  bootstrapSpec: BootstrapSpec;
+  preExistingBackups?: Map<string, string>;
+  preRunSnapshots?: Map<string, string>;
+}
+
+export interface UpdaterTransaction {
+  readonly backups: Map<string, string>;
+  success(opts: { packages_updated: string[]; validations: ValidationEntry[] }): UpdateResultJson;
+  abortWithError(opts: { error: string; validations: ValidationEntry[] }): Promise<UpdateResultJson>;
+}
+```
+
+The transaction owns: backup capture, success-shape build, restore→bootstrap→restore-byte-identical revert protocol, warn-only dirty-tree check, error-shape build, throw-on-revert-failure.
+
+The Updater owns: pre-flight checks (composer env-check), fixer invocation, validation orchestration, post-success package-list extraction, the `osv-then-audit` partial-revert (temporarily — see Resolution 1).
+
+### Updated file change list
+
+| File | Change |
+|---|---|
+| `src/modules/ecosystem/utils/updater-transaction.ts` | Add `BootstrapSpec`, accept `runner` + `bootstrapSpec` + `preRunSnapshots`; implement revert protocol; remove `revert` callback from `abortWithError` |
+| `src/modules/ecosystem/plugins/npm-updater.ts` | Remove `revertNpmChanges`; pass `BootstrapSpec` for `npm ci`; `osv-then-audit` partial-revert remains, marked TODO |
+| `src/modules/ecosystem/plugins/composer-updater.ts` | Remove `revertComposerChanges`; pass `BootstrapSpec` for `composer install …` (env-check stays) |
+| `src/modules/ecosystem/plugins/pip-updater.ts` | Remove `revertPipChanges`; pass `BootstrapSpec` for `pip install -r requirements.txt`; **behavior change**: revert bootstrap failure now throws |
