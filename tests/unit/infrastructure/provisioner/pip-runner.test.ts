@@ -96,8 +96,15 @@ describe('EphemeralEcosystemContainer._buildDockerArgs() — shell-wrap mode (pi
 describe('EphemeralEcosystemContainer.run() — catch branch edge cases (pip mode)', () => {
   it('uses exitCode=1 and String(err) when spawnErr has no fields', async () => {
     const mockExecFile = vi.mocked(execFile) as unknown as Mock;
+    let callCount = 0;
     mockExecFile.mockImplementation((_cmd: string, _args: string[], cb: Function) => {
-      cb('string-err');
+      callCount++;
+      if (callCount === 1) {
+        // First call: _ensureImagePresent docker image inspect → succeed (image cached)
+        cb(null, { stdout: '[]', stderr: '' });
+      } else {
+        cb('string-err');
+      }
     });
     const runner = makePipContainer({ projectDir: '/p' });
     const result = await runner.run(['install', 'requests']);
@@ -107,8 +114,15 @@ describe('EphemeralEcosystemContainer.run() — catch branch edge cases (pip mod
 
   it('uses spawnErr.code when it is a number', async () => {
     const mockExecFile = vi.mocked(execFile) as unknown as Mock;
+    let callCount = 0;
     mockExecFile.mockImplementation((_cmd: string, _args: string[], cb: Function) => {
-      cb(Object.assign(new Error('exit'), { code: 3, stdout: 'out', stderr: 'err' }));
+      callCount++;
+      if (callCount === 1) {
+        // First call: _ensureImagePresent docker image inspect → succeed (image cached)
+        cb(null, { stdout: '[]', stderr: '' });
+      } else {
+        cb(Object.assign(new Error('exit'), { code: 3, stdout: 'out', stderr: 'err' }));
+      }
     });
     const runner = makePipContainer({ projectDir: '/p' });
     const result = await runner.run(['install', 'requests']);

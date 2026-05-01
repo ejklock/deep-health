@@ -175,9 +175,16 @@ describe('EphemeralEcosystemContainer.run() (pip mode)', () => {
 
   it('returns non-zero exitCode when docker exits with error', async () => {
     const err = Object.assign(new Error('docker failed'), { code: 1, stdout: '', stderr: 'OOMKilled' });
+    let callCount = 0;
     (mockExecFilePip as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (_file: string, _args: string[], cb: (err: Error) => void) => {
-        cb(err);
+      (_file: string, _args: string[], cb: Function) => {
+        callCount++;
+        if (callCount === 1) {
+          // First call: _ensureImagePresent docker image inspect → succeed (image cached)
+          cb(null, { stdout: '[]', stderr: '' });
+        } else {
+          cb(err);
+        }
       },
     );
     const runner = makePipContainer('/project');

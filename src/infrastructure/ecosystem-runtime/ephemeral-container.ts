@@ -25,6 +25,7 @@ import type { EphemeralContainerRunner } from '@infra/provisioner/types';
 import { needsHostGateway, resolvePlatform } from '../utils/docker-platform';
 import { withRetry, isDockerTransientError } from '../utils/retry';
 import { logger } from '../utils/logger';
+import { spawnStreaming } from '../utils/spawn-streaming';
 
 const execFileAsync = promisify(execFile);
 
@@ -154,6 +155,8 @@ export class EphemeralEcosystemContainer implements EphemeralContainerRunner<str
    * @returns `ContainerRunResult` with exitCode, stdout, and stderr.
    */
   async run(tokens: string[]): Promise<ContainerRunResult> {
+    await this._ensureImagePresent();
+
     const dockerArgs = this._buildDockerArgs(tokens);
 
     logger.debug(`EphemeralEcosystemContainer[${this.logPrefix}]: docker ${dockerArgs.join(' ')}`);
@@ -206,6 +209,8 @@ export class EphemeralEcosystemContainer implements EphemeralContainerRunner<str
    * preamble is prepended before the command.
    */
   async runShell(command: string, opts?: { cwd?: string }): Promise<ContainerRunResult> {
+    await this._ensureImagePresent();
+
     const dockerArgs = this._buildShellDockerArgs(command, opts?.cwd);
     logger.debug(`EphemeralEcosystemContainer[${this.logPrefix}] (shell): docker ${dockerArgs.join(' ')}`);
 
@@ -242,6 +247,41 @@ export class EphemeralEcosystemContainer implements EphemeralContainerRunner<str
   }
 
   // ─── Internal helpers ─────────────────────────────────────────────────────
+
+  /**
+   * Pull the container image if it is not already present in the local Docker
+   * cache. Streams pull progress via logger.tagged at 'info' level.
+   *
+   * No-op when the image is already cached — probed via `docker image inspect`.
+   * Does NOT throw on pull failure; the subsequent `docker run` will surface its
+   * own error with a clear message.
+   */
+  private async _ensureImagePresent(): Promise<void> {
+    try {
+      await execFileAsync('docker', ['image', 'inspect', this.image]);
+      // Image is already cached — nothing to do.
+      return;
+    } catch {
+      // Image not found locally — proceed to pull.
+    }
+
+    logger.tagged(
+      this.logPrefix,
+      'docker pull',
+      `Pulling image: ${this.image}`,
+    );
+
+    await spawnStreaming({
+      file: 'docker',
+      args: ['pull', this.image],
+      logPrefix: this.logPrefix,
+      label: 'docker pull',
+      stdoutLevel: 'info',
+      stderrLevel: 'info',
+    });
+    // Pull failure is intentionally swallowed — the downstream docker run will
+    // fail with a descriptive error if the image is still unavailable.
+  }
 
   /**
    * Assemble the shared base `docker run` flags (before image and command).

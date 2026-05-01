@@ -23,6 +23,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { logger } from '../utils/logger';
+import { spawnStreaming } from '../utils/spawn-streaming';
 import {
   assertBuildContextWithinBoundary,
   resolveAllowedBuildContextRoot,
@@ -208,16 +209,16 @@ export async function buildProjectImage(
 
   dockerBuildArgs.push(contextDir);
 
-  try {
-    const { stderr } = await execFileAsync('docker', dockerBuildArgs);
-    if (stderr.trim()) {
-      for (const line of stderr.split('\n')) {
-        if (line.trim()) logger.tagged(logPrefix, `${logPrefix}/build`, line, 'debug');
-      }
-    }
-  } catch (err: unknown) {
-    const e = err as { stderr?: string; stdout?: string; message?: string };
-    const detail = e.stderr ?? e.stdout ?? e.message ?? String(err);
+  const buildResult = await spawnStreaming({
+    file: 'docker',
+    args: dockerBuildArgs,
+    logPrefix,
+    label: `${logPrefix}/build`,
+    stdoutLevel: 'info',
+    stderrLevel: 'info',
+  });
+  if (buildResult.exitCode !== 0) {
+    const detail = buildResult.stderr || buildResult.stdout;
     throw new Error(
       `[ecosystem-runtime/${logPrefix}] docker build failed for "${dockerfilePath}":\n${detail}`,
     );

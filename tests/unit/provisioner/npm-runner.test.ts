@@ -140,9 +140,16 @@ describe('EphemeralEcosystemContainer.run() (npm mode)', () => {
 
   it('returns non-zero exitCode and stderr when docker exits with error', async () => {
     const err = Object.assign(new Error('docker failed'), { code: 2, stdout: '', stderr: 'permission denied' });
+    let callCount = 0;
     (mockExecFile as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (_file: string, _args: string[], cb: (err: Error) => void) => {
-        cb(err);
+      (_file: string, _args: string[], cb: Function) => {
+        callCount++;
+        if (callCount === 1) {
+          // First call is _ensureImagePresent's docker image inspect — succeed so no pull is attempted
+          cb(null, { stdout: '[]', stderr: '' });
+        } else {
+          cb(err);
+        }
       },
     );
     const runner = makeNpmContainer('/project');

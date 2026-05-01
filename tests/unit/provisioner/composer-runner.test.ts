@@ -141,9 +141,16 @@ describe('EphemeralEcosystemContainer.run() (composer mode)', () => {
 
   it('returns non-zero exitCode when docker exits with error', async () => {
     const err = Object.assign(new Error('docker crashed'), { code: 125, stdout: '', stderr: 'container failed' });
+    let callCount = 0;
     (mockExecFileComposer as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (_file: string, _args: string[], cb: (err: Error) => void) => {
-        cb(err);
+      (_file: string, _args: string[], cb: Function) => {
+        callCount++;
+        if (callCount === 1) {
+          // First call: _ensureImagePresent docker image inspect → succeed (image cached)
+          cb(null, { stdout: '[]', stderr: '' });
+        } else {
+          cb(err);
+        }
       },
     );
     const runner = makeComposerContainer('/project');

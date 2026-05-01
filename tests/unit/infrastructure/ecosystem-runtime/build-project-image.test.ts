@@ -23,8 +23,23 @@ vi.mock('node:child_process', () => {
   return {
     execFile: execFileMock,
     execFileSync: execFileSyncMock,
+    spawn: vi.fn(),
   };
 });
+
+// ── Mock spawnStreaming — build-project-image delegates docker build to it ─────
+// Use vi.hoisted() so the variable is available when vi.mock factory is hoisted.
+
+const spawnStreamingMock = vi.hoisted(() =>
+  vi.fn<
+    Parameters<typeof import('@infra/utils/spawn-streaming').spawnStreaming>,
+    ReturnType<typeof import('@infra/utils/spawn-streaming').spawnStreaming>
+  >()
+);
+
+vi.mock('@infra/utils/spawn-streaming', () => ({
+  spawnStreaming: spawnStreamingMock,
+}));
 
 // ── Mock util.promisify to return controllable async versions ──────────────────
 
@@ -71,6 +86,8 @@ describe('buildProjectImage', () => {
 
   beforeEach(async () => {
     mockExecFile.mockReset();
+    spawnStreamingMock.mockReset();
+    spawnStreamingMock.mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' });
     mockResolveRoot.mockResolvedValue({ root: '', source: 'project-dir' });
     mockAssertBoundary.mockResolvedValue(undefined);
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'build-project-image-test-'));
@@ -134,8 +151,7 @@ describe('buildProjectImage', () => {
     mockExecFile.mockRejectedValueOnce(new Error('No such image'));
     // du -sk for warnIfLargeContext
     mockExecFile.mockResolvedValueOnce({ stdout: '100\t/tmp', stderr: '' } as any);
-    // docker build succeeds
-    mockExecFile.mockResolvedValueOnce({ stdout: '', stderr: '' } as any);
+    // docker build is handled by spawnStreaming (mocked to succeed by default)
 
     const result = await buildProjectImage({
       projectDir: tmpDir,
@@ -146,11 +162,13 @@ describe('buildProjectImage', () => {
     expect(result.image).toBe(expectedImage);
     expect(result.entrypointOverride).toBe('');
 
-    const calls = mockExecFile.mock.calls;
-    const buildCall = calls.find((c) => c[0] === 'docker' && Array.isArray(c[1]) && c[1].includes('build'));
-    expect(buildCall).toBeDefined();
-    expect(buildCall?.[1]).toContain('--tag');
-    expect(buildCall?.[1]).toContain(expectedImage);
+    // Verify spawnStreaming was called with docker build args
+    expect(spawnStreamingMock).toHaveBeenCalledTimes(1);
+    const spawnCall = spawnStreamingMock.mock.calls[0][0];
+    expect(spawnCall.file).toBe('docker');
+    expect(spawnCall.args).toContain('build');
+    expect(spawnCall.args).toContain('--tag');
+    expect(spawnCall.args).toContain(expectedImage);
   });
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -166,12 +184,11 @@ describe('buildProjectImage', () => {
 
     expect(tag1).not.toBe(tag2);
 
-    // v1 build: inspect fails → build succeeds
+    // v1 build: inspect fails → build succeeds (spawnStreaming default mock succeeds)
     await fs.writeFile(path.join(tmpDir, 'Dockerfile'), v1);
     mockExecFile
       .mockRejectedValueOnce(new Error('No such image'))  // inspect miss
-      .mockResolvedValueOnce({ stdout: '100\t/tmp', stderr: '' } as any)  // du
-      .mockResolvedValueOnce({ stdout: '', stderr: '' } as any);  // build
+      .mockResolvedValueOnce({ stdout: '100\t/tmp', stderr: '' } as any);  // du
 
     const r1 = await buildProjectImage({ projectDir: tmpDir, dockerfilePath: 'Dockerfile', logPrefix: 'npm' });
     expect(r1.image).toBe(tag1);
@@ -180,8 +197,7 @@ describe('buildProjectImage', () => {
     await fs.writeFile(path.join(tmpDir, 'Dockerfile'), v2);
     mockExecFile
       .mockRejectedValueOnce(new Error('No such image'))  // inspect miss for new tag
-      .mockResolvedValueOnce({ stdout: '100\t/tmp', stderr: '' } as any)  // du
-      .mockResolvedValueOnce({ stdout: '', stderr: '' } as any);  // build
+      .mockResolvedValueOnce({ stdout: '100\t/tmp', stderr: '' } as any);  // du
 
     const r2 = await buildProjectImage({ projectDir: tmpDir, dockerfilePath: 'Dockerfile', logPrefix: 'npm' });
     expect(r2.image).toBe(tag2);
@@ -196,8 +212,9 @@ describe('buildProjectImage', () => {
 
     mockExecFile
       .mockRejectedValueOnce(new Error('No such image'))  // inspect miss
-      .mockResolvedValueOnce({ stdout: '100\t/tmp', stderr: '' } as any)  // du
-      .mockRejectedValueOnce(Object.assign(new Error('build failed'), { stderr: 'step 1/1: COPY fail' }));  // build
+      .mockResolvedValueOnce({ stdout: '100\t/tmp', stderr: '' } as any);  // du
+    // docker build fails via spawnStreaming returning non-zero exit
+    spawnStreamingMock.mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'step 1/1: COPY fail' });
 
     await expect(
       buildProjectImage({ projectDir: tmpDir, dockerfilePath: 'Dockerfile', logPrefix: 'npm' }),
@@ -217,7 +234,7 @@ describe('buildProjectImage', () => {
     mockExecFile
       .mockRejectedValueOnce(new Error('No such image'))  // inspect miss
       .mockResolvedValueOnce({ stdout: '100\t/tmp', stderr: '' } as any)  // du
-      .mockResolvedValueOnce({ stdout: '', stderr: '' } as any)  // docker build
+      // docker build handled by spawnStreaming (default mock succeeds)
       .mockResolvedValueOnce({ stdout: '/usr/local/bin/npm\n', stderr: '' } as any);  // which npm
 
     const result = await buildProjectImage({
@@ -229,7 +246,7 @@ describe('buildProjectImage', () => {
 
     expect(result.image).toBe(expectedImage);
 
-    // Verify that `which npm` was probed inside the image
+    // Verify that `which npm` was probed inside the image via execFile (docker run)
     const probeCalls = mockExecFile.mock.calls.filter(
       (c) => c[0] === 'docker' && Array.isArray(c[1]) && c[1].includes('--entrypoint') && c[1].includes('which npm'),
     );
@@ -247,7 +264,7 @@ describe('buildProjectImage', () => {
     mockExecFile
       .mockRejectedValueOnce(new Error('No such image'))  // inspect miss
       .mockResolvedValueOnce({ stdout: '100\t/tmp', stderr: '' } as any)  // du
-      .mockResolvedValueOnce({ stdout: '', stderr: '' } as any)  // docker build
+      // docker build handled by spawnStreaming (default mock succeeds)
       .mockRejectedValueOnce(new Error('which: npm: not found'))  // which npm probe fails
       .mockResolvedValueOnce({ stdout: '/usr/bin/npx\n', stderr: '' } as any);  // which npx ok
 
@@ -271,8 +288,8 @@ describe('buildProjectImage', () => {
 
     mockExecFile
       .mockRejectedValueOnce(new Error('No such image'))  // inspect miss
-      .mockResolvedValueOnce({ stdout: '100\t/tmp', stderr: '' } as any)  // du
-      .mockResolvedValueOnce({ stdout: '', stderr: '' } as any);  // docker build
+      .mockResolvedValueOnce({ stdout: '100\t/tmp', stderr: '' } as any);  // du
+    // docker build handled by spawnStreaming (default mock succeeds)
 
     const result = await buildProjectImage({
       projectDir: tmpDir,
@@ -282,8 +299,9 @@ describe('buildProjectImage', () => {
     });
 
     expect(result.image).toBeDefined();
-    // Exactly 3 calls: inspect, du, build; no probe calls
-    expect(mockExecFile).toHaveBeenCalledTimes(3);
+    // Exactly 2 execFile calls: inspect, du; build goes through spawnStreaming; no probe calls
+    expect(mockExecFile).toHaveBeenCalledTimes(2);
+    expect(spawnStreamingMock).toHaveBeenCalledTimes(1);
   });
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -302,11 +320,10 @@ describe('buildProjectImage', () => {
 
     const expectedImage = await stableTag(dockerfileContents, 'npm');
 
-    // Cache miss → build
+    // Cache miss → build (spawnStreaming default mock succeeds)
     mockExecFile
       .mockRejectedValueOnce(new Error('No such image'))
-      .mockResolvedValueOnce({ stdout: '100\t/tmp', stderr: '' } as any)
-      .mockResolvedValueOnce({ stdout: '', stderr: '' } as any);
+      .mockResolvedValueOnce({ stdout: '100\t/tmp', stderr: '' } as any);
 
     const result = await buildProjectImage({
       projectDir,
@@ -317,11 +334,11 @@ describe('buildProjectImage', () => {
 
     expect(result.image).toBe(expectedImage);
 
-    const buildCall = mockExecFile.mock.calls.find(
-      (c) => c[0] === 'docker' && Array.isArray(c[1]) && c[1].includes('build'),
-    );
-    expect(buildCall).toBeDefined();
-    const args = buildCall![1] as string[];
+    // Verify spawnStreaming was called with correct docker build args
+    expect(spawnStreamingMock).toHaveBeenCalledTimes(1);
+    const spawnCall = spawnStreamingMock.mock.calls[0][0];
+    expect(spawnCall.file).toBe('docker');
+    const args = spawnCall.args;
     // Context dir should be the resolved docker/ subdirectory
     const contextArg = args[args.length - 1];
     expect(contextArg).toBe(dockerSubdir);
@@ -335,8 +352,8 @@ describe('buildProjectImage', () => {
 
     mockExecFile
       .mockRejectedValueOnce(new Error('No such image'))
-      .mockResolvedValueOnce({ stdout: '100\t/tmp', stderr: '' } as any)
-      .mockResolvedValueOnce({ stdout: '', stderr: '' } as any);
+      .mockResolvedValueOnce({ stdout: '100\t/tmp', stderr: '' } as any);
+    // docker build handled by spawnStreaming (default mock succeeds)
 
     await buildProjectImage({
       projectDir: tmpDir,
@@ -345,11 +362,10 @@ describe('buildProjectImage', () => {
       buildArgs: { NODE_VERSION: '20', APP_ENV: 'test' },
     });
 
-    const buildCall = mockExecFile.mock.calls.find(
-      (c) => c[0] === 'docker' && Array.isArray(c[1]) && c[1].includes('build'),
-    );
-    expect(buildCall).toBeDefined();
-    const args = buildCall![1] as string[];
+    expect(spawnStreamingMock).toHaveBeenCalledTimes(1);
+    const spawnCall = spawnStreamingMock.mock.calls[0][0];
+    expect(spawnCall.file).toBe('docker');
+    const args = spawnCall.args;
     expect(args).toContain('--build-arg');
     expect(args).toContain('NODE_VERSION=20');
     expect(args).toContain('APP_ENV=test');
