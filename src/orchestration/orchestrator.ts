@@ -9,10 +9,8 @@ import type {
 } from "@modules/scanner/types";
 import { validateGateA } from "@core/gates/validator";
 import { GateValidationError } from "@core/errors";
-import { logger, setProgressSink } from "@infra/utils/logger";
-import { badge } from "@infra/utils/ui";
+import { logger } from "@infra/utils/logger";
 import { detectGitBranch } from "@infra/utils/git-branch";
-import { Listr } from "listr2";
 import type { RendererType } from "@app/progress-reporter";
 // Ecosystem registry — plugins are registered via modules/ecosystem/index.ts side-effects
 import { EcosystemRegistry, defaultRegistry } from "@modules/ecosystem/index";
@@ -23,6 +21,9 @@ import {
   aggregateScanResults,
   OSV_ENGINE_ID,
   bootstrapDefaultEngines,
+  executeScannerSweep,
+  PrimaryEngineFailure,
+  listr2ScannerSweepRenderer,
 } from "@modules/scanner/index";
 import type { AggregatedScanResult } from "@modules/scanner/index";
 import { runAdvisors } from "@modules/advisor/index";
@@ -148,133 +149,6 @@ function resolveOnFailure(
   return "fail";
 }
 
-/**
- * Run all registered scanner engines sequentially.
- *
- * - The primary engine (id === primaryEngineId) drives Gate A.
- *   Primary classification is by engine id, not by registration order.
- * - Subsequent engines (e.g. SonarQube) are secondary:
- *   - If they fail (throw OR return status='error') and on_failure='warn':
- *     emit a warning, continue.
- *   - If they fail (throw OR return status='error') and on_failure='fail':
- *     throw an error.
- * - A 'skipped' status result from a secondary engine is silently accepted.
- */
-async function runAllEngines(
-  engineRegistry: ScannerEngineRegistry,
-  ctx: ScannerEngineContext,
-  config: ProjectConfig,
-  primaryEngineId: string,
-  rendererType: RendererType,
-): Promise<{
-  engineEntries: Array<{ engineId: string; result: ScanResultJson }>;
-  warnings: EngineWarning[];
-}> {
-  const engines = engineRegistry.getAll();
-  const engineEntries: Array<{ engineId: string; result: ScanResultJson }> = [];
-  const warnings: EngineWarning[] = [];
-
-  // Collect raw scan results (or errors) from each engine via listr2 tasks.
-  const engineResults = new Map<string, ScanResultJson | Error>();
-
-  const taskList = new Listr(
-    engines.map((engine) => ({
-      title: `${badge(engine.id)} ${engine.name}`,
-      task: async (_: unknown, task: { output: string; skip: (reason?: string) => void }) => {
-        setProgressSink((msg) => { task.output = msg; });
-        try {
-          const result = await engine.scan(ctx);
-          if (result.status === 'skipped') {
-            engineResults.set(engine.id, result);
-            task.skip('not enabled in config');
-            return;
-          }
-          engineResults.set(engine.id, result);
-        } catch (err) {
-          engineResults.set(engine.id, err instanceof Error ? err : new Error(String(err)));
-          throw err; // so listr2 marks the task as failed visually
-        } finally {
-          setProgressSink(null);
-        }
-      },
-    })),
-    {
-      renderer: rendererType,
-      exitOnError: false, // let all tasks run even if one fails
-      concurrent: false,
-    },
-  );
-
-  try {
-    await taskList.run();
-  } catch {
-    // listr2 may throw a ListrError when exitOnError:false — we handle errors below
-  }
-
-  // Apply the on_failure logic using the collected results.
-  for (const engine of engines) {
-    // Primary classification is by engine id — not by registration order.
-    const isPrimary = engine.id === primaryEngineId;
-
-    const resultOrError = engineResults.get(engine.id);
-
-    if (resultOrError instanceof Error) {
-      if (isPrimary) {
-        // Primary engine (OSV) failure is always fatal — re-throw immediately
-        throw resultOrError;
-      }
-
-      // Secondary engine threw — check on_failure config
-      const onFailure = resolveOnFailure(engine.id, config);
-      const message = resultOrError.message;
-
-      if (onFailure === "fail") {
-        logger.error(
-          `${engine.name}: scan failed (on_failure=fail) — ${message}`,
-        );
-        throw resultOrError;
-      }
-
-      // on_failure='warn' — record warning and continue
-      logger.warn(`${engine.name}: scan failed (on_failure=warn) — ${message}`);
-      warnings.push({ engineId: engine.id, message });
-      continue;
-    }
-
-    // Engine did not produce a result at all (should not happen if tasks ran)
-    if (resultOrError === undefined) {
-      continue;
-    }
-
-    const result = resultOrError;
-
-    // Engine returned a result — check if it encoded a failure via status='error'
-    if (result.status === "error" && !isPrimary) {
-      const onFailure = resolveOnFailure(engine.id, config);
-      const message =
-        result.error ?? `${engine.name} scan returned status 'error'`;
-
-      if (onFailure === "fail") {
-        logger.error(
-          `${engine.name}: scan result is error (on_failure=fail) — ${message}`,
-        );
-        throw new Error(message);
-      }
-
-      // on_failure='warn' — record warning and continue (do not include errored result)
-      logger.warn(
-        `${engine.name}: scan result is error (on_failure=warn) — ${message}`,
-      );
-      warnings.push({ engineId: engine.id, message });
-      continue;
-    }
-
-    engineEntries.push({ engineId: engine.id, result });
-  }
-
-  return { engineEntries, warnings };
-}
-
 export async function runOrchestrator(
   runner: CommandRunner,
   config: ProjectConfig,
@@ -345,14 +219,36 @@ export async function runOrchestrator(
     branch,
   };
 
-  // Run all scanner engines; collect results + warnings
-  const { engineEntries, warnings } = await runAllEngines(
-    engineRegistry,
-    ctx,
-    config,
-    primaryEngineId,
-    options.rendererType ?? 'default',
-  );
+  // Run all scanner engines via the Scanner Sweep module; collect results + warnings.
+  // The orchestrator is config-aware (it builds the policy callback), but the sweep
+  // module itself is config-agnostic.
+  //
+  // On PrimaryEngineFailure: preserve partialWarnings from secondary engines that
+  // ran before the primary failed (otherwise already-paid work is silently discarded),
+  // then re-throw the original cause to preserve today's observable behaviour.
+  let engineEntries: Array<{ engineId: string; result: ScanResultJson }>;
+  let warnings: EngineWarning[];
+  try {
+    const sweep = await executeScannerSweep(
+      engineRegistry.getAll(),
+      ctx,
+      {
+        primaryEngineId,
+        resolveOnFailure: (id) => resolveOnFailure(id, config),
+      },
+      listr2ScannerSweepRenderer(options.rendererType ?? 'default'),
+    );
+    engineEntries = sweep.engineEntries;
+    warnings = sweep.warnings;
+  } catch (err) {
+    if (err instanceof PrimaryEngineFailure) {
+      // Preserve partial warnings from secondary engines that ran before primary failed
+      result.warnings = err.partialWarnings;
+      // Re-throw the original cause — preserves the error the orchestrator's callers expect
+      throw err.cause instanceof Error ? err.cause : new Error(String(err.cause));
+    }
+    throw err;
+  }
   result.warnings = warnings;
 
   // Aggregate: primary engine result drives Gate A; secondary results go into engineResults

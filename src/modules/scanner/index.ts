@@ -54,6 +54,19 @@ export { emptyEcosystem } from '@core/types/scan';
 export { SonarQubeEngine } from './sonarqube-engine';
 export { ExternalScannerAdapter } from './external-adapter';
 export type { RawVulnerability } from './external-adapter';
+export {
+  executeScannerSweep,
+  PrimaryEngineFailure,
+} from './scanner-sweep';
+export type {
+  EngineRunRenderer,
+  EngineRunPolicy,
+  EngineRunResult,
+} from './scanner-sweep';
+export {
+  listr2ScannerSweepRenderer,
+  silentScannerSweepRenderer,
+} from './scanner-sweep-renderers';
 
 /**
  * Single-engine vulnerability scan using the configured primary scanner.

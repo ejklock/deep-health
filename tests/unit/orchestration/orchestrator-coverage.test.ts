@@ -230,10 +230,10 @@ describe('orchestrator — resolveOnFailure no scanners config (lines 131-135)',
   });
 });
 
-describe('orchestrator — Gate A throws GateValidationError (lines 656-661)', () => {
+describe('orchestrator — Gate A: primary engine returns status=error (PrimaryEngineFailure path)', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('throws GateValidationError when OSV scan result has status error', async () => {
+  it('throws the primary engine cause when OSV scan result has status error', async () => {
     const osvEngine = new OsvScannerEngine();
     vi.spyOn(osvEngine, 'scan').mockResolvedValueOnce({
       $schema: 'osv-scan-result/v1',
@@ -249,6 +249,9 @@ describe('orchestrator — Gate A throws GateValidationError (lines 656-661)', (
 
     const config = baseNpmConfig();
 
+    // With the Scanner Sweep extraction, primary engine returning status='error'
+    // is surfaced as PrimaryEngineFailure; the orchestrator re-throws err.cause,
+    // which is the Error built from result.error ("Scanner failed with exit code 1").
     await expect(
       runOrchestrator(new MockCommandRunner(), config, {
         configPath: 'config.yml',
@@ -257,7 +260,7 @@ describe('orchestrator — Gate A throws GateValidationError (lines 656-661)', (
         verbose: false,
         scannerRegistry: reg,
       }),
-    ).rejects.toThrow('Gate A validation failed');
+    ).rejects.toThrow(/Scanner failed with exit code 1/i);
   });
 });
 
@@ -451,7 +454,7 @@ describe('orchestrator — bootstrapDefaultEngines (lines 610-611)', () => {
 
 // ── Additional branch coverage ─────────────────────────────────────────────
 
-describe('orchestrator — line 199: String(err) when secondary engine throws non-Error', () => {
+describe('orchestrator — secondary engine throws non-Error: String(err) wrapping', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('uses String(err) when secondary engine throws a string', async () => {
@@ -479,12 +482,13 @@ describe('orchestrator — line 199: String(err) when secondary engine throws no
       scanners: { sonar: { on_failure: 'warn' } },
     } as unknown as ProjectConfig;
 
-    await expect(runOrchestrator(new MockCommandRunner(), config, {
+    const result = await runOrchestrator(new MockCommandRunner(), config, {
       configPath: 'config.yml', cwd: '/project', dryRun: false, verbose: false, scannerRegistry: reg,
-    })).resolves.toBeDefined();
+    });
 
-    const warnCalls = (logger.warn as ReturnType<typeof vi.fn>).mock.calls;
-    expect(warnCalls.some((c) => String(c[0]).includes('plain-string-error'))).toBe(true);
+    expect(result).toBeDefined();
+    // After extraction, the warning is captured in result.warnings (not in logger.warn)
+    expect(result.warnings.some((w) => w.message.includes('plain-string-error'))).toBe(true);
   });
 });
 
