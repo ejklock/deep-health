@@ -215,12 +215,6 @@ export async function runEcosystemFix(
 
   if (shouldOsvVerify) {
     const osvVerifyRunner = resolveOsvRuntime(config, cwd, hostRunner);
-    const osvVerifyMode = config.scanners?.osv?.runner ?? 'docker';
-    if (osvVerifyMode === 'local') {
-      logger.tagged('osv', 'OSV verify', 'Using local osv-scanner binary for residual verification');
-    } else {
-      logger.tagged('osv', 'OSV verify', 'Using OSV container runner with read-only mount for residual verification');
-    }
     const verifyScanArgs = plugin.buildScanArgs();
     const verifyCmd = `osv-scanner ${verifyScanArgs.join(' ')} --format json`;
     residualVerification = await runOsvResidualVerification(

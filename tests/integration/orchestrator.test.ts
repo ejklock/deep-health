@@ -615,8 +615,6 @@ describe('runOrchestrator — full pipeline', () => {
     });
 
     const infoMessages = infoSpy.mock.calls.map((c) => String(c[0]));
-    // verify still uses local osv-scanner binary for residual scan
-    expect(infoMessages.some((m) => m.includes('[OSV verify] Using local osv-scanner binary for residual verification'))).toBe(true);
     // No rw/ro mount claims (fix now handled via staging temp dir by applyOsvFixViaStaging)
     expect(infoMessages.some((m) => m.includes('read-write mount'))).toBe(false);
     expect(infoMessages.some((m) => m.includes('Dedicated OSV container runner'))).toBe(false);
@@ -687,7 +685,6 @@ describe('runOrchestrator — full pipeline', () => {
     const infoMessages = infoSpy.mock.calls.map((c) => String(c[0]));
     // Fix now runs via applyOsvFixViaStaging (no rw mount log from orchestrator)
     // Verify still uses dedicated OSV container runner (read-only)
-    expect(infoMessages.some((m) => m.includes('[OSV verify] Using OSV container runner with read-only mount for residual verification'))).toBe(true);
     expect(infoMessages.some((m) => m.includes('read-write mount'))).toBe(false);
 
     const dedicatedRunnerLogs = infoMessages.filter((m) => m.includes('[OSV runner] Dedicated OSV container runner'));
