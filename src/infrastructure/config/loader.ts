@@ -10,28 +10,50 @@ import type { EcosystemRegistry } from '@modules/ecosystem/registry';
 export const DEFAULT_CONFIG_PATH = 'project-config.yml';
 
 /**
- * Detects the legacy `mode` field on any of the three ecosystem scanner blocks
- * and throws a clear, actionable error before Zod parsing.
+ * Detects ecosystem runner configs that were placed under the old `scanners` block
+ * and throws a clear, actionable migration error before Zod parsing.
  *
- * The `mode` field was removed as part of the docker-only runtime migration
- * (see docs/adr/0001-docker-only-runtime.md). Docker is now the only runtime.
+ * The `npm`, `pip`, and `composer` runner configs moved to a top-level `runners` block
+ * as of config_version "1" (2026-05-01 breaking change). Only `scanners.osv`,
+ * `scanners.sonarqube`, and `scanners.primary` remain under `scanners`.
+ *
+ * Also checks for the legacy `mode` field inside the new `runners` block and throws
+ * if found — Docker is now the only runtime mode (see ADR-0001).
  */
 function rejectLegacyModeField(raw: unknown): void {
   if (typeof raw !== 'object' || raw === null) return;
   const obj = raw as Record<string, unknown>;
+
+  // ── Migration check: scanners.npm/pip/composer → runners.npm/pip/composer ──
   const scanners = obj.scanners;
-  if (typeof scanners !== 'object' || scanners === null) return;
-  const scannersObj = scanners as Record<string, unknown>;
-  for (const ecosystem of ['npm', 'pip', 'composer']) {
-    const block = scannersObj[ecosystem];
-    if (typeof block === 'object' && block !== null && 'mode' in block) {
-      const value = (block as { mode: unknown }).mode;
-      throw new Error(
-        `Config field 'scanners.${ecosystem}.mode' (value: '${String(value)}') is no longer supported. ` +
-        `Docker is now the only runtime mode. ` +
-        `Remove the 'mode' field from your config. ` +
-        `See docs/adr/0001-docker-only-runtime.md for the rationale.`,
-      );
+  if (typeof scanners === 'object' && scanners !== null) {
+    const scannersObj = scanners as Record<string, unknown>;
+    for (const ecosystem of ['npm', 'pip', 'composer']) {
+      if (ecosystem in scannersObj) {
+        throw new Error(
+          `Config field 'scanners.${ecosystem}' is no longer supported. ` +
+          `Move ecosystem runner config to 'runners.${ecosystem}' (top-level block). ` +
+          `See docs/adr/0004-ecosystem-runner-config-and-build-context-hardening.md for the rationale.`,
+        );
+      }
+    }
+  }
+
+  // ── Legacy mode field check: runners.npm/pip/composer ──
+  const runners = obj.runners;
+  if (typeof runners === 'object' && runners !== null) {
+    const runnersObj = runners as Record<string, unknown>;
+    for (const ecosystem of ['npm', 'pip', 'composer']) {
+      const block = runnersObj[ecosystem];
+      if (typeof block === 'object' && block !== null && 'mode' in block) {
+        const value = (block as { mode: unknown }).mode;
+        throw new Error(
+          `Config field 'runners.${ecosystem}.mode' (value: '${String(value)}') is no longer supported. ` +
+          `Docker is now the only runtime mode. ` +
+          `Remove the 'mode' field from your config. ` +
+          `See docs/adr/0001-docker-only-runtime.md for the rationale.`,
+        );
+      }
     }
   }
 }

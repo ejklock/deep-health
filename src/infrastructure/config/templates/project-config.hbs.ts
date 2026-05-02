@@ -86,15 +86,19 @@ scanners:
     #
     # NOTE: project_key, host_url, sources, exclusions, etc. live in sonar-project.properties.
     #       Run "deep-health init" (with SonarQube enabled) to generate a template if missing.
-{{> npm-scanner-block}}
-{{> pip-scanner-block}}
-{{> composer-scanner-block}}
+
+{{#if hasAnyRunnerConfig}}
+runners:
+{{> npm-runner-block}}
+{{> pip-runner-block}}
+{{> composer-runner-block}}
+{{/if}}
 {{else}}
-{{#if hasAnyScannerRuntime}}
-scanners:
-{{> npm-scanner-block}}
-{{> pip-scanner-block}}
-{{> composer-scanner-block}}
+{{#if hasAnyRunnerConfig}}
+runners:
+{{> npm-runner-block}}
+{{> pip-runner-block}}
+{{> composer-runner-block}}
 {{else}}
 # scanners:                              # optional — additional scanner engines
 #   sonarqube:
@@ -111,23 +115,21 @@ scanners:
 #                                        #   local  — require a locally installed osv-scanner binary ⚠ warns
 #                                        #   auto   — deprecated escape hatch ⚠ warns
 #     image: 'ghcr.io/google/osv-scanner:latest'  # optional — Docker image override
+# runners:                               # optional — ecosystem runner configuration
 #   npm:
-#     mode: 'docker'                     # 'docker' (default) | 'local' | 'auto'
-#     runtime_version: '20'             # optional — Node version for Docker image resolution
+#     language_version: '20'            # optional — Node version for Docker image resolution
 #     image: 'node:20'                  # optional — override resolved Node image
 #     image_source: 'pull'              # optional — 'pull' (default) | 'dockerfile'
 #     dockerfile_path: 'Dockerfile'     # required when image_source='dockerfile'
 #     allow_build_context_escape: false # optional — allow build_context outside project boundary ⚠
 #   pip:
-#     mode: 'docker'                     # 'docker' (default) | 'local' | 'auto'
-#     runtime_version: '3.11'           # optional — Python version for Docker image resolution
+#     language_version: '3.11'          # optional — Python version for Docker image resolution
 #     image: 'python:3.11-slim'         # optional — override resolved Python image
 #     image_source: 'pull'              # optional — 'pull' (default) | 'dockerfile'
 #     dockerfile_path: 'Dockerfile'     # required when image_source='dockerfile'
 #     allow_build_context_escape: false # optional — allow build_context outside project boundary ⚠
 #   composer:
-#     mode: 'docker'                     # 'docker' (default) | 'local' | 'auto'
-#     runtime_version: '8.2'           # optional — PHP version for Docker image resolution
+#     language_version: '8.2'           # optional — PHP version for Docker image resolution
 #     image: 'php:8.2-cli'              # optional — override resolved PHP image
 #     image_source: 'pull'              # optional — 'pull' (default) | 'dockerfile'
 #     dockerfile_path: 'Dockerfile'     # required when image_source='dockerfile'

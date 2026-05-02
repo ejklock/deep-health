@@ -403,7 +403,7 @@ classDiagram
 flowchart LR
     PLUGIN["EcosystemPlugin<br/>runtimeSpec: EcosystemRuntimeSpec"]
     RESOLVE["resolveEcosystemRuntime()"]
-    IMG["Image resolution<br/>scanners.&lt;id&gt;.image →<br/>scanners.&lt;id&gt;.runtime_version →<br/>plugin.inferVersion() →<br/>spec.defaultImage"]
+    IMG["Image resolution<br/>runners.&lt;id&gt;.image →<br/>runners.&lt;id&gt;.language_version →<br/>plugin.inferVersion() →<br/>spec.defaultImage"]
     NATIVE["native_deps preamble synthesis<br/>(if scanners.&lt;id&gt;.native_deps is set)<br/>apt-get install … composed with<br/>any existing plugin preamble"]
     CONTAINER["EphemeralEcosystemContainer<br/>(runMode + preamble, image, projectDir, logPrefix)"]
     CMD["EcosystemContainerCommandRunner<br/>(container, hostRunner, spec)"]
@@ -445,7 +445,7 @@ type RunMode =
 Both run modes support an optional `preamble` function. It is consulted per invocation with the resolved image and may return `undefined` to skip injection for that specific image.
 
 - **`shell-wrap` preamble** — used by composer to inject `COMPOSER_BOOTSTRAP` when the image is a bare `php:*-cli` that does not pre-install composer.
-- **`direct-exec` preamble** — used when `native_deps` is configured in `scanners.npm` (or `pip`/`composer`). `resolveEcosystemRuntime` synthesizes an `apt-get install` preamble and injects it before the binary. When a preamble is present, the executor switches to `sh -lc '…' -- binary args`, preserving the SEC-004 trust boundary: original argv tokens remain independent shell word elements via `"$@"` and are never re-tokenized.
+- **`direct-exec` preamble** — used when `native_deps` is configured in `runners.npm` (or `pip`/`composer`). `resolveEcosystemRuntime` synthesizes an `apt-get install` preamble and injects it before the binary. When a preamble is present, the executor switches to `sh -lc '…' -- binary args`, preserving the SEC-004 trust boundary: original argv tokens remain independent shell word elements via `"$@"` and are never re-tokenized.
 
 When both a `native_deps` preamble (from config) and a plugin preamble (from `runtimeSpec`) are present, `resolveEcosystemRuntime` composes them: `<native_deps_apt_cmd> && <plugin_preamble>`.
 

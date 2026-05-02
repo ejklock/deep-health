@@ -26,7 +26,7 @@ describe('native_deps schema — NpmRunnerConfig', () => {
   it('accepts valid Debian package names', () => {
     const result = ProjectConfigSchema.safeParse({
       ...minimalConfig,
-      scanners: {
+      runners: {
         npm: { native_deps: ['libvips-dev', 'build-essential', 'python3'] },
       },
     });
@@ -36,7 +36,7 @@ describe('native_deps schema — NpmRunnerConfig', () => {
   it('accepts package names with dots and plus signs', () => {
     const result = ProjectConfigSchema.safeParse({
       ...minimalConfig,
-      scanners: {
+      runners: {
         npm: { native_deps: ['ca-certificates', 'libssl1.0-dev', 'g++'] },
       },
     });
@@ -46,7 +46,7 @@ describe('native_deps schema — NpmRunnerConfig', () => {
   it('is optional — absent native_deps does not break parsing', () => {
     const result = ProjectConfigSchema.safeParse({
       ...minimalConfig,
-      scanners: { npm: { runtime_version: '14' } },
+      runners: { npm: { language_version: '14' } },
     });
     expect(result.success).toBe(true);
   });
@@ -54,7 +54,7 @@ describe('native_deps schema — NpmRunnerConfig', () => {
   it('rejects package names with semicolons (shell injection vector)', () => {
     const result = ProjectConfigSchema.safeParse({
       ...minimalConfig,
-      scanners: {
+      runners: {
         npm: { native_deps: ['libvips-dev; rm -rf /'] },
       },
     });
@@ -64,7 +64,7 @@ describe('native_deps schema — NpmRunnerConfig', () => {
   it('rejects package names with dollar signs', () => {
     const result = ProjectConfigSchema.safeParse({
       ...minimalConfig,
-      scanners: { npm: { native_deps: ['$HOME'] } },
+      runners: { npm: { native_deps: ['$HOME'] } },
     });
     expect(result.success).toBe(false);
   });
@@ -72,7 +72,7 @@ describe('native_deps schema — NpmRunnerConfig', () => {
   it('rejects package names with backticks', () => {
     const result = ProjectConfigSchema.safeParse({
       ...minimalConfig,
-      scanners: { npm: { native_deps: ['`cmd`'] } },
+      runners: { npm: { native_deps: ['`cmd`'] } },
     });
     expect(result.success).toBe(false);
   });
@@ -80,7 +80,7 @@ describe('native_deps schema — NpmRunnerConfig', () => {
   it('rejects uppercase package names (Debian convention)', () => {
     const result = ProjectConfigSchema.safeParse({
       ...minimalConfig,
-      scanners: { npm: { native_deps: ['LibVips-Dev'] } },
+      runners: { npm: { native_deps: ['LibVips-Dev'] } },
     });
     expect(result.success).toBe(false);
   });
@@ -91,7 +91,7 @@ describe('native_deps schema — PipRunnerConfig', () => {
     const result = ProjectConfigSchema.safeParse({
       ...minimalConfig,
       ecosystems: [{ id: 'pip' }],
-      scanners: {
+      runners: {
         pip: { native_deps: ['libjpeg-dev', 'libpq-dev'] },
       },
     });
@@ -104,7 +104,7 @@ describe('native_deps schema — ComposerRunnerConfig', () => {
     const result = ProjectConfigSchema.safeParse({
       ...minimalConfig,
       ecosystems: [{ id: 'composer' }],
-      scanners: {
+      runners: {
         composer: { native_deps: ['imagemagick', 'libmagickwand-dev'] },
       },
     });

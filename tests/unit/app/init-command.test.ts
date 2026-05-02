@@ -81,8 +81,8 @@ describe('runInitCommand — non-interactive', () => {
 
     expect(generateConfigYaml).toHaveBeenCalledWith(
       expect.objectContaining({
-        // npm runtime version is now routed to scanners.npm.runtime_version, not ecosystem entry
-        npmRuntimeVersion: '20',
+        // npm language version is now routed to runners.npm.language_version, not ecosystem entry
+        npmLanguageVersion: '20',
         ecosystemConfigs: expect.arrayContaining([
           // version must NOT be present on npm ecosystem entry
           expect.objectContaining({ id: 'npm' }),
@@ -122,7 +122,7 @@ describe('runInitCommand — non-interactive', () => {
 
     expect(generateConfigYaml).toHaveBeenCalledWith(
       expect.objectContaining({
-        composerRuntimeVersion: '8.2',
+        composerLanguageVersion: '8.2',
       }),
     );
   });
@@ -154,11 +154,11 @@ describe('runInitCommand — interactive version prompts', () => {
     // enable sonarqube?, report language, enable markdown?, output dir
     mockPrompt.mockImplementation(async (question: string, defaultValue?: string) => {
       // Version prompt for npm — user accepts the inferred default
-      if (question.includes('Runtime version') && question.includes('npm')) {
+      if (question.includes('Language version') && question.includes('npm')) {
         return defaultValue ?? ''; // accept inferred default "20"
       }
       // Version prompt for composer — user accepts blank default (no inferred)
-      if (question.includes('Runtime version') && question.includes('Composer')) {
+      if (question.includes('Language version') && question.includes('Composer')) {
         return defaultValue ?? ''; // blank → omit
       }
       // Boolean-style prompts (promptBoolean uses prompt internally)
@@ -179,8 +179,8 @@ describe('runInitCommand — interactive version prompts', () => {
 
     expect(generateConfigYaml).toHaveBeenCalledWith(
       expect.objectContaining({
-        // npm runtime version routed to top-level npmRuntimeVersion, not ecosystem entry
-        npmRuntimeVersion: '20',
+        // npm language version routed to top-level npmLanguageVersion, not ecosystem entry
+        npmLanguageVersion: '20',
         ecosystemConfigs: expect.arrayContaining([
           expect.objectContaining({ id: 'npm' }),
         ]),
@@ -194,7 +194,7 @@ describe('runInitCommand — interactive version prompts', () => {
     // Verify that the version prompt for npm was called with the inferred value as default
     const npmVersionPromptCall = mockPrompt.mock.calls.find(
       ([q]: [string, ...unknown[]]) =>
-        typeof q === 'string' && q.includes('Runtime version') && q.includes('inferred: 20'),
+        typeof q === 'string' && q.includes('Language version') && q.includes('inferred: 20'),
     );
     expect(npmVersionPromptCall).toBeDefined();
   });
@@ -213,7 +213,7 @@ describe('runInitCommand — interactive version prompts', () => {
 
     mockPrompt.mockImplementation(async (question: string, defaultValue?: string) => {
       // User explicitly blanks out the version
-      if (question.includes('Runtime version')) return '';
+      if (question.includes('Language version')) return '';
       if (question.includes('Include npm') || question.includes('Include Composer')) return 'y';
       return defaultValue ?? '';
     });
@@ -228,8 +228,8 @@ describe('runInitCommand — interactive version prompts', () => {
 
     expect(generateConfigYaml).toHaveBeenCalledWith(
       expect.objectContaining({
-        // Blank response → npmRuntimeVersion should be undefined
-        npmRuntimeVersion: undefined,
+        // Blank response → npmLanguageVersion should be undefined
+        npmLanguageVersion: undefined,
         ecosystemConfigs: expect.arrayContaining([
           expect.objectContaining({ id: 'npm' }),
         ]),
@@ -252,7 +252,7 @@ describe('runInitCommand — interactive version prompts', () => {
     const versionPromptQuestions: string[] = [];
 
     mockPrompt.mockImplementation(async (question: string, defaultValue?: string) => {
-      if (question.includes('Runtime version')) {
+      if (question.includes('Language version')) {
         versionPromptQuestions.push(question);
       }
       // Only select npm; decline composer
@@ -299,7 +299,7 @@ describe('runInitCommand — interactive dockerfile image_source prompts', () =>
 
       // Keep fixer/runtime prompts simple
       if (question.includes('Fixer strategy')) return defaultValue ?? '';
-      if (question.includes('Runtime version')) return '';
+      if (question.includes('Language version')) return '';
       if (question.includes('PHP framework profile')) return 'none';
 
       // Skip validation/advisors to reduce noise

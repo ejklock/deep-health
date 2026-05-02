@@ -12,13 +12,13 @@ import { buildProjectImage } from './build-project-image';
  *
  * Image resolution precedence:
  *   When image_source='pull' (default):
- *     1. `scanners.<id>.image` — explicit image config (highest priority)
- *     2. `scanners.<id>.runtime_version` — explicit version → `spec.resolveImage(version)`
+ *     1. `runners.<id>.image` — explicit image config (highest priority)
+ *     2. `runners.<id>.language_version` — explicit version → `spec.resolveImage(version)`
  *     3. `plugin.inferVersion(cwd)` — project-file version inference → `spec.resolveImage(version)`
  *     4. `spec.resolveImage(undefined)` → `spec.defaultImage` (fallback)
  *
  *   When image_source='dockerfile':
- *     - Calls `buildProjectImage()` with `scanners.<id>.dockerfile_path`.
+ *     - Calls `buildProjectImage()` with `runners.<id>.dockerfile_path`.
  *     - The result's `entrypointOverride` (always `""`) is forwarded to
  *       `EphemeralEcosystemContainer` to prevent ENTRYPOINT hijacking.
  *     - `image` config MUST NOT be set when image_source='dockerfile'
@@ -41,15 +41,15 @@ export async function resolveEcosystemRuntime(
 
   const spec = plugin.runtimeSpec;
 
-  // Look up per-plugin scanner config — keyed by plugin.id in the scanners block
-  const scannerConfig =
-    config.scanners?.[plugin.id as keyof typeof config.scanners];
+  // Look up per-plugin runner config — keyed by plugin.id in the runners block
+  const runnerConfig =
+    config.runners?.[plugin.id as keyof typeof config.runners];
 
   // Cast to access optional fields present on ecosystem runner configs
-  const scannerCfg = scannerConfig as
+  const runnerCfg = runnerConfig as
     | {
         image?: string;
-        runtime_version?: string;
+        language_version?: string;
         image_source?: string;
         dockerfile_path?: string;
         native_deps?: readonly string[];
@@ -64,14 +64,14 @@ export async function resolveEcosystemRuntime(
   let image: string;
   let entrypointOverride: string | undefined;
 
-  const imageSource = scannerCfg?.image_source ?? 'pull';
+  const imageSource = runnerCfg?.image_source ?? 'pull';
 
   if (imageSource === 'dockerfile') {
     // ── Dockerfile branch ────────────────────────────────────────────────────
-    const dockerfilePath = scannerCfg?.dockerfile_path;
+    const dockerfilePath = runnerCfg?.dockerfile_path;
     if (!dockerfilePath) {
       throw new Error(
-        `[ecosystem-runtime/${plugin.id}] image_source="dockerfile" requires dockerfile_path to be configured under scanners.${plugin.id}.`,
+        `[ecosystem-runtime/${plugin.id}] image_source="dockerfile" requires dockerfile_path to be configured under runners.${plugin.id}.`,
       );
     }
 
@@ -84,21 +84,21 @@ export async function resolveEcosystemRuntime(
       dockerfilePath,
       logPrefix: plugin.id,
       requiredBinaries: spec.containerBinaries,
-      buildContext: scannerCfg?.build_context,
-      buildArgs: scannerCfg?.build_args,
-      allowBuildContextEscape: scannerCfg?.allow_build_context_escape,
+      buildContext: runnerCfg?.build_context,
+      buildArgs: runnerCfg?.build_args,
+      allowBuildContextEscape: runnerCfg?.allow_build_context_escape,
     });
 
     image = buildResult.image;
     entrypointOverride = buildResult.entrypointOverride;
   } else {
     // ── Pull branch (default) ────────────────────────────────────────────────
-    if (scannerCfg?.image) {
+    if (runnerCfg?.image) {
       // 1. Explicit image config — highest priority
-      image = scannerCfg.image;
+      image = runnerCfg.image;
     } else {
       // 2–4. Version-based resolution
-      let version: string | undefined = scannerCfg?.runtime_version;
+      let version: string | undefined = runnerCfg?.language_version;
 
       if (!version && plugin.inferVersion) {
         // inferVersion never throws per its contract
@@ -110,9 +110,9 @@ export async function resolveEcosystemRuntime(
         // Warn for pip specifically because python:3-slim can resolve to Python 3.14+ which may break projects.
         if (plugin.id === 'pip') {
           logger.warn(
-            '[ecosystem-runtime/pip] No runtime_version configured and no Python version file detected. ' +
+            '[ecosystem-runtime/pip] No language_version configured and no Python version file detected. ' +
             `Falling back to ${spec.defaultImage} (may resolve to Python 3.14+). ` +
-            "Run 'deep-health init' or set scanners.pip.runtime_version in your config to pin the version.",
+            "Run 'deep-health init' or set runners.pip.language_version in your config to pin the version.",
           );
         }
       }
@@ -126,7 +126,7 @@ export async function resolveEcosystemRuntime(
 
   // ─── Native deps preamble ─────────────────────────────────────────────────
 
-  const nativeDeps = scannerCfg?.native_deps ?? [];
+  const nativeDeps = runnerCfg?.native_deps ?? [];
 
   let runMode: RunMode = spec.runMode;
   if (nativeDeps.length > 0) {

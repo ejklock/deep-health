@@ -236,26 +236,29 @@ scanners:
   osv:
     runner: 'docker'          # docker | local (separate seam — see ADR-0001)
     image: 'ghcr.io/google/osv-scanner:latest'   # optional override
+  sonarqube:
+    enabled: false            # set true to run SonarQube scan
+    on_failure: 'warn'        # warn | fail
+
+# Runner settings (ecosystem container configuration)
+runners:
   npm:
-    runtime_version: '20'     # optional; inferred from .nvmrc / package.json#engines.node
-    # image: 'node:20'        # optional explicit override; resolved from runtime_version otherwise
+    language_version: '20'    # optional; inferred from .nvmrc / package.json#engines.node
+    # image: 'node:20'        # optional explicit override; resolved from language_version otherwise
     # native_deps:            # OS packages to apt-get install before npm ci runs
     #   - libvips-dev         # required by sharp@0.x on glibc 2.28 images (e.g. node:14)
     #   - build-essential     # required by any native addon that uses node-gyp
     #   - python3             # required by node-gyp on some distros
   composer:
-    runtime_version: '8.1'    # optional; inferred from composer.json#require.php
+    language_version: '8.1'   # optional; inferred from composer.json#require.php
     # native_deps:            # OS packages required by PHP extensions
     #   - imagemagick
     #   - libmagickwand-dev
   pip:
-    runtime_version: '3.11'   # optional; inferred from runtime.txt / .python-version
+    language_version: '3.11'  # optional; inferred from runtime.txt / .python-version
     # native_deps:            # OS packages required by C-extension pip packages
     #   - libjpeg-dev         # Pillow
     #   - libpq-dev           # psycopg2
-  sonarqube:
-    enabled: false            # set true to run SonarQube scan
-    on_failure: 'warn'        # warn | fail
 
 # Output settings
 outputs:

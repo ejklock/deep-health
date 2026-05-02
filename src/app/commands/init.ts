@@ -95,12 +95,12 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   // ─── Per-ecosystem config ────────────────────────────────────────────────────
 
   const ecosystemConfigs: GenerateConfigOptions['ecosystemConfigs'] = [];
-  /** Inferred npm runtime version (written to scanners.npm.runtime_version, not ecosystem entry). */
-  let npmRuntimeVersion: string | undefined;
-  /** Inferred Python runtime version (written to scanners.pip.runtime_version, not ecosystem entry). */
-  let pipRuntimeVersion: string | undefined;
-  /** Inferred PHP runtime version (written to scanners.composer.runtime_version, not ecosystem entry). */
-  let composerRuntimeVersion: string | undefined;
+  /** Inferred npm language version (written to runners.npm.language_version, not ecosystem entry). */
+  let npmLanguageVersion: string | undefined;
+  /** Inferred Python language version (written to runners.pip.language_version, not ecosystem entry). */
+  let pipLanguageVersion: string | undefined;
+  /** Inferred PHP language version (written to runners.composer.language_version, not ecosystem entry). */
+  let composerLanguageVersion: string | undefined;
 
   // Dockerfile image-source options — one set per ecosystem scanner
   let npmImageSource: 'pull' | 'dockerfile' | undefined;
@@ -173,19 +173,19 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
       : undefined;
 
     if (id === 'npm') {
-      // npm runtime version is stored in scanners.npm.runtime_version, not in the ecosystem entry.
+      // npm language version is stored in runners.npm.language_version, not in the ecosystem entry.
       let resolvedVersion: string | undefined;
       if (!opts.nonInteractive) {
         const versionDefault = inferredVersion ?? '';
         const versionPrompt = inferredVersion
-          ? `  [${plugin.name}] Runtime version (inferred: ${inferredVersion}, blank to skip)`
-          : `  [${plugin.name}] Runtime version (blank to skip)`;
+          ? `  [${plugin.name}] Language version (inferred: ${inferredVersion}, blank to skip)`
+          : `  [${plugin.name}] Language version (blank to skip)`;
         const versionAnswer = await prompt(versionPrompt, versionDefault);
         resolvedVersion = versionAnswer.trim() || undefined;
       } else {
         resolvedVersion = inferredVersion;
       }
-      npmRuntimeVersion = resolvedVersion;
+      npmLanguageVersion = resolvedVersion;
 
       // image_source prompts for npm scanner
       if (!opts.nonInteractive) {
@@ -209,19 +209,19 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
         npmImageSource = 'pull';
       }
     } else if (id === 'composer') {
-      // composer PHP runtime version is stored in scanners.composer.runtime_version
+      // composer PHP language version is stored in runners.composer.language_version
       let resolvedVersion: string | undefined;
       if (!opts.nonInteractive) {
         const versionDefault = inferredVersion ?? '';
         const versionPrompt = inferredVersion
-          ? `  [${plugin.name}] PHP runtime version (inferred: ${inferredVersion}, blank to skip)`
-          : `  [${plugin.name}] PHP runtime version (blank to skip)`;
+          ? `  [${plugin.name}] PHP language version (inferred: ${inferredVersion}, blank to skip)`
+          : `  [${plugin.name}] PHP language version (blank to skip)`;
         const versionAnswer = await prompt(versionPrompt, versionDefault);
         resolvedVersion = versionAnswer.trim() || undefined;
       } else {
         resolvedVersion = inferredVersion;
       }
-      composerRuntimeVersion = resolvedVersion;
+      composerLanguageVersion = resolvedVersion;
 
       // image_source prompts for composer scanner
       if (!opts.nonInteractive) {
@@ -245,19 +245,19 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
         composerImageSource = 'pull';
       }
     } else if (id === 'pip') {
-      // pip Python runtime version is stored in scanners.pip.runtime_version
+      // pip Python language version is stored in runners.pip.language_version
       let resolvedPipVersion: string | undefined;
       if (!opts.nonInteractive) {
         const versionDefault = inferredVersion ?? '';
         const versionPrompt = inferredVersion
-          ? `  [${plugin.name}] Python runtime version (inferred: ${inferredVersion}, blank to skip)`
-          : `  [${plugin.name}] Python runtime version (blank to skip)`;
+          ? `  [${plugin.name}] Python language version (inferred: ${inferredVersion}, blank to skip)`
+          : `  [${plugin.name}] Python language version (blank to skip)`;
         const versionAnswer = await prompt(versionPrompt, versionDefault);
         resolvedPipVersion = versionAnswer.trim() || undefined;
       } else {
         resolvedPipVersion = inferredVersion;
       }
-      pipRuntimeVersion = resolvedPipVersion;
+      pipLanguageVersion = resolvedPipVersion;
 
       // image_source prompts for pip scanner
       if (!opts.nonInteractive) {
@@ -281,8 +281,8 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
         pipImageSource = 'pull';
       }
     }
-    // Note: runtime versions are stored in the scanner config block (scanners.npm.runtime_version,
-    // scanners.pip.runtime_version, scanners.composer.runtime_version), not in the ecosystem entry.
+    // Note: language versions are stored in the runner config block (runners.npm.language_version,
+    // runners.pip.language_version, runners.composer.language_version), not in the ecosystem entry.
 
     ecosystemConfigs.push({ id, fixerStrategy, validationCommands, advisors });
   }
@@ -324,9 +324,9 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     reportLanguage,
     ecosystemConfigs,
     enableSonarQube,
-    npmRuntimeVersion,
-    pipRuntimeVersion,
-    composerRuntimeVersion,
+    npmLanguageVersion,
+    pipLanguageVersion,
+    composerLanguageVersion,
     npmImageSource,
     npmDockerfilePath,
     npmBuildContext,

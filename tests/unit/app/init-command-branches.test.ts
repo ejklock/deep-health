@@ -124,7 +124,7 @@ describe('runInitCommand — composer non-interactive with inferred version (lin
     } as Parameters<typeof runInitCommand>[0]);
 
     expect(vi.mocked(generateConfigYaml)).toHaveBeenCalledWith(
-      expect.objectContaining({ composerRuntimeVersion: expect.any(String) }),
+      expect.objectContaining({ composerLanguageVersion: expect.any(String) }),
     );
   });
 });
@@ -240,7 +240,7 @@ describe('runInitCommand — interactive fixer answer not in supportedFixers (li
       if (question.includes('Include Composer') || question.includes('Include pip')) return 'n';
       if (question.includes('Fixer strategy')) return 'invalid-fixer'; // not in supportedFixers → line 101
       if (question.includes('Validation command')) return '';
-      if (question.includes('Runtime version')) return '';
+      if (question.includes('Language version')) return '';
       if (question.includes('SonarQube') || question.includes('markdown')) return 'n';
       return defaultValue ?? '';
     });
@@ -312,7 +312,7 @@ describe('runInitCommand — composer interactive with inferred version (lines 1
       if (question.includes('Include npm') || question.includes('Include pip')) return 'n';
       if (question.includes('Fixer strategy')) return defaultValue ?? '';
       if (question.includes('Validation command')) return '';
-      if (question.includes('PHP runtime version')) return '8.2.0';
+      if (question.includes('PHP language version')) return '8.2.0';
       if (question.includes('SonarQube') || question.includes('markdown')) return 'n';
       return defaultValue ?? '';
     });
@@ -328,7 +328,7 @@ describe('runInitCommand — composer interactive with inferred version (lines 1
     stdoutSpy.mockRestore();
 
     // PHP version prompt is still asked (version inference branch)
-    const phpVersionQ = promptQuestions.find((q) => q.includes('PHP runtime version'));
+    const phpVersionQ = promptQuestions.find((q) => q.includes('PHP language version'));
     expect(phpVersionQ).toBeDefined();
     // framework_profile prompt is gone — field was removed in ADR-0004
     const phpProfileQ = promptQuestions.find((q) => q.includes('PHP framework profile'));

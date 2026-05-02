@@ -2,13 +2,13 @@ import Handlebars from 'handlebars';
 import type { SupportedLocale } from '@core/types/locale';
 import type { OutputFormat } from '@core/types/config';
 import configTemplate from './templates/project-config.hbs';
-import npmScannerBlockTemplate from './templates/npm-scanner-block.hbs';
-import pipScannerBlockTemplate from './templates/pip-scanner-block.hbs';
-import composerScannerBlockTemplate from './templates/composer-scanner-block.hbs';
+import npmRunnerBlockTemplate from './templates/npm-runner-block.hbs';
+import pipRunnerBlockTemplate from './templates/pip-runner-block.hbs';
+import composerRunnerBlockTemplate from './templates/composer-runner-block.hbs';
 
-Handlebars.registerPartial('npm-scanner-block', npmScannerBlockTemplate);
-Handlebars.registerPartial('pip-scanner-block', pipScannerBlockTemplate);
-Handlebars.registerPartial('composer-scanner-block', composerScannerBlockTemplate);
+Handlebars.registerPartial('npm-runner-block', npmRunnerBlockTemplate);
+Handlebars.registerPartial('pip-runner-block', pipRunnerBlockTemplate);
+Handlebars.registerPartial('composer-runner-block', composerRunnerBlockTemplate);
 
 /**
  * Config / init scaffolding generates a declarative project-config.yml.
@@ -46,28 +46,28 @@ export interface GenerateConfigOptions {
   /** Outputs config for report generation */
   outputs?: { formats?: OutputFormat[]; dir?: string };
   /**
-   * Inferred Node.js runtime version to persist into `scanners.npm.runtime_version`.
+   * Inferred Node.js language version to persist into `runners.npm.language_version`.
    * When set, the generated config includes this value so the orchestrator can use it
    * for Docker image resolution without running inferVersion() at scan time.
    * Example: '20', '20.11'
    */
-  npmRuntimeVersion?: string;
+  npmLanguageVersion?: string;
   /**
-   * Inferred Python runtime version to persist into `scanners.pip.runtime_version`.
+   * Inferred Python language version to persist into `runners.pip.language_version`.
    * When set, the generated config includes this value so the orchestrator can use it
    * for Docker image resolution without running inferVersion() at scan time.
    * Example: '3.11', '3.11.2'
    */
-  pipRuntimeVersion?: string;
+  pipLanguageVersion?: string;
   /**
-   * Inferred PHP runtime version to persist into `scanners.composer.runtime_version`.
+   * Inferred PHP language version to persist into `runners.composer.language_version`.
    * When set, the generated config includes this value so the orchestrator can use it
    * for Docker image resolution without running inferVersion() at scan time.
    * Example: '8.2', '8.2.1'
    */
-  composerRuntimeVersion?: string;
+  composerLanguageVersion?: string;
   /**
-   * Image source for the npm scanner container.
+   * Image source for the npm runner container.
    * - 'pull' (default): pull a registry image.
    * - 'dockerfile': build from a project-owned Dockerfile; requires `npmDockerfilePath`.
    */
@@ -79,7 +79,7 @@ export interface GenerateConfigOptions {
    */
   npmDockerfilePath?: string;
   /**
-   * Image source for the pip scanner container.
+   * Image source for the pip runner container.
    * - 'pull' (default): pull a registry image.
    * - 'dockerfile': build from a project-owned Dockerfile; requires `pipDockerfilePath`.
    */
@@ -90,7 +90,7 @@ export interface GenerateConfigOptions {
    */
   pipDockerfilePath?: string;
   /**
-   * Image source for the composer scanner container.
+   * Image source for the composer runner container.
    * - 'pull' (default): pull a registry image.
    * - 'dockerfile': build from a project-owned Dockerfile; requires `composerDockerfilePath`.
    */
@@ -133,17 +133,17 @@ export interface GenerateConfigOptions {
    */
   composerBuildArgs?: Record<string, string>;
   /**
-   * When true, persists `allow_build_context_escape: true` into the npm scanner config.
+   * When true, persists `allow_build_context_escape: true` into the npm runner config.
    * Only relevant when `npmImageSource='dockerfile'`. Default: false (boundary enforced).
    */
   npmAllowBuildContextEscape?: boolean;
   /**
-   * When true, persists `allow_build_context_escape: true` into the pip scanner config.
+   * When true, persists `allow_build_context_escape: true` into the pip runner config.
    * Only relevant when `pipImageSource='dockerfile'`. Default: false (boundary enforced).
    */
   pipAllowBuildContextEscape?: boolean;
   /**
-   * When true, persists `allow_build_context_escape: true` into the composer scanner config.
+   * When true, persists `allow_build_context_escape: true` into the composer runner config.
    * Only relevant when `composerImageSource='dockerfile'`. Default: false (boundary enforced).
    */
   composerAllowBuildContextEscape?: boolean;
@@ -283,10 +283,10 @@ export function generateConfigYaml(opts: GenerateConfigOptions = {}): string {
     hasOutputs,
     outputFormats,
     outputsDir,
-    npmRuntimeVersion: opts.npmRuntimeVersion,
-    pipRuntimeVersion: opts.pipRuntimeVersion,
-    composerRuntimeVersion: opts.composerRuntimeVersion,
-    hasAnyScannerRuntime: !!(opts.npmRuntimeVersion || opts.pipRuntimeVersion || opts.composerRuntimeVersion
+    npmLanguageVersion: opts.npmLanguageVersion,
+    pipLanguageVersion: opts.pipLanguageVersion,
+    composerLanguageVersion: opts.composerLanguageVersion,
+    hasAnyRunnerConfig: !!(opts.npmLanguageVersion || opts.pipLanguageVersion || opts.composerLanguageVersion
       || opts.npmImageSource === 'dockerfile' || opts.pipImageSource === 'dockerfile' || opts.composerImageSource === 'dockerfile'),
     // Dockerfile image-source options
     npmImageSource: opts.npmImageSource === 'dockerfile' ? 'dockerfile' : undefined,

@@ -28,7 +28,7 @@ When a new domain concept stabilizes during design work, add it here. When a ter
 
 **Fixer Strategy** — how vulnerabilities are remediated for an ecosystem: `osv`, `npm-audit`, `osv-then-audit`, `composer-update`. Selected via `ecosystems[].fixer` in config or the plugin's first supported fixer as default. For npm, if the configured strategy is `osv` or `osv-then-audit` and `package-lock.json` has `lockfileVersion: 1` (npm 6 / Node ≤12), `runEcosystemFix` auto-demotes to `npm-audit` at runtime (osv-scanner cannot patch v1 lockfiles in-place).
 
-**Native Deps** — OS-level system packages (e.g. `libvips-dev`, `libpq-dev`) declared under `scanners.<id>.native_deps` in config. `resolveEcosystemRuntime` synthesizes an `apt-get install` preamble from the list and injects it into the run mode before passing the container to the ecosystem CLI. Ensures native npm/pip/composer addons that require system libraries can compile during `npm ci` / `pip install` / `composer install` inside ephemeral containers.
+**Native Deps** — OS-level system packages (e.g. `libvips-dev`, `libpq-dev`) declared under `runners.<id>.native_deps` in config. `resolveEcosystemRuntime` synthesizes an `apt-get install` preamble from the list and injects it into the run mode before passing the container to the ecosystem CLI. Ensures native npm/pip/composer addons that require system libraries can compile during `npm ci` / `pip install` / `composer install` inside ephemeral containers.
 
 **Updater** — the function each plugin runs (`runNpmUpdater`, `runPipUpdater`, `runComposerUpdater`) that applies the fixer, runs validations, and reverts on failure. The shared revert/result-building skeleton lives in the **Updater Transaction** primitive.
 
@@ -64,7 +64,7 @@ When a new domain concept stabilizes during design work, add it here. When a ter
 
 **Host Runner** — the `CommandRunner` (typically `LocalExecutor`) that handles host-only commands. Passed into the container command runner; replaces what the legacy code called `fallback`.
 
-**Image Source** — config axis (`scanners.<id>.image_source: 'pull' | 'dockerfile'`) that selects how the ecosystem runner image is provisioned. `'pull'` (default) uses the existing registry-image resolution chain. `'dockerfile'` delegates to `buildProjectImage()` to build a stable local image from a project-owned Dockerfile. Mutually exclusive with `image`; requires `dockerfile_path`. Validated by schema `superRefine` at load time.
+**Image Source** — config axis (`runners.<id>.image_source: 'pull' | 'dockerfile'`) that selects how the ecosystem runner image is provisioned. `'pull'` (default) uses the existing registry-image resolution chain. `'dockerfile'` delegates to `buildProjectImage()` to build a stable local image from a project-owned Dockerfile. Mutually exclusive with `image`; requires `dockerfile_path`. Validated by schema `superRefine` at load time.
 
 **Project Image Build** — `buildProjectImage()` in `src/infrastructure/ecosystem-runtime/build-project-image.ts`. Reads a project-owned Dockerfile, derives a stable local tag via SHA-256 of the file contents, probes the local Docker daemon cache (`docker image inspect`), and only rebuilds when the tag is absent. Returns `{ image, entrypointOverride: "" }`. The `entrypointOverride` MUST be forwarded to `EphemeralEcosystemContainer` so `--entrypoint ""` is injected into every `docker run`, preventing the image's ENTRYPOINT from hijacking the ecosystem CLI binary. Emits a warning when the build context exceeds 50 MB. Build happens lazily on first use inside `resolveEcosystemRuntime` — the orchestrator is not modified.
 
@@ -97,6 +97,10 @@ When a new domain concept stabilizes during design work, add it here. When a ter
 **Project Config** — `deep-health.config.json` / `project-config.yml`. Loaded and validated by `src/infrastructure/config/loader.ts`.
 
 **Config Version** — `config_version: '1'`. Future incompatible schema changes bump this.
+
+**Runners Config** — top-level `runners` block in the project config that holds per-ecosystem Docker runner settings (`npm`, `pip`, `composer`). Separated from `scanners` (which retains OSV and SonarQube engine config). Each runner entry carries `image_source`, `language_version`, `native_deps`, `dockerfile_path`, `build_context`, `build_args`, and `allow_build_context_escape`. Loader emits a migration error if the old `scanners.npm/pip/composer` keys are detected.
+
+**Language Version** — field `runners.<id>.language_version` (renamed from `runtime_version`). Version hint used by the ephemeral image resolver to select the appropriate Node/Python/PHP base image (e.g. `"20"`, `"3.11"`, `"8.2"`). Canonical runtime hint for npm container execution; also used by pip and composer resolvers.
 
 **Kill Switch** — `DEEP_HEALTH_NO_AUTO_FIX` env var. When set, the orchestrator runs the scan but skips all automated fixes and writes no files.
 

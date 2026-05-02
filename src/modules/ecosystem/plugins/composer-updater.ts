@@ -84,7 +84,7 @@ function extractPackageNames(packageRefs: string[]): string[] {
  *                         Production has ext-intl, ext-gd, ext-exif, etc.; the container does not.
  */
 function buildComposerAutomationArgs(runner: CommandRunner, config: ProjectConfig): string[] {
-  const composerConfig = config.scanners?.composer;
+  const composerConfig = config.runners?.composer;
   const ignorePlatformReqs =
     composerConfig?.ignore_platform_reqs ?? runner.environment === 'docker';
 

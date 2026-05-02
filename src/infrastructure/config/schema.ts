@@ -98,17 +98,17 @@ const NpmRunnerConfigSchema = z
     /**
      * Docker image to use for the npm container.
      * Defaults to a version-resolved image (e.g. 'node:20'), falling back to 'node:lts'.
-     * Takes precedence over runtime_version.
+     * Takes precedence over language_version.
      * Mutually exclusive with image_source='dockerfile'.
      */
     image: DockerImageRefSchema.optional(),
     /**
-     * Node.js runtime version hint used to resolve the Docker image when `image` is not set.
+     * Node.js language version hint used to resolve the Docker image when `image` is not set.
      * Example: '20', '20.11', '20.11.1'.
      * Overrides the version inferred from project files.
      * Set by `deep-health init` when a Node version can be inferred automatically.
      */
-    runtime_version: z.string().optional(),
+    language_version: z.string().optional(),
     /**
      * Image source axis.
      * - 'pull' (default): pull a registry image.
@@ -152,7 +152,7 @@ const NpmRunnerConfigSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          'scanners.npm: image_source="dockerfile" is mutually exclusive with `image`. ' +
+          'runners.npm: image_source="dockerfile" is mutually exclusive with `image`. ' +
           'Remove `image` or set image_source="pull".',
       });
     }
@@ -160,7 +160,7 @@ const NpmRunnerConfigSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          'scanners.npm: image_source="dockerfile" requires `dockerfile_path` to be set.',
+          'runners.npm: image_source="dockerfile" requires `dockerfile_path` to be set.',
       });
     }
   });
@@ -262,16 +262,16 @@ const PipRunnerConfigSchema = z
     /**
      * Docker image to use for the pip container.
      * Defaults to a version-resolved image (e.g. 'python:3.11-slim'), falling back to 'python:3-slim'.
-     * Takes precedence over runtime_version.
+     * Takes precedence over language_version.
      * Mutually exclusive with image_source='dockerfile'.
      */
     image: DockerImageRefSchema.optional(),
     /**
-     * Python runtime version hint used to resolve the Docker image when `image` is not set.
+     * Python language version hint used to resolve the Docker image when `image` is not set.
      * Example: '3.11', '3.11.2'.
      * Overrides the version inferred from project files.
      */
-    runtime_version: z.string().optional(),
+    language_version: z.string().optional(),
     /**
      * Image source axis.
      * - 'pull' (default): pull a registry image.
@@ -313,7 +313,7 @@ const PipRunnerConfigSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          'scanners.pip: image_source="dockerfile" is mutually exclusive with `image`. ' +
+          'runners.pip: image_source="dockerfile" is mutually exclusive with `image`. ' +
           'Remove `image` or set image_source="pull".',
       });
     }
@@ -321,7 +321,7 @@ const PipRunnerConfigSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          'scanners.pip: image_source="dockerfile" requires `dockerfile_path` to be set.',
+          'runners.pip: image_source="dockerfile" requires `dockerfile_path` to be set.',
       });
     }
   });
@@ -332,17 +332,17 @@ const ComposerRunnerConfigSchema = z
     /**
      * Docker image to use for the composer container.
      * Defaults to a version-resolved image (e.g. 'php:8.2-cli'), falling back to 'composer:2'.
-     * Takes precedence over runtime_version.
+     * Takes precedence over language_version.
      * Mutually exclusive with image_source='dockerfile'.
      */
     image: DockerImageRefSchema.optional(),
     /**
-     * PHP runtime version hint used to resolve the Docker image when `image` is not set.
+     * PHP language version hint used to resolve the Docker image when `image` is not set.
      * Example: '8.2', '8.2.1'.
      * Overrides the version inferred from project files (.php-version / composer.json#require.php).
      * Set by `deep-health init` when a PHP version can be inferred automatically.
      */
-    runtime_version: z.string().optional(),
+    language_version: z.string().optional(),
     /**
      * Image source axis.
      * - 'pull' (default): pull a registry image (php:*-cli or composer:2).
@@ -391,7 +391,7 @@ const ComposerRunnerConfigSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          'scanners.composer: image_source="dockerfile" is mutually exclusive with `image`. ' +
+          'runners.composer: image_source="dockerfile" is mutually exclusive with `image`. ' +
           'Remove `image` or set image_source="pull".',
       });
     }
@@ -399,7 +399,7 @@ const ComposerRunnerConfigSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          'scanners.composer: image_source="dockerfile" requires `dockerfile_path` to be set.',
+          'runners.composer: image_source="dockerfile" requires `dockerfile_path` to be set.',
       });
     }
   });
@@ -409,6 +409,11 @@ const ScannersConfigSchema = z
     sonarqube: SonarQubeConfigSchema.optional(),
     osv: OsvScannerConfigSchema.optional(),
     primary: z.string().optional(),
+  })
+  .strict();
+
+const RunnersConfigSchema = z
+  .object({
     npm: NpmRunnerConfigSchema.optional(),
     pip: PipRunnerConfigSchema.optional(),
     composer: ComposerRunnerConfigSchema.optional(),
@@ -526,6 +531,7 @@ export const ProjectConfigSchema = z
     cloud_storage: CloudStorageConfigSchema.optional(),
     scan: ScanPathsConfigSchema.optional(),
     scanners: ScannersConfigSchema.optional(),
+    runners: RunnersConfigSchema.optional(),
     outputs: OutputsConfigSchema.optional(),
     workflow: WorkflowConfigSchema.optional(),
   })

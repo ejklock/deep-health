@@ -11,8 +11,8 @@
 import { describe, it, expect } from 'vitest';
 import { ProjectConfigSchema } from '@infra/config/schema';
 
-/** Minimal valid project config skeleton — only scanners is overridden per test. */
-function makeConfig(scanners: Record<string, unknown>): unknown {
+/** Minimal valid project config skeleton — only runners is overridden per test. */
+function makeConfig(runners: Record<string, unknown>): unknown {
   return {
     config_version: '1',
     project: { name: 'Test', client: 'Test' },
@@ -23,14 +23,14 @@ function makeConfig(scanners: Record<string, unknown>): unknown {
       require_authorization_for_constraint_change: false,
     },
     conflict_resolution: 'manual',
-    scanners,
+    runners,
   };
 }
 
 describe('ProjectConfigSchema — image_source superRefine validation', () => {
   // ─── npm ───────────────────────────────────────────────────────────────────
 
-  describe('scanners.npm', () => {
+  describe('runners.npm', () => {
     it('passes when image_source is omitted (defaults to pull)', () => {
       const result = ProjectConfigSchema.safeParse(makeConfig({ npm: {} }));
       expect(result.success).toBe(true);
@@ -74,19 +74,19 @@ describe('ProjectConfigSchema — image_source superRefine validation', () => {
       expect(messages.some((m) => m.includes('dockerfile_path'))).toBe(true);
     });
 
-    it('error message identifies the ecosystem (scanners.npm)', () => {
+    it('error message identifies the ecosystem (runners.npm)', () => {
       const result = ProjectConfigSchema.safeParse(
         makeConfig({ npm: { image_source: 'dockerfile', image: 'node:20', dockerfile_path: 'Dockerfile' } }),
       );
       expect(result.success).toBe(false);
       const messages = result.error?.issues.map((i) => i.message) ?? [];
-      expect(messages.some((m) => m.includes('scanners.npm'))).toBe(true);
+      expect(messages.some((m) => m.includes('runners.npm'))).toBe(true);
     });
   });
 
   // ─── pip ───────────────────────────────────────────────────────────────────
 
-  describe('scanners.pip', () => {
+  describe('runners.pip', () => {
     it('passes when image_source="dockerfile" with dockerfile_path set', () => {
       const result = ProjectConfigSchema.safeParse(
         makeConfig({ pip: { image_source: 'dockerfile', dockerfile_path: '.docker/pip.Dockerfile' } }),
@@ -107,7 +107,7 @@ describe('ProjectConfigSchema — image_source superRefine validation', () => {
       expect(result.success).toBe(false);
       const messages = result.error?.issues.map((i) => i.message) ?? [];
       expect(messages.some((m) => m.includes('mutually exclusive'))).toBe(true);
-      expect(messages.some((m) => m.includes('scanners.pip'))).toBe(true);
+      expect(messages.some((m) => m.includes('runners.pip'))).toBe(true);
     });
 
     it('fails when image_source="dockerfile" without dockerfile_path', () => {
@@ -122,7 +122,7 @@ describe('ProjectConfigSchema — image_source superRefine validation', () => {
 
   // ─── composer ──────────────────────────────────────────────────────────────
 
-  describe('scanners.composer', () => {
+  describe('runners.composer', () => {
     it('passes when image_source="dockerfile" with dockerfile_path set', () => {
       const result = ProjectConfigSchema.safeParse(
         makeConfig({ composer: { image_source: 'dockerfile', dockerfile_path: '.docker/php.Dockerfile' } }),
@@ -143,7 +143,7 @@ describe('ProjectConfigSchema — image_source superRefine validation', () => {
       expect(result.success).toBe(false);
       const messages = result.error?.issues.map((i) => i.message) ?? [];
       expect(messages.some((m) => m.includes('mutually exclusive'))).toBe(true);
-      expect(messages.some((m) => m.includes('scanners.composer'))).toBe(true);
+      expect(messages.some((m) => m.includes('runners.composer'))).toBe(true);
     });
 
     it('fails when image_source="dockerfile" without dockerfile_path', () => {
@@ -168,7 +168,7 @@ describe('ProjectConfigSchema — image_source superRefine validation', () => {
     expect(result.success).toBe(false);
     const messages = result.error?.issues.map((i) => i.message) ?? [];
     // Only npm should have the error
-    expect(messages.some((m) => m.includes('scanners.npm'))).toBe(true);
-    expect(messages.some((m) => m.includes('scanners.pip'))).toBe(false);
+    expect(messages.some((m) => m.includes('runners.npm'))).toBe(true);
+    expect(messages.some((m) => m.includes('runners.pip'))).toBe(false);
   });
 });

@@ -11,7 +11,7 @@ Accepted — 2026-04-29
 Before this ADR, each ecosystem runner config (npm, pip, composer) carried several overlapping fields that described how to obtain a Docker image:
 
 - `image` — explicit image reference
-- `runtime_version` — version hint for image resolution
+- `language_version` — version hint for image resolution (was `runtime_version` before the `runners` block split)
 - `image_source: 'pull' | 'dockerfile'` — axis introduced in a prior cycle
 - `dockerfile_path` — path to Dockerfile
 - `build_context` — Docker build context path
@@ -27,7 +27,7 @@ The co-existence of `image_source` and `image_strategy` made the composer config
 
 More broadly, the fields across the three runners implied a richer customization surface than was actually present. In practice, there are exactly two paths to obtaining a Docker image for an ecosystem runner:
 
-- **Ephemeral (pull)**: the CLI resolves a registry image (from `image`, `runtime_version`, or inference) and runs it directly. The user's only customization knobs are `runtime_version` and `native_deps` (OS packages injected at container start via preamble). This is the default and covers the large majority of use cases.
+- **Ephemeral (pull)**: the CLI resolves a registry image (from `image`, `language_version`, or inference) and runs it directly. The user's only customization knobs are `language_version` and `native_deps` (OS packages injected at container start via preamble). This is the default and covers the large majority of use cases.
 - **Dockerfile**: the user owns a Dockerfile; the CLI builds a local image from it and runs that. The user's customization knobs are `dockerfile_path`, `build_context`, and `build_args`. If a user needs more than what the ephemeral path offers, this is the escape hatch.
 
 There is no third path. Codifying this as a two-path model in the schema and documentation eliminates ambiguity.
@@ -74,7 +74,7 @@ The CLI auto-builds an ephemeral container from a registry image. User-configura
 
 | Field | Purpose |
 |---|---|
-| `runtime_version` | Node/Python/PHP version hint for image resolution |
+| `language_version` | Node/Python/PHP version hint for image resolution |
 | `native_deps` | OS packages installed via apt-get in the container preamble |
 
 If deeper customization is needed (e.g., custom base image, additional build steps, private registry), the user switches to Path B.
@@ -91,7 +91,7 @@ The user provides a Dockerfile. The CLI builds a local image from it. User-confi
 
 `native_deps` is not applicable on Path B — the Dockerfile owns its own build steps.
 
-The `image` field remains available on Path A as an explicit override (higher priority than `runtime_version`). It is mutually exclusive with `image_source: 'dockerfile'`, enforced by schema `superRefine`.
+The `image` field remains available on Path A as an explicit override (higher priority than `language_version`). It is mutually exclusive with `image_source: 'dockerfile'`, enforced by schema `superRefine`.
 
 ### 2. Remove deprecated composer fields — no backward compatibility
 
@@ -104,7 +104,7 @@ The `image` field remains available on Path A as an explicit override (higher pr
 - Handlebars template (`src/infrastructure/config/templates/project-config.hbs.ts`)
 - `php-profiles.ts` comment references (`src/infrastructure/provisioner/php-profiles.ts`)
 
-Existing config files that contain `image_strategy` or `framework_profile` under `scanners.composer` will fail at schema load time with a clear error message. Because the schema uses `.strict()`, unknown fields are rejected. The error message should guide the user to remove the deprecated fields and use `image_source: 'dockerfile'` + `dockerfile_path` if they were using `image_strategy: 'build'`.
+Existing config files that contain `image_strategy` or `framework_profile` under `runners.composer` will fail at schema load time with a clear error message. Because the schema uses `.strict()`, unknown fields are rejected. The error message should guide the user to remove the deprecated fields and use `image_source: 'dockerfile'` + `dockerfile_path` if they were using `image_strategy: 'build'`.
 
 There is no migration shim. The tool is pre-production. The one-release deprecation window has elapsed.
 

@@ -89,19 +89,19 @@ export interface NpmRunnerConfig {
    * Docker image to use when mode is 'docker'.
    * When absent, the image is resolved from the inferred/configured Node version
    * (e.g. Node 20 → 'node:20').  Falls back to 'node:lts'.
-   * Takes precedence over `runtime_version`.
+   * Takes precedence over `language_version`.
    * Mutually exclusive with `image_source='dockerfile'`.
    */
   image?: string;
   /**
-   * Node.js runtime version to use when resolving the Docker image.
+   * Node.js language version to use when resolving the Docker image.
    * Example: '20', '20.11', '20.11.1'.
    * When set, the image is resolved as `node:<major>` (e.g. '20' → 'node:20').
    * Overrides the version inferred from project files.
    * Only used when `image` is not set.
    * Set by `deep-health init` when a Node version can be inferred from .nvmrc / .node-version / package.json.
    */
-  runtime_version?: string;
+  language_version?: string;
   /**
    * Image source axis.
    * - 'pull' (default): pull a registry image.
@@ -312,19 +312,19 @@ export interface ComposerRunnerConfig {
    * Docker image to use when mode is 'docker'.
    * When absent, the image is resolved from the inferred/configured PHP version
    * (e.g. PHP 8.2 → 'php:8.2-cli').  Falls back to 'composer:2'.
-   * Takes precedence over `runtime_version`.
+   * Takes precedence over `language_version`.
    * Mutually exclusive with `image_source='dockerfile'`.
    */
   image?: string;
   /**
-   * PHP runtime version to use when resolving the Docker image.
+   * PHP language version to use when resolving the Docker image.
    * Example: '8.2', '8.2.1'.
    * When set, the image is resolved as `php:<major>.<minor>-cli` (e.g. '8.2' → 'php:8.2-cli').
    * Overrides the version inferred from project files.
    * Only used when `image` is not set.
    * Set by `deep-health init` when a PHP version can be inferred from .php-version / composer.json.
    */
-  runtime_version?: string;
+  language_version?: string;
   /**
    * Image source axis.
    * - 'pull' (default): pull a registry image (php:*-cli or composer:2).
@@ -393,18 +393,18 @@ export interface PipRunnerConfig {
    * Docker image to use when mode is 'docker'.
    * When absent, the image is resolved from the inferred/configured Python version.
    * Falls back to 'python:3-slim'.
-   * Takes precedence over `runtime_version`.
+   * Takes precedence over `language_version`.
    * Mutually exclusive with `image_source='dockerfile'`.
    */
   image?: string;
   /**
-   * Python runtime version to use when resolving the Docker image.
+   * Python language version to use when resolving the Docker image.
    * Example: '3.11', '3.11.2'.
    * When set, the image is resolved as `python:{major}.{minor}-slim`.
    * Overrides the version inferred from project files.
    * Only used when `image` is not set.
    */
-  runtime_version?: string;
+  language_version?: string;
   /**
    * Image source axis.
    * - 'pull' (default): pull a registry image.
@@ -454,6 +454,9 @@ export interface ScannersConfig {
   osv?: OsvScannerConfig;
   /** Engine id to use as Gate A source; defaults to 'osv' when omitted. */
   primary?: string;
+}
+
+export interface RunnersConfig {
   npm?: NpmRunnerConfig;
   pip?: PipRunnerConfig;
   composer?: ComposerRunnerConfig;
@@ -551,6 +554,8 @@ export interface ProjectConfig {
   /** Top-level scan path configuration — controls which paths osv-scanner inspects. */
   scan?: ScanPathsConfig;
   scanners?: ScannersConfig;
+  /** Ecosystem runner configurations (Docker image, version hint, native deps, etc.) */
+  runners?: RunnersConfig;
   outputs?: OutputsConfig;
   workflow?: WorkflowConfig;
 }

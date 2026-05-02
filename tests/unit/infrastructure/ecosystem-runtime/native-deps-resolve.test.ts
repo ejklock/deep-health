@@ -59,7 +59,7 @@ function makePlugin(overrides: Partial<EcosystemPlugin> = {}): EcosystemPlugin {
   };
 }
 
-function makeConfig(scanners: ProjectConfig['scanners'] = {}): ProjectConfig {
+function makeConfig(runners: ProjectConfig['runners'] = {}): ProjectConfig {
   return {
     project: { name: 'Test', client: 'Test' },
     ecosystems: [{ id: 'npm' }],
@@ -69,7 +69,7 @@ function makeConfig(scanners: ProjectConfig['scanners'] = {}): ProjectConfig {
       require_authorization_for_constraint_change: false,
     },
     conflict_resolution: 'manual',
-    scanners,
+    runners,
   };
 }
 
@@ -99,7 +99,7 @@ describe('resolveEcosystemRuntime — native_deps preamble', () => {
 
   it('does not add preamble when native_deps is absent', async () => {
     const plugin = makePlugin();
-    const config = makeConfig({ npm: { runtime_version: '20' } });
+    const config = makeConfig({ npm: { language_version: '20' } });
 
     await resolveEcosystemRuntime(plugin, makeHostRunner(), config, '/project');
 
