@@ -1,7 +1,8 @@
 # ADR-0003 — Architecture Deepening Candidates (2026-04-29)
 
-**Status:** Proposed  
-**Date:** 2026-04-29
+**Status:** Implemented  
+**Date:** 2026-04-29  
+**Implemented:** 2026-05-01 / 2026-05-02
 
 ---
 
@@ -53,11 +54,12 @@ A codebase architecture review was performed on 2026-04-29. Six deepening candid
 
 ---
 
-### Candidate 6 — Delete dead provisioner files *(CLEANUP)*
+### Candidate 6 — Delete dead provisioner files *(CLEANUP — REJECTED)*
 
 **Location:** `src/infrastructure/provisioner/npm-runner.ts`, `composer-runner.ts`, `pip-runner.ts`  
 **Problem:** These files were superseded by the unified ephemeral-container after ADR-0001's deepening. If no callers remain, they carry dead complexity.  
-**Direction:** Verify no callers; delete.
+**Direction:** Verify no callers; delete.  
+**Outcome:** **REJECTED** — deletion test failed. `npm-runner.ts`, `composer-runner.ts`, and `pip-runner.ts` each carry real ecosystem-specific image/bootstrap logic that is imported by their respective plugins. They are not dead weight.
 
 ---
 

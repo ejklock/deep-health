@@ -12,14 +12,13 @@ graph TD
         INIT["init.ts"]
         EXEC_RPT["executive-report.ts"]
         CLOUD["cloud-setup.ts"]
+        RPT_ART["report-artifacts.ts<br/>generateAndSaveReportArtifacts()"]
     end
 
     subgraph orchestration["orchestration/"]
         ORCH["orchestrator.ts<br/>runOrchestrator()"]
         RUN_ECO_FIX["run-ecosystem-fix.ts<br/>runEcosystemFix()"]
         OSV_FIX["osv-fix-applier.ts"]
-        DRY["dry-run-preview.ts"]
-        LOCK_INS["lockfile-inspect.ts"]
     end
 
     subgraph modules["modules/"]
@@ -30,11 +29,14 @@ graph TD
             PIP_P["PipPlugin"]
             UPDATER_TX["utils/updater-transaction.ts<br/>beginUpdaterTransaction()"]
             VAL_RUN["utils/validation-runner.ts"]
+            DRY_PREV["utils/dry-run-preview.ts"]
+            LOCK_INS["utils/lockfile-inspect.ts"]
         end
         subgraph scanner["scanner/"]
             SCAN_REG["ScannerEngineRegistry<br/>(registry.ts)"]
             OSV_E["OsvScannerEngine<br/>(primary)"]
             SONAR_E["SonarQubeEngine<br/>(secondary)"]
+            SCANNER_SWEEP["scanner-sweep.ts<br/>executeScannerSweep()"]
         end
         ADVISOR["advisor/"]
     end
@@ -55,17 +57,21 @@ graph TD
     end
 
     subgraph reporting["reporting/"]
-        RPT["executive.ts<br/>generateExecutiveReport()"]
+        RPT["executive.ts<br/>(context builder + dedupVulns)"]
+        SONAR_SEC["sonarqube-exec-section.ts"]
+        ADV_SEC["advisor-exec-section.ts"]
         SONAR_RPT["sonarqube-report.ts"]
         I18N["i18n/ (en, pt-br)"]
     end
 
     CLI --> app
     FIX --> ORCH
-    FIX --> RPT
+    FIX --> RPT_ART
+    EXEC_RPT --> RPT_ART
     SCAN --> SCAN_REG
     ORCH --> ECO_REG
     ORCH --> SCAN_REG
+    ORCH --> SCANNER_SWEEP
     ORCH --> GATE
     ORCH --> ADVISOR
     ORCH --> RUN_ECO_FIX
@@ -90,7 +96,9 @@ graph TD
     ECO_RT --> PROV
     EXEC_WRAP --> PROV
     RPT --> I18N
-    FIX --> STORAGE
+    RPT --> SONAR_SEC
+    RPT --> ADV_SEC
+    RPT_ART --> STORAGE
 ```
 
 ---
@@ -282,28 +290,57 @@ export type RunEcosystemFixOutcome =
 
 `src/modules/ecosystem/utils/updater-transaction.ts` concentrates the duplicated revert/result-building boilerplate that previously lived in three updaters (`npm-updater.ts`, `composer-updater.ts`, `pip-updater.ts`).
 
+The transaction is created with a `BootstrapSpec` (`{ binary, args, label }`) that describes how to reinstall dependencies during revert (e.g. `npm ci`, `composer install --no-interaction --no-scripts`, `pip install -r requirements.txt`). The transaction owns the full revert protocol internally: `restore → bootstrap → restore-byte-identical → warn-only dirty-tree check`.
+
 ```ts
 const tx = await beginUpdaterTransaction({
   files: NPM_FILES,        // backed up at start (or adopt preExistingBackups)
   base,                    // pre-built success-shaped UpdateResultJson
   cwd,
+  runner,
+  bootstrapSpec: { binary: 'npm', args: ['ci'], label: 'npm ci' },
   preExistingBackups,      // optional — adopt caller-supplied backups (osv staging-fix)
 });
 
 // Happy path:
 return tx.success({ packages_updated, validations: validationResult.entries });
 
-// Failure path — runs revert, builds error result:
+// Failure path — transaction runs restore→bootstrap→restore revert internally:
 return tx.abortWithError({
   error: 'Validations failed after npm update — changes reverted',
   validations: validationResult.entries,
-  revert: () => revertNpmChanges(runner, tx.backups, cwd, preRunSnapshots),
 });
 ```
 
-**Contract:** `abortWithError` lets revert errors propagate. The decision to swallow vs throw lives in the ecosystem-specific revert helper (pip/composer log-and-continue; npm throws on failed `npm ci` to surface ambiguous on-disk state). The outer `try/catch → PhaseError` in each updater catches propagated errors and wraps them. This preserves the original error-surfacing behavior while removing the duplicated `{ ...base, status: 'error', error, validations }` builder pattern.
+**Contract:** `abortWithError` runs the revert protocol and lets bootstrap failures propagate. If `npm ci` (or `composer install`, `pip install`) fails during revert, the error throws — the outer `try/catch → PhaseError` in each updater wraps it. This surfaces ambiguous on-disk state rather than silently continuing.
+
+**BootstrapSpec** is supplied once at transaction creation and is distinct from `ProbeSpec` (which drives the pre-flight environment check in the Ecosystem Environment Probe). Bootstrap drives revert only.
 
 **Why this seam:** three updaters each repeated ~25 lines of "build skipped entries + base UpdateResultJson + outer error-result spread" before the deepening. A bug in revert correctness (e.g. the npm "double-restore after `npm ci` lockfile-format normalization" trick) had three places to be remembered. After the deepening, the result-shaping invariant lives in one 60-line module.
+
+---
+
+## Ecosystem Environment Probe
+
+`src/modules/ecosystem/utils/environment-probe.ts` provides a pre-flight check that verifies an ecosystem CLI can run cleanly inside the active runner **before any mutation begins**.
+
+```ts
+interface ProbeSpec {
+  binary: string;
+  args: string[];
+  cwd: string;
+  errorPrefix: string;  // prefix for user-facing error messages
+  label: string;        // display name for logging
+}
+
+type ProbeResult =
+  | { ok: true }
+  | { ok: false; exitCode: number; detail: string; error: string };
+```
+
+**Usage:** call `runEcosystemEnvironmentProbe(runner, spec)` at the start of an updater before taking any file snapshots or running fix commands. Currently adopted by `composer-updater.ts`. If the probe fails, the updater returns an `UpdateResultJson` with `status: 'error'` and a `'Composer environment mismatch: …'` prefix — no files are modified.
+
+**Distinct from `BootstrapSpec`:** `BootstrapSpec` describes how to reinstall dependencies during a revert (inside the Updater Transaction). `ProbeSpec` is a read-only availability check — it never modifies files.
 
 ---
 
@@ -392,6 +429,35 @@ classDiagram
 
 - **Primary** = engine whose `id` matches `config.scanners.primary` (defaults to `'osv'` when not configured). Its result drives Gate A. Any failure is fatal.
 - **Secondary** = all other registered engines. Failures are governed by `on_failure: 'warn' | 'fail'` (default: `'warn'` for SonarQube, `'fail'` for unknown engines).
+
+---
+
+## Scanner Sweep
+
+`src/modules/scanner/scanner-sweep.ts` encapsulates the multi-engine scan stage that was previously inlined in `runOrchestrator()`. It runs all registered scanner engines, classifies results into entries vs warnings, and applies the `on_failure` policy for secondary engines.
+
+**Key design points:**
+
+- **Config-agnostic:** the `resolveOnFailure` policy resolver is injected as a callback by the orchestrator, keeping the sweep module free of config imports.
+- **Renderer-agnostic:** an `EngineRunRenderer` adapter controls visual presentation. Two implementations: `listr2ScannerSweepRenderer` (builds a Listr2 task list with progress, used in interactive mode) and `silentScannerSweepRenderer` (sequential, no UI — used in tests and JSON-output mode).
+- **`PrimaryEngineFailure`:** typed exception thrown when the primary engine fails. Carries `{ engineId, cause, partialWarnings }`. `partialWarnings` preserves any warnings already accumulated from secondary engines that ran before the primary failed — they are forwarded in error diagnostics rather than discarded.
+
+```mermaid
+flowchart TD
+    ORCH["Orchestrator\n(injects resolveOnFailure callback)"]
+    ORCH --> SWEEP["executeScannerSweep()"]
+
+    SWEEP --> RENDERER["EngineRunRenderer\n(listr2 or silent)"]
+    RENDERER --> RUN_EACH["Run each engine\n(primary + secondaries)"]
+
+    RUN_EACH --> PRIMARY_OK{"Primary engine\nsucceeded?"}
+    PRIMARY_OK -- no --> PEF([throw PrimaryEngineFailure\n{ engineId, cause, partialWarnings }])
+    PRIMARY_OK -- yes --> SECONDARY_POL["Apply on_failure policy\nfor each secondary"]
+
+    SECONDARY_POL -- "fail" --> SEC_THROW([throw])
+    SECONDARY_POL -- "warn" --> SEC_WARN["Accumulate warning"]
+    SEC_WARN --> RESULTS(["Return Map<engineId, Result | Error>"])
+```
 
 ---
 
@@ -531,7 +597,41 @@ flowchart LR
 
 ---
 
+## Report Artifacts
+
+`src/app/report-artifacts.ts` centralizes post-pipeline artifact generation that was previously duplicated between `fix.ts` and `executive-report.ts`.
+
+```ts
+interface ReportArtifactsInput {
+  orchestratorResult: OrchestratorResult;
+  config: ProjectConfig;
+  cwd: string;
+  runner: CommandRunner;
+  // … locale, formats, outputDir, etc.
+}
+
+async function generateAndSaveReportArtifacts(input: ReportArtifactsInput): Promise<void>
+```
+
+Both `fix.ts` (`runFixPipeline`) and `executive-report.ts` delegate their entire report generation phase to this single function. The scan-after snapshot (post-fix OSV scan for residual verification display) is orchestrated internally. `writeAuditTrail()` is intentionally kept in `fix.ts` rather than here — the audit trail is a run-level record, not a report artifact.
+
+```mermaid
+flowchart LR
+    FIX["fix.ts\nrunFixPipeline()"]
+    EXEC["executive-report.ts"]
+
+    FIX --> ARTIFACTS["generateAndSaveReportArtifacts()\napp/report-artifacts.ts"]
+    EXEC --> ARTIFACTS
+
+    ARTIFACTS --> LOCAL["Local file\n(outputs.dir)"]
+    ARTIFACTS --> GDRIVE["Google Drive upload\n(cloud_storage, optional)"]
+```
+
+---
+
 ## Fixer Strategy Decision Tree
+
+The effective fixer strategy is resolved before any mutation begins. The base strategy comes from config or the plugin default; per-plugin hooks may then override it. For npm, `NpmPlugin.resolveEffectiveFixer(config, cwd)` encapsulates the lockfile-v1 demotion logic — `runEcosystemFix` calls the hook rather than applying npm-specific special-cases inline.
 
 ```mermaid
 flowchart TD
@@ -539,8 +639,12 @@ flowchart TD
     CONFIG -- yes --> USE_CONFIG["Use config fixer"]
     CONFIG -- no --> PLUGIN_DEF["Use plugin.supportedFixers[0]"]
 
-    USE_CONFIG --> DEMOTE_CHECK
-    PLUGIN_DEF --> DEMOTE_CHECK
+    USE_CONFIG --> HOOK
+    PLUGIN_DEF --> HOOK
+
+    HOOK{"plugin.resolveEffectiveFixer()\nhook present?"}
+    HOOK -- no --> FIXER
+    HOOK -- yes --> DEMOTE_CHECK
 
     DEMOTE_CHECK{"npm plugin AND\nstrategy = osv or osv-then-audit?"}
     DEMOTE_CHECK -- no --> FIXER

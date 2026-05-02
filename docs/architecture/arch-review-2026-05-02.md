@@ -2,11 +2,11 @@
 
 ## Introduction
 
-This document records the second-cycle architecture deepening candidates surfaced on 2026-05-02.
+This document records the second-cycle architecture deepening candidates surfaced on 2026-05-02. **All 7 candidates have been implemented as of 2026-05-02.**
 
 The first cycle produced ADR-0003 and resolved five structural candidates (Updater Transaction revert semantics, `fix.ts` pipeline-exit control flow, OSV container-adapter collapse, per-plugin `resolveEffectiveFixer` hook, and OSV residual-verify runner promotion), plus a follow-up that moved the `osv-then-audit` partial-revert closure into the Fixer where it belongs. Those are considered closed.
 
-These seven candidates are the next structural layer — surfaced after all ADR-0003 work landed. The goal is the same: increase **Depth** (narrow Interfaces with more behaviour behind them), **Locality** (decisions live at their natural Module boundary), and **Leverage** (a change in one Module propagates correctly everywhere, tests narrow to the seam being tested). None are committed work; they are surfaced opportunities for the architect to triage.
+These seven candidates were the next structural layer — surfaced after all ADR-0003 work landed. The goal is the same: increase **Depth** (narrow Interfaces with more behaviour behind them), **Locality** (decisions live at their natural Module boundary), and **Leverage** (a change in one Module propagates correctly everywhere, tests narrow to the seam being tested). All seven have since been implemented.
 
 ---
 
@@ -46,6 +46,10 @@ Failure policy (primary must throw; secondary applies `on_failure`) lives in a s
 - **Leverage**: the Orchestrator loses ~115 lines; adding a new secondary Scanner Engine does not touch `orchestrator.ts`.
 - **Seam clarity**: the renderer Seam is explicit — one Listr2 Adapter, one silent test Adapter; tests exercise failure policy directly without any Listr2 mock.
 
+### Outcome
+
+**Status: ✅ DONE 2026-05-02.** `executeScannerSweep` extracted to `src/modules/scanner/scanner-sweep.ts`. `EngineRunRenderer` adapter interface introduced with `listr2ScannerSweepRenderer` and `silentScannerSweepRenderer` implementations in `scanner-sweep-renderers.ts`. `PrimaryEngineFailure` typed exception carries `{ engineId, cause, partialWarnings }` — `partialWarnings` preserves secondary warnings accumulated before the primary engine fails. Orchestrator dropped `runAllEngines` (~115 lines) and its Listr2 import. 15 new unit tests in `scanner-sweep.test.ts`. 1741 tests pass, `tsc --noEmit` clean.
+
 ---
 
 ## Candidate 2 — Composer pre-flight env-check is an unnamed Seam
@@ -77,6 +81,10 @@ Each **Ecosystem Plugin** declares its probe (composer → `install --no-scripts
 - **Leverage**: every future Updater inherits pre-flight for free; the error prefix is standardised across all Ecosystem Plugins (today each Updater invents its own).
 - **Locality**: the behaviour "verify the environment is healthy before mutating" lives in the Plugin declaration, not scattered across three Updater bodies.
 - **Test surface**: Updater tests drop the `composer install --dry-run` mock; the Probe gets its own narrow unit test.
+
+### Outcome
+
+**Status: ✅ DONE 2026-05-02.** `runEcosystemEnvironmentProbe()` extracted to `src/modules/ecosystem/utils/environment-probe.ts`. Interface: `ProbeSpec { binary, args, cwd, errorPrefix, label }` → `ProbeResult` tagged union (`{ ok: true }` | `{ ok: false, exitCode, detail, error }`). `composer-updater.ts` now calls the probe; `probeArgs` are shared with `bootstrapSpec`, eliminating the duplicate literal. 7 new unit tests in `environment-probe.test.ts`. 1748 tests pass, `tsc --noEmit` clean.
 
 ---
 
@@ -120,6 +128,10 @@ Cloud-upload policy (`require_upload`, error propagation) moves into the corresp
 - **Leverage**: adding a new output format means registering an Adapter, not editing `fix.ts`.
 - **Test surface**: one test per Adapter, one test for the writer-loop; `fix.ts` tests no longer need to simulate all output-format combinations.
 
+### Outcome
+
+**Status: ✅ DONE 2026-05-02.** `generateAndSaveReportArtifacts()` extracted to `src/app/report-artifacts.ts` (`ReportArtifactsInput`). `fix.ts` `runFixPipeline` and `executive-report.ts` both delegate to the unified artifact function. Scan-after logic integrated into `report-artifacts`. Dual-save blocks removed from both commands. `writeAuditTrail` remains in `fix.ts` (intentional — audit trail is not a report artifact). 1748 tests pass, `tsc --noEmit` clean.
+
 ---
 
 ## Candidate 4 — `osvFixOutcome` + last-writer-wins dedup leaks the Fixer into the Updater
@@ -148,6 +160,10 @@ return tx.success({ packages_updated: fixerResult.packagesUpdated, ... });
 - **Leverage**: adding a new hybrid Fixer Strategy does not require editing `npm-updater.ts`.
 - **Test surface**: the Updater drops dedup tests; the Fixer gains them at the natural level. The side-channel `osvFixOutcome` parameter disappears from the Updater contract.
 
+### Outcome
+
+**Status: ✅ DONE 2026-05-02.** `OsvFixOutcome` exported from `fixers/index.ts` as single source of truth. `FixerCallOptions` gains `osvFixOutcome?`. `osv-fixer` reads it and returns the mapped list. `osv-then-audit-fixer` owns last-writer-wins merge (OSV first, audit overwrites on same package name). `npm-updater.ts` Map-merge block deleted; uses `fixerResult.packagesUpdated` directly on success path. `npm-updater.ts` retains `osvFixOutcome` as its own parameter only for the partial-revert success path (intentional). 7 new tests (AC3a–AC3d in `osv-fixer.test.ts`; AC4a–AC4c in `osv-then-audit-fixer.test.ts`). 1755 tests pass, `tsc --noEmit` clean.
+
 ---
 
 ## Candidate 5 — `osvVerifyMode === 'local'` is an escape hatch surviving ADR-0001
@@ -175,6 +191,10 @@ ADR-0001 established Docker-only as the OSV execution model. The `runner: 'local
 
 - **Locality**: the decision "how to run `osv-scanner`" lives exclusively in `resolve-osv.ts`.
 - **Leverage is low** but the outcome is a positive **deletion test**: removing the branch leaves zero complexity in the consumer. The Seam is clean, and ADR-0001 is unambiguously binding.
+
+### Outcome
+
+**Status: ✅ DONE 2026-05-02.** `const osvVerifyMode` + the `if/else logger.tagged` block (6 lines) deleted from `run-ecosystem-fix.ts`. `resolveOsvRuntime` already logs the chosen mode internally — the branch in the orchestration layer was pure dead logging. Two stale assertions removed from `tests/integration/orchestrator.test.ts`. 1755 tests pass, `tsc --noEmit` clean.
 
 ---
 
@@ -209,6 +229,10 @@ Convert each builder into an **Adapter** implementing the Interface. `generateEx
 - **Leverage**: adding a new section means registering an Adapter, not editing the 619-line monolith.
 - **Test surface**: granular — one test file per section Adapter, replacing the current monolithic integration tests.
 
+### Outcome
+
+**Status: ✅ DONE 2026-05-02.** `buildSonarQubeExecSection` + types extracted to `src/reporting/sonarqube-exec-section.ts`. `buildAdvisorExecSection` + types extracted to `src/reporting/advisor-exec-section.ts`. `executive.ts` reduced from 619 → 371 lines (pure context builder + `dedupVulns` + helpers). Commit d802bed. 1755 tests pass, `tsc --noEmit` clean.
+
 ---
 
 ## Candidate 7 — `src/orchestration/` houses utilities that do not orchestrate
@@ -229,3 +253,7 @@ Move `dry-run-preview.ts` to `src/reporting/` (or adjacent to the logger, depend
 
 - **Semantic Locality**: `orchestration/` ends up containing only what orchestrates. Navigating the folder gives an accurate mental model.
 - Low-risk relocation with no behaviour change; callers update their import paths and the re-export shim disappears.
+
+### Outcome
+
+**Status: ✅ DONE 2026-05-02.** `dry-run-preview.ts` and `lockfile-inspect.ts` moved to `src/modules/ecosystem/utils/`. All importers updated (`run-ecosystem-fix.ts`, `osv-then-audit-fixer.ts`, `npm-audit-fixer.ts`, `npm.ts`, `osv-fix-applier.ts`, and test files). Originals deleted from `src/orchestration/`. Commit ed00f7f. 1755 tests pass, `tsc --noEmit` clean.
