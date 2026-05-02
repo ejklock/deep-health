@@ -444,19 +444,19 @@ classDiagram
 
 ```mermaid
 flowchart TD
-    ORCH["Orchestrator\n(injects resolveOnFailure callback)"]
+    ORCH["Orchestrator<br/>(injects resolveOnFailure callback)"]
     ORCH --> SWEEP["executeScannerSweep()"]
 
-    SWEEP --> RENDERER["EngineRunRenderer\n(listr2 or silent)"]
-    RENDERER --> RUN_EACH["Run each engine\n(primary + secondaries)"]
+    SWEEP --> RENDERER["EngineRunRenderer<br/>(listr2 or silent)"]
+    RENDERER --> RUN_EACH["Run each engine<br/>(primary + secondaries)"]
 
-    RUN_EACH --> PRIMARY_OK{"Primary engine\nsucceeded?"}
-    PRIMARY_OK -- no --> PEF([throw PrimaryEngineFailure\n{ engineId, cause, partialWarnings }])
-    PRIMARY_OK -- yes --> SECONDARY_POL["Apply on_failure policy\nfor each secondary"]
+    RUN_EACH --> PRIMARY_OK{"Primary engine<br/>succeeded?"}
+    PRIMARY_OK -- no --> PEF(["throw PrimaryEngineFailure<br/>{ engineId, cause, partialWarnings }"])
+    PRIMARY_OK -- yes --> SECONDARY_POL["Apply on_failure policy<br/>for each secondary"]
 
     SECONDARY_POL -- "fail" --> SEC_THROW([throw])
     SECONDARY_POL -- "warn" --> SEC_WARN["Accumulate warning"]
-    SEC_WARN --> RESULTS(["Return Map<engineId, Result | Error>"])
+    SEC_WARN --> RESULTS(["Return Map&lt;engineId, Result | Error&gt;"])
 ```
 
 ---
