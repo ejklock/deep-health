@@ -218,3 +218,28 @@ The TODO comment from Candidate 1 (Refinement 2026-05-01) is resolved. The inlin
 3. When `partialRevert` throws (bootstrap exits non-zero), `npm-updater.ts` does **not** fall back to full revert — the `PhaseError` propagates. Full revert is only triggered if `partialRevert` is absent or succeeds but re-validation still fails.
 4. The `fixerStrategy === 'osv-then-audit'` special-case is entirely removed from the orchestration layer; the fixer itself decides whether to attach a `partialRevert`.
 5. 1726 tests pass; `tsc --noEmit` clean.
+
+## Refinement 2026-05-02 — Candidate 4 resolved: dedup leak moved into fixers
+
+The merge/dedup logic that combined `osvFixOutcome` packages with fixer-produced packages was inlined in `npm-updater.ts` (lines ~178–197). The updater was strategy-aware: it branched on `osvFixOutcome` presence to build a Map merge. This leak is now closed.
+
+### Changes
+
+| File | Change |
+|---|---|
+| `src/modules/ecosystem/fixers/index.ts` | `OsvFixOutcome` interface exported (single source of truth); `FixerCallOptions` gains `osvFixOutcome?: OsvFixOutcome` |
+| `src/modules/ecosystem/fixers/osv-fixer.ts` | Reads `opts.osvFixOutcome`; returns `packagesUpdated` from it when present, `[]` when absent |
+| `src/modules/ecosystem/fixers/osv-then-audit-fixer.ts` | After building `auditVerified`, merges with `opts.osvFixOutcome` using last-writer-wins Map (OSV first, audit overwrites); returns merged list as `packagesUpdated`; falls back to `auditVerified` when absent |
+| `src/modules/ecosystem/types.ts` | `EcosystemUpdaterContext.osvFixOutcome` type reference updated to imported `OsvFixOutcome` |
+| `src/modules/ecosystem/plugins/npm-updater.ts` | Injects `osvFixOutcome` into `FixerCallOptions` before calling `fixerFn`; entire dedup Map-merge block removed; uses `fixerResult.packagesUpdated` directly on success path |
+| `tests/unit/plugins/osv-fixer.test.ts` | New file — AC3a–AC3d: osvFixOutcome present → mapped list, absent → empty, null applied → still maps |
+| `tests/unit/plugins/osv-then-audit-fixer.test.ts` | AC4a–AC4c: merge with osvFixOutcome, audit-wins on same name, absent osvFixOutcome → auditVerified only |
+| `tests/unit/plugins/npm-updater.test.ts` | Stale dedup-related comments removed; no new tests required (dedup now tested at fixer layer) |
+
+### Resolutions
+
+1. `npm-updater.ts` keeps `osvFixOutcome` as its own parameter only to serve the partial-revert success path (which must report OSV-only packages, not the merged list). This is the only remaining coupling; it is intentional.
+2. The merge algorithm is bit-identical to the old updater logic: OSV packages inserted first into Map, audit packages second → audit wins on same package name.
+3. `npm.ts` (plugin) unchanged — it already passes `ctx.osvFixOutcome` as a positional arg to `runNpmUpdater`; no adapter needed.
+4. `run-ecosystem-fix.ts` NOT modified (AC constraint honored).
+5. 1755 tests pass; `tsc --noEmit` clean.

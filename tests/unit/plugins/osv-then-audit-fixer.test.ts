@@ -147,12 +147,12 @@ describe('applyOsvThenAuditFix — happy path: audit-fix upgrades a package', ()
   });
 });
 
-describe('applyOsvThenAuditFix — OSV and audit-fix together', () => {
+describe('applyOsvThenAuditFix — OSV and audit-fix together (osvFixOutcome absent)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('returns only audit-fixed packages in packagesUpdated (OSV packages tracked separately by updater)', async () => {
+  it('returns only audit-fixed packages in packagesUpdated when osvFixOutcome absent', async () => {
     const runner = makeRunner();
 
     // OSV already updated axios; lockfile shows axios@1.7.0, lodash@4.17.20
@@ -179,6 +179,7 @@ describe('applyOsvThenAuditFix — OSV and audit-fix together', () => {
       cwd: '/project',
       scanResult: scan,
       authorizeBreaking: false,
+      // no osvFixOutcome — audit-only result
     });
 
     expect(result.packagesUpdated).toHaveLength(1);
@@ -986,5 +987,129 @@ describe('applyOsvThenAuditFix — partialRevert callable (AC6)', () => {
 
     // Early-return paths do not build partialRevert
     expect(result.partialRevert).toBeUndefined();
+  });
+});
+
+// ─── AC4: osvFixOutcome merge (last-writer-wins) ──────────────────────────────
+
+describe('applyOsvThenAuditFix — osvFixOutcome merge (AC4)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRevertWithBootstrap.mockResolvedValue(undefined);
+  });
+
+  it('(AC4a) merges OSV packages with audit-verified: audit overwrites OSV for same package (last-writer-wins)', async () => {
+    const runner = makeRunner();
+
+    // OSV fixed both axios and lodash; but lodash gets a different version via audit-fix
+    const postOsvLockfile = buildLockfile([
+      { name: 'axios', version: '1.7.0' },
+      { name: 'lodash', version: '4.17.20' },
+    ]);
+    const postAuditLockfile = buildLockfile([
+      { name: 'axios', version: '1.7.0' },
+      { name: 'lodash', version: '4.17.21' },
+    ]);
+
+    mockReadFile
+      .mockResolvedValueOnce(postOsvLockfile)
+      .mockResolvedValueOnce('{"name":"sample"}')
+      .mockResolvedValueOnce(postAuditLockfile);
+
+    // scan includes lodash in auto_safe_packages so audit-fix can verify it
+    const scan = buildScan([{ pkg: 'lodash', version: '4.17.21' }]);
+
+    // osvFixOutcome: OSV applied axios@1.7.0 and lodash@4.17.19 (OSV only got to .19)
+    const osvFixOutcome = {
+      applied: true,
+      packagesUpdated: [
+        { name: 'axios', versionFrom: '1.6.0', versionTo: '1.7.0' },
+        { name: 'lodash', versionFrom: '4.17.20', versionTo: '4.17.19' },
+      ],
+    };
+
+    const result = await applyOsvThenAuditFix({
+      runner,
+      cwd: '/project',
+      scanResult: scan,
+      authorizeBreaking: false,
+      osvFixOutcome,
+    });
+
+    // axios: only from OSV (not in scan auto_safe_packages for audit verification)
+    expect(result.packagesUpdated).toContain('axios@1.7.0');
+    // lodash: audit-fix wins over OSV (4.17.21 > 4.17.19) — last-writer-wins
+    expect(result.packagesUpdated).toContain('lodash@4.17.21');
+    // no duplicates
+    expect(result.packagesUpdated).toHaveLength(2);
+  });
+
+  it('(AC4b) merges OSV packages with audit-verified: OSV package not in audit scan is preserved', async () => {
+    const runner = makeRunner();
+
+    // post-OSV lockfile: axios updated, lodash old
+    const postOsvLockfile = buildLockfile([
+      { name: 'axios', version: '1.7.0' },
+      { name: 'lodash', version: '4.17.20' },
+    ]);
+    // post-audit lockfile: lodash updated by audit-fix, axios unchanged
+    const postAuditLockfile = buildLockfile([
+      { name: 'axios', version: '1.7.0' },
+      { name: 'lodash', version: '4.17.21' },
+    ]);
+
+    mockReadFile
+      .mockResolvedValueOnce(postOsvLockfile)
+      .mockResolvedValueOnce('{"name":"sample"}')
+      .mockResolvedValueOnce(postAuditLockfile);
+
+    // scan only includes lodash (axios was fixed by OSV but is not in this scan's auto_safe)
+    const scan = buildScan([{ pkg: 'lodash', version: '4.17.21' }]);
+
+    const osvFixOutcome = {
+      applied: true,
+      packagesUpdated: [
+        { name: 'axios', versionFrom: '1.6.0', versionTo: '1.7.0' },
+      ],
+    };
+
+    const result = await applyOsvThenAuditFix({
+      runner,
+      cwd: '/project',
+      scanResult: scan,
+      authorizeBreaking: false,
+      osvFixOutcome,
+    });
+
+    // axios from OSV must be present (not in audit scan, but in osvFixOutcome)
+    expect(result.packagesUpdated).toContain('axios@1.7.0');
+    // lodash from audit-fix must be present
+    expect(result.packagesUpdated).toContain('lodash@4.17.21');
+    expect(result.packagesUpdated).toHaveLength(2);
+  });
+
+  it('(AC4c) when osvFixOutcome is absent, returns only auditVerified (backward-compatible)', async () => {
+    const runner = makeRunner();
+
+    const postOsvLockfile = buildLockfile([{ name: 'lodash', version: '4.17.20' }]);
+    const postAuditLockfile = buildLockfile([{ name: 'lodash', version: '4.17.21' }]);
+
+    mockReadFile
+      .mockResolvedValueOnce(postOsvLockfile)
+      .mockResolvedValueOnce('{"name":"sample"}')
+      .mockResolvedValueOnce(postAuditLockfile);
+
+    const scan = buildScan([{ pkg: 'lodash', version: '4.17.21' }]);
+
+    const result = await applyOsvThenAuditFix({
+      runner,
+      cwd: '/project',
+      scanResult: scan,
+      authorizeBreaking: false,
+      // no osvFixOutcome
+    });
+
+    expect(result.packagesUpdated).toHaveLength(1);
+    expect(result.packagesUpdated).toContain('lodash@4.17.21');
   });
 });

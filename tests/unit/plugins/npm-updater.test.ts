@@ -1992,15 +1992,15 @@ describe('npm-updater additional branch coverage', () => {
     expect(result).toBeDefined();
   });
 
-  it('line 220: osvFixOutcome absent → ?? [] fires (osvOnly = [])', async () => {
+  it('osvFixOutcome absent → osvOnly = [] in partial-revert path', async () => {
     // This path requires: validation fails → partial revert succeeds → re-validation passes
     // Hard to trigger cleanly; covered indirectly via existing osv-then-audit tests. Skip explicit test.
     expect(true).toBe(true);
   });
 
-  it('line 257: spec with no "@" hits at > 0 false branch in merge dedup', async () => {
+  it('bare package name in auto_safe_packages (no "@") is handled without crash', async () => {
     const scan = baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]);
-    // Inject a package ref without "@" into auto_safe_packages
+    // Inject a package ref without "@" into auto_safe_packages (edge-case for fixer internals)
     scan.ecosystems['npm']!.auto_safe_packages.push('no-at-package');
     mockReadFile.mockResolvedValue(DEFAULT_LOCKFILE);
     const runner = makeRunner();

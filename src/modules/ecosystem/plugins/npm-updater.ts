@@ -8,6 +8,7 @@ import { backupFiles } from '@infra/utils/git';
 import { logger } from '@infra/utils/logger';
 import { beginUpdaterTransaction } from '../utils/updater-transaction';
 import { FIXER_MAP } from '../fixers/index';
+import type { OsvFixOutcome } from '../fixers/index';
 import { runValidations } from '../utils/validation-runner';
 
 const NPM_FILES = ['package.json', 'package-lock.json'];
@@ -30,7 +31,7 @@ export async function runNpmUpdater(
   validationCommands: ValidationCommandConfig[] = [],
   fixerStrategy: FixerStrategyId = 'osv',
   preFixBackups?: Map<string, string>,
-  osvFixOutcome?: { applied: boolean; packagesUpdated: Array<{ name: string; versionFrom: string; versionTo: string }> },
+  osvFixOutcome?: OsvFixOutcome,
   preRunSnapshots?: Map<string, string>,
 ): Promise<UpdateResultJson> {
   logger.info('Running npm safe updates...');
@@ -93,8 +94,9 @@ export async function runNpmUpdater(
 
     await checkCurrentState(runner, cwd);
 
-    // Apply the configured fixer strategy
-    const fixerResult = await fixerFn({ runner, cwd, scanResult, authorizeBreaking });
+    // Apply the configured fixer strategy, passing osvFixOutcome so the fixer can
+    // return the correct packages list without the updater needing to know the strategy.
+    const fixerResult = await fixerFn({ runner, cwd, scanResult, authorizeBreaking, osvFixOutcome });
 
     // When fixer reports a breaking install error, no files were mutated — no revert needed
     if (fixerResult.breakingInstallError) {
@@ -175,29 +177,8 @@ export async function runNpmUpdater(
       });
     }
 
-    // When OSV strategy ran, use the applier's evidence; fall back to fixer result
-    const osvPackages =
-      (fixerStrategy === 'osv' || fixerStrategy === 'osv-then-audit') && osvFixOutcome
-        ? osvFixOutcome.packagesUpdated.map((p) => `${p.name}@${p.versionTo}`)
-        : [];
-
-    // Deduplicate osv-then-audit: audit overwrites OSV for the same package (last-writer-wins)
-    const merged = new Map<string, string>();
-    for (const spec of [...osvPackages, ...fixerResult.packagesUpdated]) {
-      const at = spec.lastIndexOf('@');
-      const name = at > 0 ? spec.slice(0, at) : spec;
-      merged.set(name, spec);
-    }
-
-    const actualPackagesUpdated =
-      fixerStrategy === 'osv-then-audit'
-        ? [...merged.values()]
-        : fixerStrategy === 'osv' && osvFixOutcome
-          ? osvPackages
-          : fixerResult.packagesUpdated;
-
     return tx.success({
-      packages_updated: actualPackagesUpdated,
+      packages_updated: fixerResult.packagesUpdated,
       validations: validationResult.entries,
     });
   } catch (err) {

@@ -149,6 +149,25 @@ export async function applyOsvThenAuditFix(opts: FixerCallOptions): Promise<Fixe
     logger.tagged('npm', 'osv-then-audit', `${auditFalsePositives.length} package(s) classified auto_safe but not upgraded by audit fix: ${auditFalsePositives.join(', ')}`, 'warn');
   }
 
+  // Merge OSV-sourced packages with audit-verified packages.
+  // Algorithm: last-writer-wins with audit overwriting OSV for the same package name.
+  // OSV packages go in first; audit packages overwrite when name matches.
+  // When osvFixOutcome is absent (e.g. fixer was demoted to npm-audit only), returns
+  // auditVerified as-is (same behaviour as before).
+  let packagesUpdated: string[];
+  if (opts.osvFixOutcome) {
+    const osvPackages = opts.osvFixOutcome.packagesUpdated.map((p) => `${p.name}@${p.versionTo}`);
+    const merged = new Map<string, string>();
+    for (const spec of [...osvPackages, ...auditVerified]) {
+      const at = spec.lastIndexOf('@');
+      const name = at > 0 ? spec.slice(0, at) : spec;
+      merged.set(name, spec);
+    }
+    packagesUpdated = [...merged.values()];
+  } else {
+    packagesUpdated = auditVerified;
+  }
+
   // Bootstrap spec for partial revert: restore to post-OSV state + npm ci
   const bootstrapSpec: BootstrapSpec = { binary: 'npm', args: ['ci'], label: 'npm ci' };
 
@@ -160,7 +179,7 @@ export async function applyOsvThenAuditFix(opts: FixerCallOptions): Promise<Fixe
 
   return {
     breakingInstallError: null,
-    packagesUpdated: auditVerified,
+    packagesUpdated,
     intermediateBackup,
     partialRevert,
   };

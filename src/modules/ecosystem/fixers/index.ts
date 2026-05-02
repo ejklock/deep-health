@@ -5,11 +5,28 @@ import { applyNpmAuditFix } from './npm-audit-fixer';
 import { applyOsvNoOp } from './osv-fixer';
 import { applyOsvThenAuditFix } from './osv-then-audit-fixer';
 
+/**
+ * Evidence returned by the orchestrator's OSV staging-apply phase.
+ * Single source of truth — imported by EcosystemUpdaterContext and any fixer that
+ * needs to merge or surface OSV-sourced package evidence.
+ */
+export interface OsvFixOutcome {
+  applied: boolean;
+  packagesUpdated: Array<{ name: string; versionFrom: string; versionTo: string }>;
+}
+
 export interface FixerCallOptions {
   runner: CommandRunner;
   cwd: string;
   scanResult: ScanResultJson;
   authorizeBreaking: boolean;
+  /**
+   * When present, contains the evidence of what OSV staging-apply wrote to disk.
+   * Fixers use this to return the real packages list instead of an empty array.
+   * - `osv-fixer`: returns packagesUpdated from this field.
+   * - `osv-then-audit-fixer`: merges this with its own audit-verified list (last-writer-wins).
+   */
+  osvFixOutcome?: OsvFixOutcome;
 }
 
 export interface FixerCallResult {

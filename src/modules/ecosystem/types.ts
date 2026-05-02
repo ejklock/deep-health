@@ -3,6 +3,7 @@ import type { ProjectConfig, ProtectedPackage, FixerStrategyId, ValidationComman
 import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
 import type { EcosystemRuntimeSpec } from '@infra/ecosystem-runtime/types';
+import type { OsvFixOutcome } from '@modules/ecosystem/fixers/index';
 
 export interface EcosystemUpdaterContext {
   runner: CommandRunner;
@@ -25,10 +26,7 @@ export interface EcosystemUpdaterContext {
    * Populated by the orchestrator when fixerStrategy='osv' and the staging-apply
    * flow completed (not dry-run). Contains evidence of what was actually applied to disk.
    */
-  osvFixOutcome?: {
-    applied: boolean;
-    packagesUpdated: Array<{ name: string; versionFrom: string; versionTo: string }>;
-  };
+  osvFixOutcome?: OsvFixOutcome;
   /**
    * Pre-run snapshots of key project files (package.json, package-lock.json) taken
    * at the very start of the orchestrator run, before any mutations.
