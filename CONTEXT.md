@@ -36,6 +36,8 @@ When a new domain concept stabilizes during design work, add it here. When a ter
 
 **BootstrapSpec** — opaque struct `{ binary, args, label }` each Updater passes to the Updater Transaction describing how to reinstall dependencies during revert. Examples: npm → `npm ci`; composer → `composer install --no-interaction --no-scripts [--ignore-platform-reqs]`; pip → `pip install -r requirements.txt`. The spec covers revert bootstrap only, not pre-flight environment checks.
 
+**Ecosystem Environment Probe** — `runEcosystemEnvironmentProbe()` in `src/modules/ecosystem/utils/environment-probe.ts`. Verifies that an ecosystem CLI can run cleanly inside the active runner BEFORE any mutation. Driven by a `ProbeSpec { binary, args, cwd, errorPrefix, label }`. Returns a tagged `ProbeResult` — `{ ok:true }` on success, `{ ok:false, exitCode, detail, error }` on failure. Distinct from `BootstrapSpec` (which drives revert reinstall inside Updater Transaction). Today only `composer-updater` adopts it.
+
 **OSV Fix Spec** — declarative struct on a plugin telling the orchestrator which lockfile `osv-scanner` can patch and which files to back up before patching.
 
 **Post-Update OSV Verify** — policy on a plugin (`always` | `osv-strategy-only` | `never`) controlling residual vulnerability scanning after updates.

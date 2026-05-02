@@ -9,6 +9,7 @@ import { PhaseError } from '@core/errors';
 import { logger } from '@infra/utils/logger';
 import { runValidations } from '../utils/validation-runner';
 import { beginUpdaterTransaction } from '../utils/updater-transaction';
+import { runEcosystemEnvironmentProbe } from '../utils/environment-probe';
 
 const COMPOSER_FILES = ['composer.json', 'composer.lock'];
 
@@ -186,23 +187,24 @@ export async function runComposerUpdater(
 
   try {
     // ── Environment check: verify PHP + composer are functional BEFORE any mutation ──
-    // Runs `composer install` to validate the environment before any mutations.
-    // Returns a structured error result (not a thrown exception) so the caller can
-    // surface the diagnostic cleanly without aborting the pipeline unexpectedly.
-    logger.tagged('composer', 'composer env-check', `Running composer install ${automationArgs.join(' ')} to verify environment...`);
-    // SEC: static args only — no variable data
-    const envCheckResult = await runner.runArgs('composer', ['install', ...automationArgs], { cwd });
-    if (envCheckResult.exitCode !== 0) {
-      const detail = envCheckResult.stderr || envCheckResult.stdout || '(no output)';
-      logger.tagged('composer', 'composer env-check', 'Environment check failed — aborting update.', 'error');
+    // Uses the named Ecosystem Environment Probe primitive so the same args array is
+    // shared with the BootstrapSpec (no duplicate literal).
+    const probeArgs = ['install', ...automationArgs];
+    const probe = await runEcosystemEnvironmentProbe(runner, {
+      binary: 'composer',
+      args: probeArgs,
+      cwd,
+      errorPrefix: 'Composer environment mismatch',
+      label: 'composer',
+    });
+    if (!probe.ok) {
       return {
         ...base,
         status: 'error',
         validations: [{ name: 'validation', status: 'skipped', detail: 'Composer environment check failed — skipped' }],
-        error: `Composer environment mismatch: composer install exited with code ${envCheckResult.exitCode}.\n${detail}`,
+        error: probe.error,
       };
     }
-      logger.tagged('composer', 'composer env-check', 'Environment check passed.');
 
     const tx = await beginUpdaterTransaction({
       files: COMPOSER_FILES,
@@ -211,7 +213,7 @@ export async function runComposerUpdater(
       runner,
       bootstrapSpec: {
         binary: 'composer',
-        args: ['install', ...automationArgs],
+        args: probeArgs,
         label: 'composer install (revert)',
       },
     });
