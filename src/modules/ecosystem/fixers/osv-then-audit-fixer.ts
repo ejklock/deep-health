@@ -1,10 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import semver from 'semver';
+import type { CommandRunner } from '@core/types/common';
 import type { ScanResultJson } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
 import { logger } from '@infra/utils/logger';
 import { collectNpmLockfileVersions, collectRootNpmLockfileVersions } from '@orchestration/lockfile-inspect';
+import { revertWithBootstrap, type BootstrapSpec } from '@modules/ecosystem/utils/updater-transaction';
 import type { FixerCallOptions, FixerCallResult } from './index';
 
 /**
@@ -147,9 +149,19 @@ export async function applyOsvThenAuditFix(opts: FixerCallOptions): Promise<Fixe
     logger.tagged('npm', 'osv-then-audit', `${auditFalsePositives.length} package(s) classified auto_safe but not upgraded by audit fix: ${auditFalsePositives.join(', ')}`, 'warn');
   }
 
+  // Bootstrap spec for partial revert: restore to post-OSV state + npm ci
+  const bootstrapSpec: BootstrapSpec = { binary: 'npm', args: ['ci'], label: 'npm ci' };
+
+  // partialRevert: callable that restores to the post-OSV intermediate state and
+  // re-runs npm ci. Closed over intermediateBackup and bootstrapSpec. Follows the
+  // same restore → bootstrap → restore-again protocol as the full revert.
+  const partialRevert = (runner: CommandRunner, cwd: string): Promise<void> =>
+    revertWithBootstrap(runner, bootstrapSpec, intermediateBackup, cwd);
+
   return {
     breakingInstallError: null,
     packagesUpdated: auditVerified,
     intermediateBackup,
+    partialRevert,
   };
 }

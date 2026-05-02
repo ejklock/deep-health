@@ -64,14 +64,17 @@ export interface UpdaterTransaction {
 }
 
 /**
- * Internal: run the full revert protocol.
+ * Run the full revert protocol.
  *
  * restore → bootstrap (stream:true) → restore again (in finally) → warn-only dirty-tree check
  *
  * Throws when the bootstrap exits non-zero. The second restore runs inside a `try/finally`
  * so it fires even when the bootstrap command throws (e.g. runner disconnects mid-stream).
+ *
+ * Exported so fixers can build `partialRevert` callables that share the same protocol
+ * (e.g. osv-then-audit restores to the intermediate post-OSV state before re-bootstrapping).
  */
-async function revertWithBootstrap(
+export async function revertWithBootstrap(
   runner: CommandRunner,
   bootstrapSpec: BootstrapSpec,
   backups: Map<string, string>,

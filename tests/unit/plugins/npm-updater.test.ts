@@ -1462,7 +1462,7 @@ describe('runNpmUpdater — osv-then-audit strategy', () => {
     expect(restoreCalls.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('partial rollback fails then full revert: returns status "error" when both validations fail', async () => {
+  it('partial rollback: when partial revert bootstrap (npm ci) fails, PhaseError is thrown (not status error)', async () => {
     const runner = makeRunner();
     const runMock = runner.run as ReturnType<typeof vi.fn>;
     const runArgsMock = runner.runArgs as ReturnType<typeof vi.fn>;
@@ -1475,19 +1475,17 @@ describe('runNpmUpdater — osv-then-audit strategy', () => {
       .mockResolvedValueOnce('{"name":"test"}') // package.json snapshot for intermediateBackup
       .mockResolvedValueOnce(postAuditLockfile); // post-audit snapshot
 
-    // Sequence via runArgs: npm outdated, npm audit, npm audit fix, npm ci (pre-validation), npm ci (partial revert), npm ci (full revert)
-    // Sequence via run: npm run build (FAIL), npm run build re-validation (FAIL)
+    // Sequence via runArgs: npm outdated, npm audit, npm audit fix, npm ci (pre-validation),
+    // npm ci (partial revert — FAILS → revertWithBootstrap throws)
     runArgsMock
-      .mockResolvedValueOnce(ok())            // npm outdated
-      .mockResolvedValueOnce(ok())            // npm audit
-      .mockResolvedValueOnce(ok())            // npm audit fix
-      .mockResolvedValueOnce(ok())            // npm ci (pre-validation)
-      .mockResolvedValueOnce(ok())            // npm ci (partial revert)
-      .mockResolvedValueOnce(ok());           // npm ci (full revert)
+      .mockResolvedValueOnce(ok())              // npm outdated
+      .mockResolvedValueOnce(ok())              // npm audit
+      .mockResolvedValueOnce(ok())              // npm audit fix
+      .mockResolvedValueOnce(ok())              // npm ci (pre-validation)
+      .mockResolvedValueOnce(fail('ci error')); // npm ci (partial revert) — FAILS
 
     runMock
-      .mockResolvedValueOnce(fail('build failed'))         // npm run build (FAIL)
-      .mockResolvedValueOnce(fail('build still failing')); // npm run build re-validation (FAIL)
+      .mockResolvedValueOnce(fail('build failed')); // npm run build (FAIL)
 
     const osvFixOutcome = {
       applied: true,
@@ -1496,23 +1494,23 @@ describe('runNpmUpdater — osv-then-audit strategy', () => {
       ],
     };
 
-    const result = await runNpmUpdater(
-      runner,
-      baseConfig(),
-      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
-      '/tmp/project',
-      false,
-      [{ name: 'build', command: 'npm run build' }],
-      'osv-then-audit',
-      undefined,
-      osvFixOutcome,
-    );
-
-    expect(result.status).toBe('error');
-    expect(result.error).toContain('reverted');
+    // revertWithBootstrap throws when bootstrap exits non-zero → PhaseError propagates
+    await expect(
+      runNpmUpdater(
+        runner,
+        baseConfig(),
+        baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+        '/tmp/project',
+        false,
+        [{ name: 'build', command: 'npm run build' }],
+        'osv-then-audit',
+        undefined,
+        osvFixOutcome,
+      ),
+    ).rejects.toThrow(/partial-revert/i);
   });
 
-  it('logs warn and does full revert when npm ci fails after partial revert (lines 231-234)', async () => {
+  it('partial revert bootstrap failure: PhaseError is thrown and propagated (lines 231-234 replacement)', async () => {
     const runner = makeRunner();
     const runMock = runner.run as ReturnType<typeof vi.fn>;
     const runArgsMock = runner.runArgs as ReturnType<typeof vi.fn>;
@@ -1527,11 +1525,108 @@ describe('runNpmUpdater — osv-then-audit strategy', () => {
       .mockResolvedValueOnce(ok())              // npm audit
       .mockResolvedValueOnce(ok())              // npm audit fix
       .mockResolvedValueOnce(ok())              // npm ci (pre-validation)
-      .mockResolvedValueOnce(fail('ci error'))  // npm ci (partial revert) — FAILS
-      .mockResolvedValueOnce(ok());             // npm ci (full revert)
+      .mockResolvedValueOnce(fail('ci error')); // npm ci (partial revert) — FAILS
 
     runMock
       .mockResolvedValueOnce(fail('build failed')); // npm run build (FAIL)
+
+    const osvFixOutcome = {
+      applied: true,
+      packagesUpdated: [{ name: 'axios', versionFrom: '1.6.0', versionTo: '1.7.0' }],
+    };
+
+    // With the new design, partialRevert throws when bootstrap fails → PhaseError propagates
+    await expect(
+      runNpmUpdater(
+        runner,
+        baseConfig(),
+        baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+        '/tmp/project',
+        false,
+        [{ name: 'build', command: 'npm run build' }],
+        'osv-then-audit',
+        undefined,
+        osvFixOutcome,
+      ),
+    ).rejects.toThrow(/partial-revert/i);
+  });
+});
+
+// ── partialRevert delegation: AC7 tests ──────────────────────────────────────
+
+describe('runNpmUpdater — partialRevert delegation (AC7)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockReadFile.mockResolvedValue(DEFAULT_LOCKFILE);
+  });
+
+  it('(AC7a) partialRevert is called before tx.abortWithError when validation fails and fixer provides it', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+    const runArgsMock = runner.runArgs as ReturnType<typeof vi.fn>;
+
+    const postOsvLockfile = DEFAULT_LOCKFILE;
+    const postAuditLockfile = DEFAULT_LOCKFILE;
+
+    mockReadFile
+      .mockResolvedValueOnce(postOsvLockfile)
+      .mockResolvedValueOnce('{"name":"test"}')
+      .mockResolvedValueOnce(postAuditLockfile);
+
+    // Partial revert npm ci succeeds but re-validation fails → full revert
+    runArgsMock
+      .mockResolvedValueOnce(ok())   // npm outdated
+      .mockResolvedValueOnce(ok())   // npm audit
+      .mockResolvedValueOnce(ok())   // npm audit fix
+      .mockResolvedValueOnce(ok())   // npm ci (pre-validation)
+      .mockResolvedValueOnce(ok())   // npm ci (partial revert — succeeds)
+      .mockResolvedValueOnce(ok());  // npm ci (full revert — after re-validation fails)
+
+    runMock
+      .mockResolvedValueOnce(fail('build failed'))  // npm run build (first validation FAIL)
+      .mockResolvedValueOnce(fail('still failing')); // npm run build (re-validation FAIL)
+
+    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/git.js');
+    const restoreSpy = mockRestoreFiles as ReturnType<typeof vi.fn>;
+    restoreSpy.mockClear();
+
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+      'osv-then-audit',
+    );
+
+    // partialRevert was called (restoreFiles called at least once for the intermediate backup)
+    expect(restoreSpy).toHaveBeenCalled();
+    // After re-validation fails, falls back to full revert → error
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('reverted');
+  });
+
+  it('(AC7b) partialRevert success + re-validation pass → tx.success with OSV packages only', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+    const runArgsMock = runner.runArgs as ReturnType<typeof vi.fn>;
+
+    mockReadFile
+      .mockResolvedValueOnce(DEFAULT_LOCKFILE)   // pre-audit snapshot
+      .mockResolvedValueOnce('{"name":"test"}')  // package.json
+      .mockResolvedValueOnce(DEFAULT_LOCKFILE);  // post-audit snapshot
+
+    runArgsMock
+      .mockResolvedValueOnce(ok())   // npm outdated
+      .mockResolvedValueOnce(ok())   // npm audit
+      .mockResolvedValueOnce(ok())   // npm audit fix
+      .mockResolvedValueOnce(ok())   // npm ci (pre-validation)
+      .mockResolvedValueOnce(ok());  // npm ci (partial revert — succeeds)
+
+    runMock
+      .mockResolvedValueOnce(fail('build failed')) // npm run build (FAIL)
+      .mockResolvedValueOnce(ok());                // npm run build (re-validation — PASS)
 
     const osvFixOutcome = {
       applied: true,
@@ -1550,10 +1645,78 @@ describe('runNpmUpdater — osv-then-audit strategy', () => {
       osvFixOutcome,
     );
 
+    expect(result.status).toBe('success');
+    // Only OSV-fix packages are reported (audit-fix was reverted)
+    expect(result.packages_updated).toContain('axios@1.7.0');
+    expect(result.packages_updated).not.toContain('lodash@4.17.21');
+  });
+
+  it('(AC7c) partialRevert throws → PhaseError propagates; tx.abortWithError is NOT called', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+    const runArgsMock = runner.runArgs as ReturnType<typeof vi.fn>;
+
+    mockReadFile
+      .mockResolvedValueOnce(DEFAULT_LOCKFILE)
+      .mockResolvedValueOnce('{"name":"test"}')
+      .mockResolvedValueOnce(DEFAULT_LOCKFILE);
+
+    // npm ci in partial revert fails → revertWithBootstrap throws
+    runArgsMock
+      .mockResolvedValueOnce(ok())              // npm outdated
+      .mockResolvedValueOnce(ok())              // npm audit
+      .mockResolvedValueOnce(ok())              // npm audit fix
+      .mockResolvedValueOnce(ok())              // npm ci (pre-validation)
+      .mockResolvedValueOnce(fail('ci broke')); // npm ci (partial revert — FAILS)
+
+    runMock
+      .mockResolvedValueOnce(fail('build failed')); // npm run build (FAIL)
+
+    await expect(
+      runNpmUpdater(
+        runner,
+        baseConfig(),
+        baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+        '/tmp/project',
+        false,
+        [{ name: 'build', command: 'npm run build' }],
+        'osv-then-audit',
+      ),
+    ).rejects.toThrow(/partial-revert/i);
+  });
+
+  it('(AC7) strategy-agnostic: partialRevert is not called when fixer does not provide it (osv strategy)', async () => {
+    const runner = makeRunner();
+    const runMock = runner.run as ReturnType<typeof vi.fn>;
+    const runArgsMock = runner.runArgs as ReturnType<typeof vi.fn>;
+
+    // osv strategy: fixer is a no-op, no partialRevert returned
+    runArgsMock
+      .mockResolvedValueOnce(ok())   // npm outdated
+      .mockResolvedValueOnce(ok())   // npm audit
+      .mockResolvedValueOnce(ok())   // npm ci (pre-validation)
+      .mockResolvedValueOnce(ok());  // npm ci (full revert)
+
+    runMock
+      .mockResolvedValueOnce(fail('build failed')); // npm run build (FAIL)
+
+    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/git.js');
+    const restoreSpy = mockRestoreFiles as ReturnType<typeof vi.fn>;
+    restoreSpy.mockClear();
+
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+      'osv',
+    );
+
     expect(result.status).toBe('error');
-    const { logger: mockLogger } = await import('@infra/utils/logger.js');
-    const warnCalls = (mockLogger.tagged as ReturnType<typeof vi.fn>).mock.calls;
-    expect(warnCalls.some((c) => String(c[2]).includes('npm ci failed after partial revert'))).toBe(true);
+    // restoreFiles is called for the full revert (not a partial one)
+    expect(restoreSpy).toHaveBeenCalled();
   });
 });
 

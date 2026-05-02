@@ -4,7 +4,7 @@ import type { UpdateResultJson, ValidationEntry } from '@core/types/update';
 import type { ScanResultJson } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
 import { PhaseError } from '@core/errors';
-import { backupFiles, restoreFiles } from '@infra/utils/git';
+import { backupFiles } from '@infra/utils/git';
 import { logger } from '@infra/utils/logger';
 import { beginUpdaterTransaction } from '../utils/updater-transaction';
 import { FIXER_MAP } from '../fixers/index';
@@ -142,32 +142,29 @@ export async function runNpmUpdater(
         );
       }
 
-      // TODO: move osv-then-audit partial-revert into the fixer (ADR-0003 follow-up)
-      // osv-then-audit: before a full revert, try to preserve the post-OSV state
-      if (fixerStrategy === 'osv-then-audit' && fixerResult.intermediateBackup) {
-        logger.tagged('npm', 'osv-then-audit', 'Validation failed after audit-fix. Reverting audit-fix changes, keeping OSV state...', 'warn');
-        await restoreFiles(fixerResult.intermediateBackup, cwd);
-
-          logger.tagged('npm', 'osv-then-audit', 'Running npm ci after partial revert...');
-        const reCiResult = await runner.runArgs('npm', ['ci'], { cwd, stream: true });
-
-        if (reCiResult.exitCode === 0) {
-          // npm ci can mutate the lockfile even when it exits 0 (format normalization).
-          // Re-restore from the snapshot so disk is byte-identical to the pre-audit-fix state
-          // before running re-validation, mirroring the double-restore in the transaction revert.
-          await restoreFiles(fixerResult.intermediateBackup, cwd);
+      // Strategy-agnostic partial revert: when the fixer provides a partialRevert callable,
+      // attempt to restore the intermediate state and re-validate before falling back to a
+      // full pre-fix revert. Throws PhaseError when the partial-revert bootstrap fails.
+      if (fixerResult.partialRevert) {
+        try {
+          await fixerResult.partialRevert(runner, cwd);
+          logger.tagged('npm', 'partial-revert', 'Partial revert succeeded; re-validating...');
           const reValidation = await runValidations({ runner, cwd, commands: validationCommands });
           if (reValidation.allPassed) {
-            logger.tagged('npm', 'osv-then-audit', 'Post-OSV state validates successfully. Audit-fix changes reverted; OSV changes preserved.');
+            logger.tagged('npm', 'partial-revert', 'Post-intermediate state validates successfully. Partial revert preserved.');
             const osvOnly = osvFixOutcome?.packagesUpdated.map((p) => `${p.name}@${p.versionTo}`) ?? [];
             return tx.success({
               packages_updated: osvOnly,
               validations: reValidation.entries,
             });
           }
-          logger.tagged('npm', 'osv-then-audit', 'Post-OSV state also failed validation. Performing full revert...', 'warn');
-        } else {
-          logger.tagged('npm', 'osv-then-audit', 'npm ci failed after partial revert. Performing full revert...', 'warn');
+          logger.tagged('npm', 'partial-revert', 'Post-intermediate state also failed validation. Performing full revert...', 'warn');
+        } catch (err) {
+          throw new PhaseError(
+            `npm updater partial-revert bootstrap failed: ${err instanceof Error ? err.message : String(err)}`,
+            'partial-revert-bootstrap',
+            err,
+          );
         }
       }
 

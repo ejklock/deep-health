@@ -195,3 +195,26 @@ Resolutions:
 3. `osvRuntimeSpec` import removed from `run-ecosystem-fix.ts`; it is an internal detail of the helper.
 4. `OsvDockerRunner` not touched — it serves the scan engine + fix-applier at a different abstraction level.
 5. Barrel export added to `ecosystem-runtime/index.ts`.
+
+## Refinement 2026-05-02 — `osv-then-audit` partial-revert moved into fixer
+
+The TODO comment from Candidate 1 (Refinement 2026-05-01) is resolved. The inline `osv-then-audit` partial-revert block in `npm-updater.ts` is now a strategy-agnostic delegation through `FixerCallResult.partialRevert`.
+
+### Changes
+
+| File | Change |
+|---|---|
+| `src/modules/ecosystem/utils/updater-transaction.ts` | `revertWithBootstrap` exported (was internal). No logic change. |
+| `src/modules/ecosystem/fixers/index.ts` | `FixerCallResult` gains `partialRevert?: (runner, cwd) => Promise<void>` |
+| `src/modules/ecosystem/fixers/osv-then-audit-fixer.ts` | Imports `revertWithBootstrap`; builds `partialRevert` closure capturing `bootstrapSpec` + `intermediateBackup`; returns it in result |
+| `src/modules/ecosystem/plugins/npm-updater.ts` | Replaces `if (fixerStrategy === 'osv-then-audit' && fixerResult.intermediateBackup)` with strategy-agnostic `if (fixerResult.partialRevert)`; `restoreFiles` import removed |
+| `tests/unit/plugins/osv-then-audit-fixer.test.ts` | New tests: `partialRevert` defined on success, invokes `revertWithBootstrap` with correct args, undefined on early-return paths |
+| `tests/unit/plugins/npm-updater.test.ts` | Old inline-path tests updated; new `describe('partialRevert delegation (AC7)')` block: AC7a–AC7c + strategy-agnostic guard |
+
+### Resolutions
+
+1. `revertWithBootstrap` is exported without changing its signature or logic — the fixer captures the correct param order `(runner, bootstrapSpec, backups, cwd)`.
+2. `FixerCallResult.intermediateBackup` is retained for test introspection; `partialRevert` is an additional optional field.
+3. When `partialRevert` throws (bootstrap exits non-zero), `npm-updater.ts` does **not** fall back to full revert — the `PhaseError` propagates. Full revert is only triggered if `partialRevert` is absent or succeeds but re-validation still fails.
+4. The `fixerStrategy === 'osv-then-audit'` special-case is entirely removed from the orchestration layer; the fixer itself decides whether to attach a `partialRevert`.
+5. 1726 tests pass; `tsc --noEmit` clean.

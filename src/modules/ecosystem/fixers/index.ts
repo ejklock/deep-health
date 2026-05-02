@@ -18,10 +18,19 @@ export interface FixerCallResult {
   /**
    * For osv-then-audit strategy: post-OSV lockfile snapshot taken before npm audit fix ran.
    * Keys are file paths relative to cwd; values are file contents.
-   * When present and validation fails, the updater attempts a partial revert to this state
-   * before falling back to a full pre-fix revert.
+   * Retained for test introspection and backward compatibility.
    */
   intermediateBackup?: Map<string, string>;
+  /**
+   * When present, called by the updater on validation failure before
+   * falling back to full revert. The callable restores to the
+   * intermediate (post-OSV) state and re-bootstraps, giving the caller
+   * a chance to re-validate before committing to a full revert.
+   *
+   * Throws if the partial-revert bootstrap fails — the updater must
+   * propagate that as a PhaseError.
+   */
+  partialRevert?: (runner: CommandRunner, cwd: string) => Promise<void>;
 }
 
 export type FixerFn = (opts: FixerCallOptions) => Promise<FixerCallResult>;

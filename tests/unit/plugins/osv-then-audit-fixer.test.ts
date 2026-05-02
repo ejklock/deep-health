@@ -16,6 +16,18 @@ vi.mock('node:fs/promises', () => ({
   readFile: mockReadFile,
 }));
 
+const { mockRevertWithBootstrap } = vi.hoisted(() => ({
+  mockRevertWithBootstrap: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('@modules/ecosystem/utils/updater-transaction', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@modules/ecosystem/utils/updater-transaction')>();
+  return {
+    ...actual,
+    revertWithBootstrap: mockRevertWithBootstrap,
+  };
+});
+
 import { applyOsvThenAuditFix } from '@modules/ecosystem/fixers/osv-then-audit-fixer';
 import type { CommandRunner, CommandResult } from '@core/types/common';
 import type { ScanResultJson } from '@core/types/scan';
@@ -885,5 +897,94 @@ describe('applyOsvThenAuditFix — rootAfter undefined fallback to after (L142)'
     });
     // rootAfter = undefined (nested only) → rootAfter ?? after! fires → uses 'after'
     expect(result).toBeDefined();
+  });
+});
+
+// ─── partialRevert is returned and delegates to revertWithBootstrap ──────────
+
+describe('applyOsvThenAuditFix — partialRevert callable (AC6)', () => {
+  beforeEach(() => {
+    mockReadFile.mockReset();
+    vi.clearAllMocks();
+    mockRevertWithBootstrap.mockResolvedValue(undefined);
+  });
+
+  it('returns a partialRevert callable when fixer runs successfully', async () => {
+    const runner = makeRunner();
+
+    const preLockfile = buildLockfile([{ name: 'lodash', version: '4.17.20' }]);
+    const postAuditLockfile = buildLockfile([{ name: 'lodash', version: '4.17.21' }]);
+
+    mockReadFile
+      .mockResolvedValueOnce(preLockfile)
+      .mockResolvedValueOnce('{"name":"sample"}')
+      .mockResolvedValueOnce(postAuditLockfile);
+
+    const scan = buildScan([{ pkg: 'lodash', version: '4.17.21' }]);
+
+    const result = await applyOsvThenAuditFix({
+      runner,
+      cwd: '/project',
+      scanResult: scan,
+      authorizeBreaking: false,
+    });
+
+    expect(result.partialRevert).toBeDefined();
+    expect(typeof result.partialRevert).toBe('function');
+  });
+
+  it('calling partialRevert invokes revertWithBootstrap with intermediateBackup and npm-ci bootstrap spec', async () => {
+    const runner = makeRunner();
+
+    const preLockfile = buildLockfile([{ name: 'lodash', version: '4.17.20' }]);
+    const postAuditLockfile = buildLockfile([{ name: 'lodash', version: '4.17.21' }]);
+
+    mockReadFile
+      .mockResolvedValueOnce(preLockfile)
+      .mockResolvedValueOnce('{"name":"sample"}')
+      .mockResolvedValueOnce(postAuditLockfile);
+
+    const scan = buildScan([{ pkg: 'lodash', version: '4.17.21' }]);
+
+    const result = await applyOsvThenAuditFix({
+      runner,
+      cwd: '/project',
+      scanResult: scan,
+      authorizeBreaking: false,
+    });
+
+    expect(result.partialRevert).toBeDefined();
+
+    // Call the partialRevert callable
+    await result.partialRevert!(runner, '/project');
+
+    // revertWithBootstrap must have been called exactly once
+    expect(mockRevertWithBootstrap).toHaveBeenCalledOnce();
+
+    // Verify it was called with the correct bootstrapSpec (npm ci)
+    const [calledRunner, calledBootstrapSpec, calledBackups, calledCwd] =
+      mockRevertWithBootstrap.mock.calls[0]!;
+    expect(calledRunner).toBe(runner);
+    expect(calledBootstrapSpec).toMatchObject({ binary: 'npm', args: ['ci'], label: 'npm ci' });
+    expect(calledBackups).toBe(result.intermediateBackup);
+    expect(calledCwd).toBe('/project');
+  });
+
+  it('partialRevert is undefined when lockfile is not readable (early-return paths)', async () => {
+    const runner = makeRunner();
+    const enoent = Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    mockReadFile.mockRejectedValue(enoent);
+
+    const scan = buildScan([{ pkg: 'lodash', version: '4.17.21' }]);
+
+    const result = await applyOsvThenAuditFix({
+      runner,
+      cwd: '/project',
+      scanResult: scan,
+      authorizeBreaking: false,
+    });
+
+    // Early-return paths do not build partialRevert
+    expect(result.partialRevert).toBeUndefined();
   });
 });
