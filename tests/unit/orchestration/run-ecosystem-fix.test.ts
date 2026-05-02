@@ -14,8 +14,10 @@ vi.mock('@infra/utils/logger', () => ({
 }));
 
 // Identity passthrough — the host runner is what runUpdater receives.
+// resolveOsvRuntime also returns the host runner (matches the local-mode path used in makeConfig).
 vi.mock('@infra/ecosystem-runtime', () => ({
   resolveEcosystemRuntime: vi.fn(async (_plugin: unknown, hostRunner: unknown) => hostRunner),
+  resolveOsvRuntime: vi.fn((_config: unknown, _cwd: unknown, hostRunner: unknown) => hostRunner),
 }));
 
 vi.mock('@orchestration/osv-fix-applier', () => ({
@@ -25,19 +27,6 @@ vi.mock('@orchestration/osv-fix-applier', () => ({
 // Default to valid:true so individual tests can override per case.
 vi.mock('@core/gates/validator', () => ({
   validateEcosystemGate: vi.fn().mockReturnValue({ valid: true, gate: 'npm', errors: [] }),
-}));
-
-vi.mock('@infra/provisioner/osv-runner', () => ({
-  OsvDockerRunner: vi.fn().mockImplementation(() => ({})),
-}));
-
-vi.mock('@infra/executor/osv-container-runner', () => ({
-  OsvContainerCommandRunner: vi.fn().mockImplementation(() => ({
-    run: vi.fn().mockResolvedValue({ stdout: '', stderr: '', exitCode: 0, command: '', dryRun: false }),
-    runArgs: vi.fn().mockResolvedValue({ stdout: '', stderr: '', exitCode: 0, command: '', dryRun: false }),
-    dryRun: false,
-    environment: 'docker',
-  })),
 }));
 
 import { runEcosystemFix } from '@orchestration/run-ecosystem-fix';

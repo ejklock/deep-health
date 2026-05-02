@@ -183,3 +183,15 @@ The Updater owns: pre-flight checks (composer env-check), fixer invocation, vali
 | `src/modules/ecosystem/plugins/npm-updater.ts` | Remove `revertNpmChanges`; pass `BootstrapSpec` for `npm ci`; `osv-then-audit` partial-revert remains, marked TODO |
 | `src/modules/ecosystem/plugins/composer-updater.ts` | Remove `revertComposerChanges`; pass `BootstrapSpec` for `composer install …` (env-check stays) |
 | `src/modules/ecosystem/plugins/pip-updater.ts` | Remove `revertPipChanges`; pass `BootstrapSpec` for `pip install -r requirements.txt`; **behavior change**: revert bootstrap failure now throws |
+
+## Refinement 2026-05-02 — Candidate 5 resolved
+
+`resolveOsvCommandRunner` (private factory in `run-ecosystem-fix.ts`) promoted to
+`resolveOsvRuntime()` in `src/infrastructure/ecosystem-runtime/resolve-osv.ts`.
+
+Resolutions:
+1. The factory is lifted verbatim — logic unchanged, only location changes.
+2. `run-ecosystem-fix.ts` imports `resolveOsvRuntime` from `@infra/ecosystem-runtime` barrel.
+3. `osvRuntimeSpec` import removed from `run-ecosystem-fix.ts`; it is an internal detail of the helper.
+4. `OsvDockerRunner` not touched — it serves the scan engine + fix-applier at a different abstraction level.
+5. Barrel export added to `ecosystem-runtime/index.ts`.

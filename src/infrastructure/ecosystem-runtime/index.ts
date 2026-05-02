@@ -11,3 +11,4 @@ export { resolveEcosystemRuntime } from './resolve';
 export { EphemeralEcosystemContainer } from './ephemeral-container';
 export type { EphemeralEcosystemContainerOptions } from './ephemeral-container';
 export { osvRuntimeSpec } from './osv-runtime-spec';
+export { resolveOsvRuntime } from './resolve-osv';
