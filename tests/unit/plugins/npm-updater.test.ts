@@ -5,7 +5,7 @@ import type { ScanResultJson } from '@core/types/scan';
 
 // ── Module-level mocks ───────────────────────────────────────────────────────
 // Hoisted so the factory runs before the module under test is imported.
-vi.mock('@infra/utils/git.js', () => ({
+vi.mock('@infra/utils/fs-backup.js', () => ({
   backupFiles: vi.fn().mockResolvedValue(new Map()),
   restoreFiles: vi.fn().mockResolvedValue(undefined),
 }));
@@ -984,7 +984,7 @@ describe('runNpmUpdater — preFixBackups (osv rollback uses orchestrator backup
   });
 
   it('uses preFixBackups instead of calling backupFiles when provided', async () => {
-    const { backupFiles: mockBackupFiles } = await import('@infra/utils/git.js');
+    const { backupFiles: mockBackupFiles } = await import('@infra/utils/fs-backup.js');
     const backupSpy = mockBackupFiles as ReturnType<typeof vi.fn>;
     backupSpy.mockClear();
 
@@ -1027,7 +1027,7 @@ describe('runNpmUpdater — preFixBackups (osv rollback uses orchestrator backup
   });
 
   it('passes provided preFixBackups to restoreFiles on validation failure', async () => {
-    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/git.js');
+    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/fs-backup.js');
     const restoreSpy = mockRestoreFiles as ReturnType<typeof vi.fn>;
     restoreSpy.mockClear();
 
@@ -1067,7 +1067,7 @@ describe('runNpmUpdater — preFixBackups (osv rollback uses orchestrator backup
   });
 
   it('includes yarn.lock in the revert backup when present on disk (advisor-only file)', async () => {
-    const { backupFiles: mockBackupFiles, restoreFiles: mockRestoreFiles } = await import('@infra/utils/git.js');
+    const { backupFiles: mockBackupFiles, restoreFiles: mockRestoreFiles } = await import('@infra/utils/fs-backup.js');
     const backupSpy = mockBackupFiles as ReturnType<typeof vi.fn>;
     const restoreSpy = mockRestoreFiles as ReturnType<typeof vi.fn>;
     backupSpy.mockClear();
@@ -1115,7 +1115,7 @@ describe('runNpmUpdater — preFixBackups (osv rollback uses orchestrator backup
   });
 
   it('calls restoreFiles twice on validation failure (wraps npm ci revert) to defeat lockfile mutation', async () => {
-    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/git.js');
+    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/fs-backup.js');
     const restoreSpy = mockRestoreFiles as ReturnType<typeof vi.fn>;
     restoreSpy.mockClear();
 
@@ -1153,7 +1153,7 @@ describe('runNpmUpdater — preFixBackups (osv rollback uses orchestrator backup
   });
 
   it('falls back to internal backupFiles when preFixBackups is not provided (npm-audit)', async () => {
-    const { backupFiles: mockBackupFiles } = await import('@infra/utils/git.js');
+    const { backupFiles: mockBackupFiles } = await import('@infra/utils/fs-backup.js');
     const backupSpy = mockBackupFiles as ReturnType<typeof vi.fn>;
     backupSpy.mockClear();
 
@@ -1355,7 +1355,7 @@ describe('runNpmUpdater — osv-then-audit strategy', () => {
   });
 
   it('partial rollback succeeds: returns status "success" with only OSV packages when re-validation passes', async () => {
-    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/git.js');
+    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/fs-backup.js');
     const restoreSpy = mockRestoreFiles as ReturnType<typeof vi.fn>;
     restoreSpy.mockClear();
 
@@ -1412,7 +1412,7 @@ describe('runNpmUpdater — osv-then-audit strategy', () => {
   });
 
   it('partial revert: calls restoreFiles on intermediateBackup a second time after npm ci exits 0 (defeat lockfile mutation)', async () => {
-    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/git.js');
+    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/fs-backup.js');
     const restoreSpy = mockRestoreFiles as ReturnType<typeof vi.fn>;
     restoreSpy.mockClear();
 
@@ -1586,7 +1586,7 @@ describe('runNpmUpdater — partialRevert delegation (AC7)', () => {
       .mockResolvedValueOnce(fail('build failed'))  // npm run build (first validation FAIL)
       .mockResolvedValueOnce(fail('still failing')); // npm run build (re-validation FAIL)
 
-    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/git.js');
+    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/fs-backup.js');
     const restoreSpy = mockRestoreFiles as ReturnType<typeof vi.fn>;
     restoreSpy.mockClear();
 
@@ -1700,7 +1700,7 @@ describe('runNpmUpdater — partialRevert delegation (AC7)', () => {
     runMock
       .mockResolvedValueOnce(fail('build failed')); // npm run build (FAIL)
 
-    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/git.js');
+    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/fs-backup.js');
     const restoreSpy = mockRestoreFiles as ReturnType<typeof vi.fn>;
     restoreSpy.mockClear();
 
@@ -1729,7 +1729,7 @@ describe('runNpmUpdater — preRunSnapshots dirty-tree warn after revert', () =>
   });
 
   it('emits logger.warn for each file whose on-disk content differs from pre-run snapshot after revert', async () => {
-    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/git.js');
+    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/fs-backup.js');
     const restoreSpy = mockRestoreFiles as ReturnType<typeof vi.fn>;
     restoreSpy.mockClear();
 
@@ -2009,7 +2009,7 @@ describe('npm-updater additional branch coverage', () => {
   });
 
   it('line 275: non-Error thrown hits String(err) fallback in PhaseError message', async () => {
-    const { backupFiles } = await import('@infra/utils/git.js');
+    const { backupFiles } = await import('@infra/utils/fs-backup.js');
     (backupFiles as ReturnType<typeof vi.fn>).mockRejectedValueOnce('string-npm-error');
     const runner = makeRunner();
     await expect(
@@ -2018,7 +2018,7 @@ describe('npm-updater additional branch coverage', () => {
   });
 
   it('lines 41-42: revert npm ci failure with stdout-only output (null filtered in log)', async () => {
-    const { backupFiles } = await import('@infra/utils/git.js');
+    const { backupFiles } = await import('@infra/utils/fs-backup.js');
     (backupFiles as ReturnType<typeof vi.fn>).mockResolvedValue(new Map([['package-lock.json', 'original']]));
     const runArgsMock = vi.fn();
     // checkCurrentState: npm outdated + npm audit

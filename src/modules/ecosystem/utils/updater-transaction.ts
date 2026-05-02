@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { CommandRunner } from '@core/types/common';
 import type { UpdateResultJson, ValidationEntry } from '@core/types/update';
-import { backupFiles, restoreFiles } from '@infra/utils/git';
+import { backupFiles, restoreFiles } from '@infra/utils/fs-backup';
 import { logger } from '@infra/utils/logger';
 
 /**

@@ -77,6 +77,10 @@ A codebase architecture review was performed on 2026-04-29. Six deepening candid
 
 These decisions were made during the 2026-04-29 review session and must guide the implementation task.
 
+> **Note (2026-05-02):** `backupFiles` and `restoreFiles` are defined in `src/infrastructure/utils/fs-backup.ts`
+> (module path `@infra/utils/fs-backup`), not `git.ts`. The file was renamed post-implementation to reflect
+> that these functions perform pure filesystem I/O with no git dependency.
+
 ### Contract
 
 `beginUpdaterTransaction` receives a **bootstrap spec** — an opaque value containing the command and runner needed to reinstall dependencies. The calling Updater (npm, composer, pip) provides this spec; the transaction does not know what tool is being run.

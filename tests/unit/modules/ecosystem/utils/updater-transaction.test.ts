@@ -4,7 +4,7 @@ import type { CommandRunner, CommandResult } from '@core/types/common';
 
 // ─── Mocks ─────────────────────────────────────────────────────────────────────
 
-vi.mock('@infra/utils/git', () => ({
+vi.mock('@infra/utils/fs-backup', () => ({
   backupFiles: vi.fn(),
   restoreFiles: vi.fn(),
 }));
@@ -26,7 +26,7 @@ vi.mock('@infra/utils/logger', () => ({
 const { mockReadFile } = vi.hoisted(() => ({ mockReadFile: vi.fn() }));
 vi.mock('node:fs/promises', () => ({ readFile: mockReadFile }));
 
-import { backupFiles, restoreFiles } from '@infra/utils/git';
+import { backupFiles, restoreFiles } from '@infra/utils/fs-backup';
 import { logger } from '@infra/utils/logger';
 import { beginUpdaterTransaction } from '@modules/ecosystem/utils/updater-transaction';
 import type { BootstrapSpec } from '@modules/ecosystem/utils/updater-transaction';

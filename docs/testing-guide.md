@@ -100,12 +100,12 @@ expect(mockRun).toHaveBeenCalledWith(expect.stringContaining('composer update'),
 
 ## Module-Level Mocks (Vitest hoisting)
 
-Every plugin test file must mock `@infra/utils/git.js` and `@infra/utils/logger.js` **before** the module under test is imported. Vitest hoists `vi.mock()` calls automatically, but any mock that needs a reference captured for later assertions must use `vi.hoisted()`.
+Every plugin test file must mock `@infra/utils/fs-backup.js` and `@infra/utils/logger.js` **before** the module under test is imported. Vitest hoists `vi.mock()` calls automatically, but any mock that needs a reference captured for later assertions must use `vi.hoisted()`.
 
 **Always mock (every plugin test file):**
 
 ```ts
-vi.mock('@infra/utils/git.js', () => ({
+vi.mock('@infra/utils/fs-backup.js', () => ({
   backupFiles: vi.fn().mockResolvedValue(new Map()),
   restoreFiles: vi.fn().mockResolvedValue(undefined),
 }));

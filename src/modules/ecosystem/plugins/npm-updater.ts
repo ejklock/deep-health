@@ -4,7 +4,7 @@ import type { UpdateResultJson, ValidationEntry } from '@core/types/update';
 import type { ScanResultJson } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
 import { PhaseError } from '@core/errors';
-import { backupFiles } from '@infra/utils/git';
+import { backupFiles } from '@infra/utils/fs-backup';
 import { logger } from '@infra/utils/logger';
 import { beginUpdaterTransaction } from '../utils/updater-transaction';
 import { FIXER_MAP } from '../fixers/index';

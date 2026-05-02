@@ -6,7 +6,7 @@ vi.mock('@infra/utils/logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn(), tagged: vi.fn() },
 }));
 
-vi.mock('@infra/utils/git.js', () => ({
+vi.mock('@infra/utils/fs-backup.js', () => ({
   backupFiles: vi.fn(),
   restoreFiles: vi.fn().mockResolvedValue(undefined),
 }));
@@ -43,7 +43,7 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 import { applyOsvFixViaStaging } from '@orchestration/osv-fix-applier';
-import * as gitUtils from '@infra/utils/git.js';
+import * as gitUtils from '@infra/utils/fs-backup.js';
 import { logger } from '@infra/utils/logger.js';
 
 // ── Test helpers ──────────────────────────────────────────────────────────────

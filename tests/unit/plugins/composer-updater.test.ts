@@ -4,7 +4,7 @@ import type { ProjectConfig } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
 
 // ── Module-level mocks ───────────────────────────────────────────────────────
-vi.mock('@infra/utils/git.js', () => ({
+vi.mock('@infra/utils/fs-backup.js', () => ({
   backupFiles: vi.fn().mockResolvedValue(new Map()),
   restoreFiles: vi.fn().mockResolvedValue(undefined),
 }));
@@ -284,7 +284,7 @@ describe('runComposerUpdater — update failure path', () => {
   });
 
   it('composer update failure => reverts composer.json/composer.lock (composer.lock may have been written before post-script failure)', async () => {
-    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/git.js');
+    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/fs-backup.js');
     const restoreSpy = mockRestoreFiles as ReturnType<typeof vi.fn>;
     restoreSpy.mockClear();
 
@@ -463,7 +463,7 @@ describe('runComposerUpdater — PhaseError on unexpected throw (lines 198-203)'
   beforeEach(() => vi.clearAllMocks());
 
   it('throws PhaseError when backupFiles throws unexpectedly', async () => {
-    const { backupFiles } = await import('@infra/utils/git.js');
+    const { backupFiles } = await import('@infra/utils/fs-backup.js');
     (backupFiles as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('disk full'));
 
     const runner = makeRunner();
@@ -519,7 +519,7 @@ describe('composer-updater additional branch coverage', () => {
   });
 
   it('uses String(err) when a non-Error is thrown (line 199)', async () => {
-    const { backupFiles } = await import('@infra/utils/git.js');
+    const { backupFiles } = await import('@infra/utils/fs-backup.js');
     (backupFiles as ReturnType<typeof vi.fn>).mockRejectedValueOnce('string-composer-error');
 
     const runner = makeRunner();
@@ -625,7 +625,7 @@ describe('runComposerUpdater — packages_updated post-update version', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('emits post-update version in packages_updated for changed packages (AC1)', async () => {
-    const { backupFiles } = await import('@infra/utils/git.js');
+    const { backupFiles } = await import('@infra/utils/fs-backup.js');
     const { readFile } = await import('node:fs/promises');
 
     const preLock = makeLockJson([{ name: 'phpseclib/phpseclib', version: '3.0.50' }]);
@@ -653,7 +653,7 @@ describe('runComposerUpdater — packages_updated post-update version', () => {
   });
 
   it('falls back when post-update lock read fails — result remains success (AC5)', async () => {
-    const { backupFiles } = await import('@infra/utils/git.js');
+    const { backupFiles } = await import('@infra/utils/fs-backup.js');
     const { readFile } = await import('node:fs/promises');
 
     const preLock = makeLockJson([{ name: 'vendor/pkg', version: '1.0.0' }]);

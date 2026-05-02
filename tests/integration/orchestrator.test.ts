@@ -10,7 +10,7 @@ import type { CommandRunner, CommandResult, CommandRunnerOptions, ExecutionEnv }
 import type { ProjectConfig } from '@core/types/config';
 import type { ScannerEngineContext, ScannerEngine } from '@modules/scanner/types';
 import type { ScanResultJson } from '@core/types/scan';
-import * as gitUtils from '@infra/utils/git';
+import * as gitUtils from '@infra/utils/fs-backup';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 

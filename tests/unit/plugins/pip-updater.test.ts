@@ -4,7 +4,7 @@ import type { ProjectConfig } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
 
 // ── Module-level mocks ───────────────────────────────────────────────────────
-vi.mock('@infra/utils/git.js', () => ({
+vi.mock('@infra/utils/fs-backup.js', () => ({
   backupFiles: vi.fn().mockResolvedValue(new Map()),
   restoreFiles: vi.fn().mockResolvedValue(undefined),
 }));
@@ -261,7 +261,7 @@ describe('runPipUpdater — update failure path', () => {
   });
 
   it('pip install -U failure => reverts requirements.txt (revert wraps pip install with restore-twice)', async () => {
-    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/git.js');
+    const { restoreFiles: mockRestoreFiles } = await import('@infra/utils/fs-backup.js');
     const restoreSpy = mockRestoreFiles as ReturnType<typeof vi.fn>;
     restoreSpy.mockClear();
 
@@ -425,7 +425,7 @@ describe('runPipUpdater — unexpected error triggers PhaseError (lines 186-191)
   beforeEach(() => vi.clearAllMocks());
 
   it('throws PhaseError when backupFiles throws unexpectedly', async () => {
-    const { backupFiles } = await import('@infra/utils/git.js');
+    const { backupFiles } = await import('@infra/utils/fs-backup.js');
     (backupFiles as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('disk full'));
 
     const runner = makeRunner();
@@ -459,7 +459,7 @@ describe('pip-updater additional branch coverage', () => {
   });
 
   it('uses String(err) when a non-Error is thrown during pip updater (line 187)', async () => {
-    const { backupFiles } = await import('@infra/utils/git.js');
+    const { backupFiles } = await import('@infra/utils/fs-backup.js');
     (backupFiles as ReturnType<typeof vi.fn>).mockRejectedValueOnce('string-error');
 
     const runner = makeRunner();
