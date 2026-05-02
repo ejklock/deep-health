@@ -1,18 +1,6 @@
 import { runScanner } from "@modules/scanner/index";
 import { runOrchestrator } from "@orchestration/orchestrator";
-import {
-  generateExecutiveReport,
-  executiveReportFilename,
-} from "@reporting/executive";
-import {
-  generateSonarQubeHtmlReport,
-  sonarqubeHtmlReportFilename,
-} from "@reporting/sonarqube-report";
-import {
-  saveReport,
-  resolveReportsDir,
-  resolveEngineReportsDir,
-} from "@app/report-saver";
+import { generateAndSaveReportArtifacts } from "@app/report-artifacts";
 import type { RunContext } from "@app/run-context";
 
 export interface ExecutiveReportCommandOptions {
@@ -40,10 +28,6 @@ export async function runExecutiveReportCommand(
   const client = opts.client ?? config.project.client;
   const project = opts.project ?? config.project.name;
 
-  // Markdown output is opt-in: only save to reportsDir when outputs.formats includes 'markdown'
-  const outputsConfig = config.outputs;
-  const markdownEnabled = (outputsConfig?.formats ?? []).includes('markdown');
-
   const scanBefore = await runScanner(runner, config, opts.cwd);
 
   const orchestratorResult = await runOrchestrator(runner, config, {
@@ -53,66 +37,20 @@ export async function runExecutiveReportCommand(
     verbose: opts.verbose,
   });
 
-  const scanAfter = await runScanner(runner, config, opts.cwd);
-
-  const report = generateExecutiveReport({
+  const artifactCode = await generateAndSaveReportArtifacts({
+    runner,
+    cwd: opts.cwd,
+    config,
     client,
     project,
     scanBefore,
-    scanAfter,
     updates: orchestratorResult.updates,
     engineResults: orchestratorResult.aggregated?.engineResults,
-    locale: config.report_language,
-    // Wire advisorResults from orchestrator into executive report
     advisorResults: Object.keys(orchestratorResult.advisorResults).length > 0
       ? orchestratorResult.advisorResults
       : undefined,
   });
-
-  // Use outputs.dir if present
-  const reportsDir = resolveReportsDir(opts.cwd, outputsConfig?.dir);
-  const subFoldersEnabled = outputsConfig?.sub_folders ?? false;
-  const sonarReportsDir = resolveEngineReportsDir(reportsDir, subFoldersEnabled ? 'sonarqube' : undefined);
-
-  if (markdownEnabled) {
-    const filename = executiveReportFilename(client, project);
-    const outcome = await saveReport(
-      filename,
-      report,
-      reportsDir,
-      config.cloud_storage,
-      opts.cwd,
-    );
-    if (outcome.cloudError && config.cloud_storage?.require_upload) {
-      process.stderr.write(
-        `[deep-health] Cloud upload required but failed: ${outcome.cloudError}\n`,
-      );
-      return 1;
-    }
-
-    // Standalone SonarQube HTML artifact
-    const sonarHtml = generateSonarQubeHtmlReport(
-      orchestratorResult.aggregated?.engineResults,
-      client,
-      project,
-    );
-    if (sonarHtml) {
-      const htmlFilename = sonarqubeHtmlReportFilename(client, project);
-      const sonarOutcome = await saveReport(
-        htmlFilename,
-        sonarHtml,
-        sonarReportsDir,
-        config.cloud_storage,
-        opts.cwd,
-      );
-      if (sonarOutcome.cloudError && config.cloud_storage?.require_upload) {
-        process.stderr.write(
-          `[deep-health] Cloud upload required but failed (SonarQube HTML): ${sonarOutcome.cloudError}\n`,
-        );
-        return 1;
-      }
-    }
-  }
+  if (artifactCode !== 0) return artifactCode;
 
   return 0;
 }

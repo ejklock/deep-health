@@ -1,21 +1,11 @@
-import { runScanner } from "@modules/scanner/index";
 import { runOrchestrator } from "@orchestration/orchestrator";
 import { selectRenderer } from "@app/progress-reporter";
-import {
-  generateExecutiveReport,
-  executiveReportFilename,
-} from "@reporting/executive";
 import { defaultRegistry } from "@modules/ecosystem/index";
 import { writeOutput } from "@app/output-writer";
 import {
-  saveReport,
   resolveReportsDir,
-  resolveEngineReportsDir,
 } from "@app/report-saver";
-import {
-  generateSonarQubeHtmlReport,
-  sonarqubeHtmlReportFilename,
-} from "@reporting/sonarqube-report";
+import { generateAndSaveReportArtifacts } from "@app/report-artifacts";
 import type { RunContext } from "@app/run-context";
 import { writeAuditTrail, resolveCliVersion } from "@app/audit-trail";
 import { createBranchAndCommit, buildBranchName } from "@infra/utils/git-commit";
@@ -104,9 +94,6 @@ async function runFixPipeline(
   // Resolve outputs config (canonical location for reports settings)
   const outputsConfig = config.outputs;
   const reportsDir = resolveReportsDir(opts.cwd, outputsConfig?.dir);
-  const subFoldersEnabled = outputsConfig?.sub_folders ?? false;
-  const sonarReportsDir = resolveEngineReportsDir(reportsDir, subFoldersEnabled ? 'sonarqube' : undefined);
-  const reportLanguage = config.report_language;
   // Markdown output is opt-in: only save to reportsDir when outputs.formats includes 'markdown'
   const markdownEnabled = (outputsConfig?.formats ?? []).includes('markdown');
 
@@ -115,61 +102,19 @@ async function runFixPipeline(
   }
 
   if (!opts.noReport && markdownEnabled && result.scan) {
-    const scanAfter = await runScanner(runner, config, opts.cwd);
-    const execReport = generateExecutiveReport({
-      client: config.project.client,
-      project: config.project.name,
+    const artifactCode = await generateAndSaveReportArtifacts({
+      runner,
+      cwd: opts.cwd,
+      config,
       scanBefore: result.scan,
-      scanAfter,
       updates: result.updates,
       engineResults: result.aggregated?.engineResults,
-      locale: reportLanguage,
-      // Wire advisorResults into executive report
       advisorResults: Object.keys(result.advisorResults).length > 0
         ? result.advisorResults
         : undefined,
       residualVerification: result.residualVerification,
     });
-    const filename = executiveReportFilename(
-      config.project.client,
-      config.project.name,
-    );
-    const outcome = await saveReport(
-      filename,
-      execReport,
-      reportsDir,
-      config.cloud_storage,
-      opts.cwd,
-    );
-    if (outcome.cloudError && config.cloud_storage?.require_upload) {
-      process.stderr.write(
-        `[deep-health] Cloud upload required but failed: ${outcome.cloudError}\n`,
-      );
-      return 1;
-    }
-
-    // Standalone SonarQube HTML artifact
-    const sonarHtml = generateSonarQubeHtmlReport(
-      result.aggregated?.engineResults,
-      config.project.client,
-      config.project.name,
-    );
-    if (sonarHtml) {
-      const htmlFilename = sonarqubeHtmlReportFilename(config.project.client, config.project.name);
-      const sonarOutcome = await saveReport(
-        htmlFilename,
-        sonarHtml,
-        sonarReportsDir,
-        config.cloud_storage,
-        opts.cwd,
-      );
-      if (sonarOutcome.cloudError && config.cloud_storage?.require_upload) {
-        process.stderr.write(
-          `[deep-health] Cloud upload required but failed (SonarQube HTML): ${sonarOutcome.cloudError}\n`,
-        );
-        return 1;
-      }
-    }
+    if (artifactCode !== 0) return artifactCode;
   }
 
   // Fase 6: write audit trail
