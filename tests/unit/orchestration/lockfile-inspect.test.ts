@@ -2,7 +2,7 @@ import { vi, describe, it, expect, beforeEach } from "vitest";
 import { readFile } from "node:fs/promises";
 import {
   collectNpmLockfileVersions,
-} from "@orchestration/lockfile-inspect";
+} from "@modules/ecosystem/utils/lockfile-inspect";
 import { readNpmLockfileVersion } from "@modules/ecosystem/utils/lockfile-utils";
 
 vi.mock("node:fs/promises", () => ({ readFile: vi.fn() }));
@@ -268,7 +268,7 @@ describe("readNpmLockfileVersion", () => {
 import {
   collectRootNpmLockfileVersions,
   diffRootNpmLockfileVersions,
-} from "@orchestration/lockfile-inspect";
+} from "@modules/ecosystem/utils/lockfile-inspect";
 
 describe("collectRootNpmLockfileVersions — v1 lockfile (lines 149-160)", () => {
   it("returns versions from dependencies object when no packages key", () => {

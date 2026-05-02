@@ -26,7 +26,7 @@ import { validateEcosystemGate } from '@core/gates/validator';
 import { logger, setProgressSink, makeProgressSink } from '@infra/utils/logger';
 import { resolveEcosystemRuntime, resolveOsvRuntime } from '@infra/ecosystem-runtime';
 import { applyOsvFixViaStaging } from './osv-fix-applier';
-import { logDryRunPreview } from './dry-run-preview';
+import { logDryRunPreview } from '@modules/ecosystem/utils/dry-run-preview';
 
 export interface RunEcosystemFixParams {
   plugin: EcosystemPlugin;

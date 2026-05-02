@@ -7,7 +7,7 @@ import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
 import { emptyEcosystem } from '@core/types/scan';
 import { logger } from '@infra/utils/logger';
-import { collectRootNpmLockfileVersions } from '@orchestration/lockfile-inspect';
+import { collectRootNpmLockfileVersions } from '@modules/ecosystem/utils/lockfile-inspect';
 import { readNpmLockfileVersion } from '@modules/ecosystem/utils/lockfile-utils';
 import { runNpmUpdater } from './npm-updater';
 import { resolveNpmDockerImage } from '@infra/provisioner/npm-runner';

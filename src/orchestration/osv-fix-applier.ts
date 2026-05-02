@@ -5,7 +5,7 @@ import semver from 'semver';
 import { OsvDockerRunner } from '@infra/provisioner/osv-runner';
 import { backupFiles } from '@infra/utils/git';
 import { logger } from '@infra/utils/logger';
-import { collectNpmLockfileVersions, collectRootNpmLockfileVersions } from './lockfile-inspect';
+import { collectNpmLockfileVersions, collectRootNpmLockfileVersions } from '@modules/ecosystem/utils/lockfile-inspect';
 
 export interface OsvFixApplyInput {
   cwd: string;

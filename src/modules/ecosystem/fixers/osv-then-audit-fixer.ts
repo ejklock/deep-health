@@ -5,7 +5,7 @@ import type { CommandRunner } from '@core/types/common';
 import type { ScanResultJson } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
 import { logger } from '@infra/utils/logger';
-import { collectNpmLockfileVersions, collectRootNpmLockfileVersions } from '@orchestration/lockfile-inspect';
+import { collectNpmLockfileVersions, collectRootNpmLockfileVersions } from '@modules/ecosystem/utils/lockfile-inspect';
 import { revertWithBootstrap, type BootstrapSpec } from '@modules/ecosystem/utils/updater-transaction';
 import type { FixerCallOptions, FixerCallResult } from './index';
 

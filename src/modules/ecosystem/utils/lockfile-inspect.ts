@@ -181,4 +181,3 @@ export function diffRootNpmLockfileVersions(
 
   return result;
 }
-
