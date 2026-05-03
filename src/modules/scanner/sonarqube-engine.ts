@@ -494,7 +494,7 @@ async function executeSonarScan(
   );
 
   const scanStartMs = Date.now();
-  const scanRun = await runner.runArgs('sonar-scanner', scanArgs, { cwd, timeout: ec.scannerTimeoutMs });
+  const scanRun = await runner.runArgs('sonar-scanner', scanArgs, { cwd, timeout: ec.scannerTimeoutMs, stream: true });
   const scanDurationMs = scanRun.durationMs ?? (Date.now() - scanStartMs);
   const elapsedS = Math.round(scanDurationMs / 1000);
 

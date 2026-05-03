@@ -9,6 +9,7 @@ import { describe, it, expect, vi } from 'vitest';
 const mockPlugin = {
   id: 'npm',
   name: 'NPM',
+  lockfiles: ['package.json', 'package-lock.json'],
   supportedFixers: ['osv'],
   defaultValidationCommands: [],
   defaultAdvisors: [],

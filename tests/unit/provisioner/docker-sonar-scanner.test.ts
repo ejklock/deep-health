@@ -1,7 +1,7 @@
 /**
  * Unit tests for DockerSonarScannerRunner and the sonar-specific resolvePlatform usage.
  *
- * Strategy: mock `node:child_process.execFile` to avoid real Docker calls.
+ * Strategy: mock `execa` to avoid real Docker calls.
  * All tests are pure unit tests — no Docker required.
  *
  * `resolvePlatform` is the shared helper from `@infra/utils/docker-platform`.
@@ -12,18 +12,10 @@ import { DockerSonarScannerRunner } from '@infra/provisioner/docker-sonar-scanne
 import { resolvePlatform } from '@infra/utils/docker-platform';
 import type { EphemeralContainerRunner, ContainerRunResult } from '@infra/provisioner/types';
 
-// ─── Mock execFile ─────────────────────────────────────────────────────────────
+// ─── Mock execa ────────────────────────────────────────────────────────────────
 
-vi.mock('node:child_process', () => ({
-  execFile: vi.fn(
-    (
-      _cmd: string,
-      _args: string[],
-      callback: (err: null | Error, result: { stdout: string; stderr: string }) => void,
-    ) => {
-      callback(null, { stdout: 'INFO: ANALYSIS SUCCESSFUL', stderr: '' });
-    },
-  ),
+vi.mock('execa', () => ({
+  execa: vi.fn().mockResolvedValue({ exitCode: 0, stdout: 'INFO: ANALYSIS SUCCESSFUL', stderr: '' }),
 }));
 
 // Mock node:os to control platform/arch in tests
@@ -36,39 +28,20 @@ vi.mock('node:os', async (importOriginal) => {
   };
 });
 
-import { execFile } from 'node:child_process';
+import { execa } from 'execa';
 import { arch as osArch, platform as osPlatform } from 'node:os';
 
-const mockExecFile = vi.mocked(execFile);
+const mockExeca = vi.mocked(execa);
 const mockArch = vi.mocked(osArch);
 const mockPlatform = vi.mocked(osPlatform);
 
-function resolveExecFile(stdout = '', stderr = '') {
-  mockExecFile.mockImplementation(
-    (
-      _cmd: string,
-      _args: string[],
-      callback: (err: null | Error, result: { stdout: string; stderr: string }) => void,
-    ) => callback(null, { stdout, stderr }),
-  );
+function resolveExeca(stdout = '', stderr = '') {
+  mockExeca.mockResolvedValue({ exitCode: 0, stdout, stderr } as any);
 }
 
-function rejectExecFile(exitCode: number, stdout = '', stderr = '') {
-  // promisify(execFile) rejects with an error that carries code/stdout/stderr
-  mockExecFile.mockImplementation(
-    (
-      _cmd: string,
-      _args: string[],
-      callback: (err: Error | null, result: { stdout: string; stderr: string }) => void,
-    ) => {
-      const err = Object.assign(new Error('sonar-scanner failed'), {
-        code: exitCode,
-        stdout,
-        stderr,
-      });
-      callback(err, { stdout, stderr });
-    },
-  );
+function resolveExecaFailure(exitCode: number, stdout = '', stderr = '') {
+  // execa with reject: false returns a result object with non-zero exitCode instead of throwing
+  mockExeca.mockResolvedValue({ exitCode, stdout, stderr } as any);
 }
 
 // ─── resolvePlatform tests (sonar-scanner-cli call signature) ─────────────────
@@ -117,7 +90,7 @@ describe('resolvePlatform() — sonar-scanner-cli call signature', () => {
 
 describe('DockerSonarScannerRunner', () => {
   beforeEach(() => {
-    resolveExecFile('INFO: ANALYSIS SUCCESSFUL', '');
+    resolveExeca('INFO: ANALYSIS SUCCESSFUL', '');
     // Default arch to x64 (no --platform injection) for most tests
     mockArch.mockReturnValue('x64');
   });
@@ -305,7 +278,7 @@ describe('DockerSonarScannerRunner', () => {
       expect(args).not.toContain('--platform');
     });
 
-    it('adds --add-host host.docker.internal:host-gateway on Linux (lines 128-129)', () => {
+    it('adds --add-host host.docker.internal:host-gateway on Linux', () => {
       mockPlatform.mockReturnValue('linux');
       const runner = new DockerSonarScannerRunner({
         projectDir: '/app',
@@ -336,7 +309,7 @@ describe('DockerSonarScannerRunner', () => {
 
   describe('run()', () => {
     it('returns exitCode 0 and stdout on success', async () => {
-      resolveExecFile('INFO: ANALYSIS SUCCESSFUL', '');
+      resolveExeca('INFO: ANALYSIS SUCCESSFUL', '');
       const runner = new DockerSonarScannerRunner({
         projectDir: '/app',
         sonarHostUrl: 'http://localhost:9000',
@@ -347,15 +320,15 @@ describe('DockerSonarScannerRunner', () => {
       expect(result.stdout).toContain('ANALYSIS SUCCESSFUL');
     });
 
-    it('calls execFile with docker as the command', async () => {
+    it('calls execa with docker as the command', async () => {
       const runner = new DockerSonarScannerRunner({
         projectDir: '/app',
         sonarHostUrl: 'http://localhost:9000',
       });
       await runner.run(['-Dsonar.projectKey=test']);
 
-      expect(mockExecFile).toHaveBeenCalledOnce();
-      const [cmd] = mockExecFile.mock.calls[0]!;
+      expect(mockExeca).toHaveBeenCalledOnce();
+      const [cmd] = mockExeca.mock.calls[0]!;
       expect(cmd).toBe('docker');
     });
 
@@ -366,13 +339,13 @@ describe('DockerSonarScannerRunner', () => {
       });
       await runner.run(['-Dsonar.projectKey=my proj with spaces']);
 
-      const [, dockerArgs] = mockExecFile.mock.calls[0]!;
+      const [, dockerArgs] = mockExeca.mock.calls[0]!;
       // The arg must be a single element in the array, not shell-expanded
       expect(dockerArgs as string[]).toContain('-Dsonar.projectKey=my proj with spaces');
     });
 
     it('returns non-zero exitCode on failure', async () => {
-      rejectExecFile(1, '', 'ANALYSIS FAILED');
+      resolveExecaFailure(1, '', 'ANALYSIS FAILED');
       const runner = new DockerSonarScannerRunner({
         projectDir: '/app',
         sonarHostUrl: 'http://localhost:9000',
@@ -383,8 +356,8 @@ describe('DockerSonarScannerRunner', () => {
       expect(result.stderr).toContain('ANALYSIS FAILED');
     });
 
-    it('returns exitCode 1 when docker is not found', async () => {
-      rejectExecFile(127, '', 'docker: command not found');
+    it('returns exitCode 127 when docker returns non-zero exit', async () => {
+      resolveExecaFailure(127, '', 'docker: command not found');
       const runner = new DockerSonarScannerRunner({
         projectDir: '/app',
         sonarHostUrl: 'http://localhost:9000',
@@ -401,7 +374,7 @@ describe('DockerSonarScannerRunner', () => {
       });
       await runner.run(['-Dsonar.projectKey=test']);
 
-      const [, dockerArgs] = mockExecFile.mock.calls[0]!;
+      const [, dockerArgs] = mockExeca.mock.calls[0]!;
       const hostUrlArg = (dockerArgs as string[]).find((a) => a.startsWith('-Dsonar.host.url='));
       expect(hostUrlArg).toBe('-Dsonar.host.url=http://host.docker.internal:19999');
     });
@@ -413,7 +386,7 @@ describe('DockerSonarScannerRunner', () => {
       });
       await runner.run([]);
 
-      const [, dockerArgs] = mockExecFile.mock.calls[0]!;
+      const [, dockerArgs] = mockExeca.mock.calls[0]!;
       const hasRawLocalhost = (dockerArgs as string[]).some(
         (a) => a.includes('localhost') && a.startsWith('-Dsonar.host.url='),
       );
@@ -428,7 +401,7 @@ describe('DockerSonarScannerRunner', () => {
       });
       await runner.run(['-Dsonar.projectKey=test']);
 
-      const [, dockerArgs] = mockExecFile.mock.calls[0]!;
+      const [, dockerArgs] = mockExeca.mock.calls[0]!;
       const platformIdx = (dockerArgs as string[]).indexOf('--platform');
       expect(platformIdx).toBeGreaterThanOrEqual(0);
       expect((dockerArgs as string[])[platformIdx + 1]).toBe('linux/amd64');
@@ -442,8 +415,25 @@ describe('DockerSonarScannerRunner', () => {
       });
       await runner.run(['-Dsonar.projectKey=test']);
 
-      const [, dockerArgs] = mockExecFile.mock.calls[0]!;
+      const [, dockerArgs] = mockExeca.mock.calls[0]!;
       expect(dockerArgs as string[]).not.toContain('--platform');
+    });
+
+    it('passes stdio options for streaming output', async () => {
+      const runner = new DockerSonarScannerRunner({
+        projectDir: '/app',
+        sonarHostUrl: 'http://localhost:9000',
+      });
+      await runner.run(['-Dsonar.projectKey=test']);
+
+      expect(mockExeca).toHaveBeenCalledWith(
+        'docker',
+        expect.any(Array),
+        expect.objectContaining({
+          stdout: expect.any(Array),
+          stderr: expect.any(Array),
+        }),
+      );
     });
   });
 });
@@ -452,7 +442,7 @@ describe('DockerSonarScannerRunner', () => {
 
 describe('DockerSonarScannerRunner — EphemeralContainerRunner contract', () => {
   beforeEach(() => {
-    resolveExecFile('INFO: ANALYSIS SUCCESSFUL', '');
+    resolveExeca('INFO: ANALYSIS SUCCESSFUL', '');
     mockArch.mockReturnValue('x64');
   });
 
@@ -471,7 +461,7 @@ describe('DockerSonarScannerRunner — EphemeralContainerRunner contract', () =>
   });
 
   it('run() returns a ContainerRunResult with exitCode, stdout, stderr on success', async () => {
-    resolveExecFile('INFO: ANALYSIS SUCCESSFUL', '');
+    resolveExeca('INFO: ANALYSIS SUCCESSFUL', '');
     const runner = new DockerSonarScannerRunner({
       projectDir: '/app',
       sonarHostUrl: 'http://localhost:9000',
@@ -486,7 +476,7 @@ describe('DockerSonarScannerRunner — EphemeralContainerRunner contract', () =>
   });
 
   it('run() returns a ContainerRunResult with non-zero exitCode on failure', async () => {
-    rejectExecFile(1, '', 'ANALYSIS FAILED');
+    resolveExecaFailure(1, '', 'ANALYSIS FAILED');
     const runner = new DockerSonarScannerRunner({
       projectDir: '/app',
       sonarHostUrl: 'http://localhost:9000',
@@ -498,28 +488,22 @@ describe('DockerSonarScannerRunner — EphemeralContainerRunner contract', () =>
   });
 });
 
-describe('DockerSonarScannerRunner.run() — catch branch edge cases (lines 87-89)', () => {
+describe('DockerSonarScannerRunner.run() — catch branch (unexpected execa throw)', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('uses exitCode=1 and String(err) when error has no code/stdout/stderr/message', async () => {
-    mockExecFile.mockImplementation(
-      (_cmd: string, _args: string[], callback: Function) => {
-        callback('string-err');
-      },
-    );
-    const runner = new DockerSonarScannerRunner({ projectDir: '/p', sonarHostUrl: 'http://localhost:9000', projectKey: 'k', token: 't' });
+  it('returns exitCode=1 and error message when execa throws unexpectedly', async () => {
+    mockExeca.mockRejectedValue(new Error('spawn docker ENOENT'));
+    const runner = new DockerSonarScannerRunner({ projectDir: '/p', sonarHostUrl: 'http://localhost:9000' });
     const result = await runner.run([]);
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toBe('string-err');
+    expect(result.stderr).toContain('spawn docker ENOENT');
   });
 
-  it('uses spawnErr.code when numeric (line 87 true branch)', async () => {
-    mockExecFile.mockImplementation(
-      (_cmd: string, _args: string[], callback: Function) => {
-        callback(Object.assign(new Error('exit'), { code: 4, stdout: 'out', stderr: 'err' }));
-      },
+  it('uses exitCode from thrown error when numeric exitCode field present', async () => {
+    mockExeca.mockRejectedValue(
+      Object.assign(new Error('exit'), { exitCode: 4, stdout: 'out', stderr: 'err' }),
     );
-    const runner = new DockerSonarScannerRunner({ projectDir: '/p', sonarHostUrl: 'http://localhost:9000', projectKey: 'k', token: 't' });
+    const runner = new DockerSonarScannerRunner({ projectDir: '/p', sonarHostUrl: 'http://localhost:9000' });
     const result = await runner.run([]);
     expect(result.exitCode).toBe(4);
     expect(result.stdout).toBe('out');

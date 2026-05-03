@@ -19,7 +19,7 @@ export async function detectEcosystems(
   const detected = new Set<string>();
 
   for (const plugin of plugins) {
-    for (const lockfile of plugin.lockfiles) {
+    for (const lockfile of plugin.lockfiles ?? []) {
       try {
         await access(resolve(cwd, lockfile));
         detected.add(plugin.id);

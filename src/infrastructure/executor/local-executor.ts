@@ -77,6 +77,9 @@ export class LocalExecutor implements CommandRunner {
     }
 
     try {
+      const stdio = options.stream
+        ? (['pipe', 'inherit'] as const)
+        : ('pipe' as const);
       const startMs = Date.now();
       const result = await execa(file, args, {
         shell: false,
@@ -84,6 +87,8 @@ export class LocalExecutor implements CommandRunner {
         timeout: options.timeout,
         env: options.env ? { ...process.env, ...options.env } : process.env,
         reject: false,
+        stdout: stdio,
+        stderr: stdio,
       });
       const durationMs = Date.now() - startMs;
 

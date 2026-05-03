@@ -1,5 +1,4 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { execa } from 'execa';
 import { logger } from '../utils/logger';
 import { needsHostGateway, resolvePlatform } from '../utils/docker-platform';
 import type {
@@ -7,8 +6,6 @@ import type {
   EphemeralContainerRunner,
   ContainerRunResult,
 } from './types';
-
-const execFileAsync = promisify(execFile);
 
 // ─── Image default ──────────────────────────────────────────────────────────────
 
@@ -77,14 +74,17 @@ export class DockerSonarScannerRunner implements EphemeralContainerRunner<string
     logger.debug(`DockerSonarScannerRunner: docker ${dockerArgs.join(' ')}`);
 
     try {
-      const { stdout, stderr } = await execFileAsync('docker', dockerArgs);
-      logger.debug('DockerSonarScannerRunner: sonar-scanner container exited 0');
-      return { exitCode: 0, stdout, stderr };
+      const result = await execa('docker', dockerArgs, {
+        reject: false,
+        stdout: ['pipe', 'inherit'],
+        stderr: ['pipe', 'inherit'],
+      });
+      const exitCode = result.exitCode ?? 0;
+      logger.debug(`DockerSonarScannerRunner: sonar-scanner container exited ${exitCode}`);
+      return { exitCode, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
     } catch (err: unknown) {
-      // execFileAsync rejects with an error that has stdout/stderr/code fields
-      // when the child process exits non-zero.
-      const spawnErr = err as { code?: number; stdout?: string; stderr?: string; message?: string };
-      const exitCode = typeof spawnErr.code === 'number' ? spawnErr.code : 1;
+      const spawnErr = err as { exitCode?: number; stdout?: string; stderr?: string; message?: string };
+      const exitCode = typeof spawnErr.exitCode === 'number' ? spawnErr.exitCode : 1;
       const stdout = spawnErr.stdout ?? '';
       const stderr = spawnErr.stderr ?? spawnErr.message ?? String(err);
       logger.debug(`DockerSonarScannerRunner: sonar-scanner container exited ${exitCode}`);
