@@ -7,6 +7,7 @@ import { prompt } from '@infra/utils/prompt';
 import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
 import { defaultRegistry } from '@modules/ecosystem/index';
 import { ConfigLoadError } from '@core/errors';
+import { resolveDefaultLocale } from '@core/locale-detect';
 
 export interface InitCommandOptions {
   projectName?: string;
@@ -297,7 +298,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
 
   // ─── Output / report settings ────────────────────────────────────────────────
 
-  let reportLanguage: 'pt-br' | 'en' = 'pt-br';
+  let reportLanguage: 'pt-br' | 'en' = resolveDefaultLocale();
   let outputsDir: string | undefined;
   let enableMarkdown = true;
 
@@ -305,7 +306,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     reportLanguage = await selectPrompt<'pt-br' | 'en'>('Report language', [
       { name: 'Português (pt-br)', value: 'pt-br' },
       { name: 'English (en)', value: 'en' },
-    ]);
+    ], resolveDefaultLocale());
 
     enableMarkdown = await confirmPrompt('Generate markdown reports?', true);
 

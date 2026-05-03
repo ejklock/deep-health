@@ -20,6 +20,7 @@ const baseOpts: ExecutiveReportOptions = {
   scanBefore: emptyScan,
   scanAfter: emptyScan,
   updates: {},
+  locale: 'pt-br',
 };
 
 const sonarSuccessResult: ScanResultJson = {

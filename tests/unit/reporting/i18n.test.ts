@@ -2,7 +2,7 @@
  * Tests for src/reporting/i18n — getLocale, buildLocale
  * Covers all branches in loader.ts.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { getLocale } from '@reporting/i18n/index';
 import { buildLocale } from '@reporting/i18n/loader';
 import type { RawLocale } from '@reporting/i18n/raw-locale';
@@ -82,7 +82,36 @@ const rawEn: RawLocale = {
 };
 
 describe('getLocale()', () => {
-  it('returns pt-br locale by default', () => {
+  let savedLang: string | undefined;
+  let savedLcAll: string | undefined;
+  let savedLcMessages: string | undefined;
+  let savedLanguage: string | undefined;
+
+  beforeEach(() => {
+    // Pin system locale to pt-BR so the default-parameter test is deterministic
+    savedLang = process.env['LANG'];
+    savedLcAll = process.env['LC_ALL'];
+    savedLcMessages = process.env['LC_MESSAGES'];
+    savedLanguage = process.env['LANGUAGE'];
+    delete process.env['LC_ALL'];
+    delete process.env['LC_MESSAGES'];
+    delete process.env['LANGUAGE'];
+    process.env['LANG'] = 'pt_BR.UTF-8';
+  });
+
+  afterEach(() => {
+    // Restore original env
+    if (savedLang === undefined) delete process.env['LANG'];
+    else process.env['LANG'] = savedLang;
+    if (savedLcAll === undefined) delete process.env['LC_ALL'];
+    else process.env['LC_ALL'] = savedLcAll;
+    if (savedLcMessages === undefined) delete process.env['LC_MESSAGES'];
+    else process.env['LC_MESSAGES'] = savedLcMessages;
+    if (savedLanguage === undefined) delete process.env['LANGUAGE'];
+    else process.env['LANGUAGE'] = savedLanguage;
+  });
+
+  it('returns pt-br locale by default when system locale is pt-br', () => {
     const locale = getLocale();
     expect(locale).toBeDefined();
     expect(locale.months).toHaveLength(12);
