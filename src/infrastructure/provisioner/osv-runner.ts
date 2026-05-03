@@ -1,12 +1,9 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { logger } from '../utils/logger';
 import { needsHostGateway, resolvePlatform } from '../utils/docker-platform';
 import { OSV_DEFAULT_IMAGE, buildOsvDockerRunArgs } from '../utils/osv-commands';
 import { withRetry, isDockerTransientError } from '../utils/retry';
+import { execFileTracked } from '../ecosystem-runtime/child-process-tracker';
 import type { EphemeralContainerRunner, ContainerRunResult } from './types';
-
-const execFileAsync = promisify(execFile);
 
 // ─── OsvDockerRunnerOptions ─────────────────────────────────────────────────────
 
@@ -105,7 +102,7 @@ export class OsvDockerRunner implements EphemeralContainerRunner<string[]> {
       containerResult = await withRetry(
         async (): Promise<ContainerRunResult> => {
           try {
-            const { stdout, stderr } = await execFileAsync('docker', dockerArgs, {
+            const { stdout, stderr } = await execFileTracked('docker', dockerArgs, {
               // OSV JSON output can be large for projects with many dependencies.
               // Default maxBuffer is 1 MB — raise to 256 MB to avoid truncation.
               maxBuffer: 256 * 1024 * 1024,

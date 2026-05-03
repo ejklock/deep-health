@@ -42,9 +42,10 @@ function resolveExecFile(stdout = '{}', stderr = '') {
   mockExecFile.mockImplementation((...args: unknown[]) => {
     const callback = args.findLast((a) => typeof a === 'function') as (
       err: null | Error,
-      result: { stdout: string; stderr: string },
+      stdout: string,
+      stderr: string,
     ) => void;
-    callback(null, { stdout, stderr });
+    callback(null, stdout, stderr);
   });
 }
 
@@ -52,10 +53,11 @@ function rejectExecFile(exitCode: number, stdout = '', stderr = '') {
   mockExecFile.mockImplementation((...args: unknown[]) => {
     const callback = args.findLast((a) => typeof a === 'function') as (
       err: Error | null,
-      result: { stdout: string; stderr: string },
+      stdout: string,
+      stderr: string,
     ) => void;
     const err = Object.assign(new Error('osv-scanner failed'), { code: exitCode, stdout, stderr });
-    callback(err, { stdout, stderr });
+    callback(err, stdout, stderr);
   });
 }
 

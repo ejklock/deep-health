@@ -111,7 +111,7 @@ describe('EphemeralEcosystemContainer.run() — catch branch edge cases (npm mod
       callCount++;
       if (callCount === 1) {
         // First call: _ensureImagePresent docker image inspect → succeed (image cached)
-        cb(null, { stdout: '[]', stderr: '' });
+        cb(null, '[]', '');
       } else {
         cb(Object.assign('string-err', {}));
       }
@@ -129,7 +129,7 @@ describe('EphemeralEcosystemContainer.run() — catch branch edge cases (npm mod
       callCount++;
       if (callCount === 1) {
         // First call: _ensureImagePresent docker image inspect → succeed (image cached)
-        cb(null, { stdout: '[]', stderr: '' });
+        cb(null, '[]', '');
       } else {
         cb(Object.assign(new Error('exit'), { code: 2, stdout: 'out', stderr: 'err' }));
       }

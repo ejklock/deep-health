@@ -128,8 +128,8 @@ describe('EphemeralEcosystemContainer.run() (npm mode)', () => {
 
   it('returns exitCode 0 with stdout/stderr on success', async () => {
     (mockExecFile as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (_file: string, _args: string[], cb: (err: null, result: { stdout: string; stderr: string }) => void) => {
-        cb(null, { stdout: 'ok', stderr: '' });
+      (_file: string, _args: string[], cb: (err: null, stdout: string, stderr: string) => void) => {
+        cb(null, 'ok', '');
       },
     );
     const runner = makeNpmContainer('/project');
@@ -146,7 +146,7 @@ describe('EphemeralEcosystemContainer.run() (npm mode)', () => {
         callCount++;
         if (callCount === 1) {
           // First call is _ensureImagePresent's docker image inspect — succeed so no pull is attempted
-          cb(null, { stdout: '[]', stderr: '' });
+          cb(null, '[]', '');
         } else {
           cb(err);
         }

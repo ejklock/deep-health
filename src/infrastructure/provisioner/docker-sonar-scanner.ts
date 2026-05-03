@@ -1,6 +1,7 @@
 import { execa } from 'execa';
 import { logger } from '../utils/logger';
 import { needsHostGateway, resolvePlatform } from '../utils/docker-platform';
+import { trackKillable } from '../ecosystem-runtime/child-process-tracker';
 import type {
   DockerSonarScannerRunnerOptions,
   EphemeralContainerRunner,
@@ -101,6 +102,7 @@ export class DockerSonarScannerRunner implements EphemeralContainerRunner<string
 
     try {
       const subprocess = execa('docker', dockerArgs, { reject: false });
+      trackKillable(subprocess);
       if (onLine) {
         const cb = onLine;
         forwardLines(subprocess.stdout, cb);

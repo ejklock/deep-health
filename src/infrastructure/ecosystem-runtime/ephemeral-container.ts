@@ -26,6 +26,7 @@ import { needsHostGateway, resolvePlatform } from '../utils/docker-platform';
 import { withRetry, isDockerTransientError } from '../utils/retry';
 import { logger } from '../utils/logger';
 import { spawnStreaming } from '../utils/spawn-streaming';
+import { trackChildProcess, execFileTracked } from './child-process-tracker';
 
 const execFileAsync = promisify(execFile);
 
@@ -120,6 +121,7 @@ export class EphemeralEcosystemContainer implements EphemeralContainerRunner<str
       const stderrChunks: string[] = [];
 
       const child = spawn('docker', dockerArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+      trackChildProcess(child);
 
       child.stdout.on('data', (chunk: Buffer) => {
         const text = chunk.toString();
@@ -176,7 +178,7 @@ export class EphemeralEcosystemContainer implements EphemeralContainerRunner<str
       containerResult = await withRetry(
         async (): Promise<ContainerRunResult> => {
           try {
-            const { stdout, stderr } = await execFileAsync('docker', dockerArgs);
+            const { stdout, stderr } = await execFileTracked('docker', dockerArgs);
             logger.debug(`EphemeralEcosystemContainer[${this.logPrefix}]: container exited 0`);
             return { exitCode: 0, stdout, stderr };
           } catch (err: unknown) {
@@ -229,7 +231,7 @@ export class EphemeralEcosystemContainer implements EphemeralContainerRunner<str
       containerResult = await withRetry(
         async (): Promise<ContainerRunResult> => {
           try {
-            const { stdout, stderr } = await execFileAsync('docker', dockerArgs);
+            const { stdout, stderr } = await execFileTracked('docker', dockerArgs);
             return { exitCode: 0, stdout, stderr };
           } catch (err: unknown) {
             const spawnErr = err as { code?: number; stdout?: string; stderr?: string; message?: string };

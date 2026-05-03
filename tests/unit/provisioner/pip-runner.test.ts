@@ -163,8 +163,8 @@ describe('EphemeralEcosystemContainer.run() (pip mode)', () => {
 
   it('returns exitCode 0 with stdout/stderr on success', async () => {
     (mockExecFilePip as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (_file: string, _args: string[], cb: (err: null, result: { stdout: string; stderr: string }) => void) => {
-        cb(null, { stdout: 'pip output', stderr: '' });
+      (_file: string, _args: string[], cb: (err: null, stdout: string, stderr: string) => void) => {
+        cb(null, 'pip output', '');
       },
     );
     const runner = makePipContainer('/project');
@@ -181,7 +181,7 @@ describe('EphemeralEcosystemContainer.run() (pip mode)', () => {
         callCount++;
         if (callCount === 1) {
           // First call: _ensureImagePresent docker image inspect → succeed (image cached)
-          cb(null, { stdout: '[]', stderr: '' });
+          cb(null, '[]', '');
         } else {
           cb(err);
         }

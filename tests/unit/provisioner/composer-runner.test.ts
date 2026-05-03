@@ -129,8 +129,8 @@ describe('EphemeralEcosystemContainer.run() (composer mode)', () => {
 
   it('returns exitCode 0 with stdout/stderr on success', async () => {
     (mockExecFileComposer as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (_file: string, _args: string[], cb: (err: null, result: { stdout: string; stderr: string }) => void) => {
-        cb(null, { stdout: 'Nothing to install', stderr: '' });
+      (_file: string, _args: string[], cb: (err: null, stdout: string, stderr: string) => void) => {
+        cb(null, 'Nothing to install', '');
       },
     );
     const runner = makeComposerContainer('/project');
@@ -147,7 +147,7 @@ describe('EphemeralEcosystemContainer.run() (composer mode)', () => {
         callCount++;
         if (callCount === 1) {
           // First call: _ensureImagePresent docker image inspect → succeed (image cached)
-          cb(null, { stdout: '[]', stderr: '' });
+          cb(null, '[]', '');
         } else {
           cb(err);
         }
