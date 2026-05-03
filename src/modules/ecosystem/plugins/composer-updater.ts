@@ -113,27 +113,6 @@ export async function runComposerUpdater(
     : [];
   const packageNamesToUpdate = [...new Set([...autoSafePackageNames, ...breakingPackageNames])];
 
-  if (packageNamesToUpdate.length === 0) {
-    return {
-      $schema: 'osv-update-result/v1',
-      agent: 'composer-safe-update',
-      status: 'success',
-      packages_updated: [],
-      packages_skipped: [],
-      packages_pending_breaking: composerEcosystem.breaking_packages,
-      validations: [{ name: 'validation', status: 'skipped', detail: 'No packages to update' }],
-      error: null,
-    };
-  }
-
-  if (runner.dryRun) {
-    logger.tagged('composer', 'DRY-RUN', `Would execute: composer install ${automationArgs.join(' ')} (env-check)`);
-    logger.tagged('composer', 'DRY-RUN', `Would execute: composer update ${packageNamesToUpdate.join(' ')} ${automationArgs.join(' ')}`);
-    for (const vc of validationCommands) {
-      logger.tagged('composer', 'DRY-RUN', `Would execute: ${vc.command}`);
-    }
-  }
-
   const probeArgs = ['install', ...automationArgs];
 
   // Capture the before-lock text here so derivePackagesUpdated can access it.
@@ -152,6 +131,28 @@ export async function runComposerUpdater(
       },
 
       async probe(ctx) {
+        // ── Short-circuit: no packages to update ──
+        if (packageNamesToUpdate.length === 0) {
+          return {
+            $schema: 'osv-update-result/v1' as const,
+            agent: 'composer-safe-update',
+            status: 'success' as const,
+            packages_updated: [],
+            packages_skipped: [],
+            packages_pending_breaking: composerEcosystem.breaking_packages,
+            validations: [{ name: 'validation', status: 'skipped' as const, detail: 'No packages to update' }],
+            error: null,
+          };
+        }
+        // ── Dry-run: log would-execute commands and let lifecycle handle the early return ──
+        if (ctx.runner.dryRun) {
+          logger.tagged('composer', 'DRY-RUN', `Would execute: composer install ${automationArgs.join(' ')} (env-check)`);
+          logger.tagged('composer', 'DRY-RUN', `Would execute: composer update ${packageNamesToUpdate.join(' ')} ${automationArgs.join(' ')}`);
+          for (const vc of validationCommands) {
+            logger.tagged('composer', 'DRY-RUN', `Would execute: ${vc.command}`);
+          }
+          return null;
+        }
         // ── Environment check: verify PHP + composer are functional BEFORE any mutation ──
         const probe = await runEcosystemEnvironmentProbe(ctx.runner, {
           binary: 'composer',

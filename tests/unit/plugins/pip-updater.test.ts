@@ -149,6 +149,16 @@ describe('runPipUpdater — no packages to update', () => {
     expect(result.status).toBe('success');
     expect(result.error).toBeNull();
   });
+
+  // AC6(a): no-packages short-circuit is driven via probe — runArgs never called
+  it('no-packages path: runArgs is never called (probe returns early without opening transaction)', async () => {
+    const runArgsMock = vi.fn();
+    const runner = makeRunner({ runArgs: runArgsMock });
+    const result = await runPipUpdater(runner, baseConfig(), emptyScan(), '/tmp/project');
+    expect(result.status).toBe('success');
+    expect(result.packages_updated).toEqual([]);
+    expect(runArgsMock).not.toHaveBeenCalled();
+  });
 });
 
 // ── (b) Dry-run ───────────────────────────────────────────────────────────────
@@ -186,11 +196,20 @@ describe('runPipUpdater — dry-run paths', () => {
     expect(result.$schema).toBe('osv-update-result/v1');
   });
 
-  it('dry-run packages_updated reflects auto_safe_packages from scan', async () => {
+  it('dry-run packages_updated is empty [] (post-update version not knowable in dry-run)', async () => {
     const runner = makeRunner({ dryRun: true });
     const scan = baseScan(['requests@2.31']);
     const result = await runPipUpdater(runner, baseConfig(), scan, '/tmp/project', false, [{ name: 'check', command: 'pip check' }]);
-    expect(result.packages_updated).toEqual(['requests@2.31']);
+    expect(result.packages_updated).toEqual([]);
+  });
+
+  // AC6(b): dryRun=true with packages — runArgs never called (no pip install -U)
+  it('dry-run with packages: runArgs never called for pip install -U', async () => {
+    const runArgsMock = vi.fn();
+    const runner = makeRunner({ dryRun: true, runArgs: runArgsMock });
+    const result = await runPipUpdater(runner, baseConfig(), baseScan(['requests@2.31']), '/tmp/project');
+    expect(result.status).toBe('success');
+    expect(runArgsMock).not.toHaveBeenCalled();
   });
 });
 

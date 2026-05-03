@@ -121,44 +121,6 @@ export async function runPipUpdater(
     : [];
   const packageNamesToUpdate = [...new Set([...autoSafePackageNames, ...breakingPackageNames])];
 
-  if (packageNamesToUpdate.length === 0) {
-    return {
-      $schema: 'osv-update-result/v1',
-      agent: 'pip-safe-update',
-      status: 'success',
-      packages_updated: [],
-      packages_skipped: [],
-      packages_pending_breaking: pipEcosystem.breaking_packages,
-      validations: [{ name: 'validation', status: 'skipped', detail: 'No packages to update' }],
-      error: null,
-    };
-  }
-
-  if (runner.dryRun) {
-    logger.tagged('pip', 'DRY-RUN', `Would execute: pip install -U ${packageNamesToUpdate.join(' ')}`);
-    for (const vc of validationCommands) {
-      logger.tagged('pip', 'DRY-RUN', `Would execute: ${vc.command}`);
-    }
-    const dryRunEntries =
-      validationCommands.length > 0
-        ? validationCommands.map((vc) => ({
-            name: vc.name,
-            status: 'skipped' as const,
-            detail: 'Dry-run — not executed',
-          }))
-        : [{ name: 'validation', status: 'skipped' as const, detail: 'No validation commands configured — skipped' }];
-    return {
-      $schema: 'osv-update-result/v1',
-      agent: 'pip-safe-update',
-      status: 'success',
-      packages_updated: pipEcosystem.auto_safe_packages,
-      packages_skipped: [],
-      packages_pending_breaking: pipEcosystem.breaking_packages,
-      validations: dryRunEntries,
-      error: null,
-    };
-  }
-
   return runUpdaterLifecycle(
     {
       agentName: 'pip-safe-update',
@@ -168,6 +130,28 @@ export async function runPipUpdater(
         binary: 'pip',
         args: ['install', '-r', 'requirements.txt'],
         label: 'pip install -r requirements.txt (revert)',
+      },
+
+      async probe(ctx) {
+        if (packageNamesToUpdate.length === 0) {
+          return {
+            $schema: 'osv-update-result/v1',
+            agent: 'pip-safe-update',
+            status: 'success',
+            packages_updated: [],
+            packages_skipped: [],
+            packages_pending_breaking: pipEcosystem.breaking_packages,
+            validations: [{ name: 'validation', status: 'skipped', detail: 'No packages to update' }],
+            error: null,
+          };
+        }
+        if (ctx.runner.dryRun) {
+          logger.tagged('pip', 'DRY-RUN', `Would execute: pip install -U ${packageNamesToUpdate.join(' ')}`);
+          for (const vc of validationCommands) {
+            logger.tagged('pip', 'DRY-RUN', `Would execute: ${vc.command}`);
+          }
+        }
+        return null;
       },
 
       async applyFix(ctx) {

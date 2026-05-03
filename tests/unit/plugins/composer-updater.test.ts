@@ -198,6 +198,17 @@ describe('runComposerUpdater — dry-run paths', () => {
 
     expect(result.packages_updated).toEqual([]);
   });
+
+  // AC7(b): dryRun=true with packages — runArgs never called (no composer update executed)
+  it('dry-run with packages: runArgs never called — composer update skipped', async () => {
+    const runArgsMock = vi.fn();
+    const runner = makeRunner({ dryRun: true, runArgs: runArgsMock });
+
+    const result = await runComposerUpdater(runner, baseConfig(), baseScan(), '/tmp/project');
+
+    expect(result.status).toBe('success');
+    expect(runArgsMock).not.toHaveBeenCalled();
+  });
 });
 
 // ── No packages to update ────────────────────────────────────────────────────
@@ -222,6 +233,18 @@ describe('runComposerUpdater — no packages to update', () => {
 
     expect(result.status).toBe('success');
     expect(result.error).toBeNull();
+  });
+
+  // AC7(a): no-packages short-circuit driven via probe — environment probe (runArgs) never called
+  it('no-packages path: runArgs never called — environment probe is skipped entirely', async () => {
+    const runArgsMock = vi.fn();
+    const runner = makeRunner({ runArgs: runArgsMock });
+
+    const result = await runComposerUpdater(runner, baseConfig(), emptyScan(), '/tmp/project');
+
+    expect(result.status).toBe('success');
+    expect(result.packages_updated).toEqual([]);
+    expect(runArgsMock).not.toHaveBeenCalled();
   });
 });
 
