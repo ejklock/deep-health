@@ -9,6 +9,7 @@ import { getPlatformInstallHint } from '@infra/utils/platform';
 import { SONARQUBE_PROJECT_KEY_REGEX } from '@core/types/config';
 import { readSonarProperties, sanitizeAndWriteProperties, type SanitizedPropertiesFile } from './sonar-properties';
 import fs from 'node:fs';
+import { rm } from 'node:fs/promises';
 
 // ─── SonarQube API types (minimal) ─────────────────────────────────────────────
 
@@ -83,6 +84,20 @@ function parseCeTaskId(cwd: string): string | null {
   } catch {
     // File absent or unreadable — not an error; fall back to immediate QG fetch
     return null;
+  }
+}
+
+/**
+ * Remove the .scannerwork/ directory that sonar-scanner creates in the project root.
+ * Best-effort: never throws, never fails the pipeline.
+ */
+export async function cleanupScannerWorkDir(cwd: string): Promise<void> {
+  const scannerWorkPath = `${cwd}/.scannerwork`;
+  try {
+    await rm(scannerWorkPath, { recursive: true, force: true });
+    logger.debug('SonarQube: cleaned up .scannerwork/');
+  } catch (err) {
+    logger.debug(`SonarQube: could not clean up .scannerwork/ — ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -528,16 +543,20 @@ async function executeSonarScan(
     };
   }
 
-  const taskId = parseCeTaskId(cwd);
-  const ceTaskOutcome = await waitForCeTask(ec.hostUrl, taskId, authHeader, ec.ceTimeoutMs);
+  try {
+    const taskId = parseCeTaskId(cwd);
+    const ceTaskOutcome = await waitForCeTask(ec.hostUrl, taskId, authHeader, ec.ceTimeoutMs);
 
-  if (ceTaskOutcome === 'timeout') {
-    logger.warn(
-      `SonarQube: CE task did not complete in time — quality gate results may reflect a previous analysis.`,
-    );
+    if (ceTaskOutcome === 'timeout') {
+      logger.warn(
+        `SonarQube: CE task did not complete in time — quality gate results may reflect a previous analysis.`,
+      );
+    }
+
+    return await collectSonarMetadataAndBuildResult(ec.hostUrl, ec.projectKey, authHeader, base, ceTaskOutcome, scanDurationMs);
+  } finally {
+    await cleanupScannerWorkDir(cwd);
   }
-
-  return collectSonarMetadataAndBuildResult(ec.hostUrl, ec.projectKey, authHeader, base, ceTaskOutcome, scanDurationMs);
 }
 
 /**
@@ -615,16 +634,20 @@ async function executeSonarScanViaContainer(
     };
   }
 
-  const taskId = parseCeTaskId(cwd);
-  const ceTaskOutcome = await waitForCeTask(ec.hostUrl, taskId, authHeader, ec.ceTimeoutMs);
+  try {
+    const taskId = parseCeTaskId(cwd);
+    const ceTaskOutcome = await waitForCeTask(ec.hostUrl, taskId, authHeader, ec.ceTimeoutMs);
 
-  if (ceTaskOutcome === 'timeout') {
-    logger.warn(
-      `SonarQube: CE task did not complete in time — quality gate results may reflect a previous analysis.`,
-    );
+    if (ceTaskOutcome === 'timeout') {
+      logger.warn(
+        `SonarQube: CE task did not complete in time — quality gate results may reflect a previous analysis.`,
+      );
+    }
+
+    return await collectSonarMetadataAndBuildResult(ec.hostUrl, ec.projectKey, authHeader, base, ceTaskOutcome, containerDurationMs);
+  } finally {
+    await cleanupScannerWorkDir(cwd);
   }
-
-  return collectSonarMetadataAndBuildResult(ec.hostUrl, ec.projectKey, authHeader, base, ceTaskOutcome, containerDurationMs);
 }
 
 /**
