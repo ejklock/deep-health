@@ -4,6 +4,7 @@ import { DEFAULT_CONFIG_PATH } from '@infra/config/loader';
 import { generateConfigYaml, type GenerateConfigOptions } from '@infra/config/generator';
 import { writeSonarPropertiesTemplateIfMissing } from './sonar-properties-template';
 import { prompt } from '@infra/utils/prompt';
+import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
 import { defaultRegistry } from '@modules/ecosystem/index';
 import { ConfigLoadError } from '@core/errors';
 
@@ -15,12 +16,6 @@ export interface InitCommandOptions {
   force: boolean;
   /** Skip interactive prompts — used in tests and CI. */
   nonInteractive?: boolean;
-}
-
-async function promptBoolean(question: string, defaultYes = false): Promise<boolean> {
-  const hint = defaultYes ? 'Y/n' : 'y/N';
-  const answer = await prompt(`${question} [${hint}]`, defaultYes ? 'y' : 'n');
-  return answer.trim().toLowerCase().startsWith('y');
 }
 
 /**
@@ -72,24 +67,16 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   // ─── Ecosystem selection (registry-driven) ───────────────────────────────────
 
   const allPlugins = defaultRegistry.getAll();
-  const selectedEcosystemIds: string[] = [];
+  let selectedEcosystemIds: string[];
 
   if (opts.nonInteractive) {
     // Non-interactive: pick all registered plugins
-    selectedEcosystemIds.push(...allPlugins.map((p) => p.id));
+    selectedEcosystemIds = allPlugins.map((p) => p.id);
   } else {
-    process.stdout.write('\nAvailable ecosystems:\n');
-    for (const plugin of allPlugins) {
-      process.stdout.write(`  - ${plugin.name} (${plugin.id})\n`);
-    }
-    process.stdout.write('\n');
-
-    for (const plugin of allPlugins) {
-      const include = await promptBoolean(`Include ${plugin.name} (${plugin.id})?`, true);
-      if (include) {
-        selectedEcosystemIds.push(plugin.id);
-      }
-    }
+    selectedEcosystemIds = await checkboxPrompt(
+      'Select ecosystems to configure',
+      allPlugins.map((p) => ({ name: `${p.name} (${p.id})`, value: p.id, checked: true })),
+    );
   }
 
   // ─── Per-ecosystem config ────────────────────────────────────────────────────
@@ -123,14 +110,10 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
 
     let fixerStrategy: string | undefined;
     if (plugin.supportedFixers.length > 0 && !opts.nonInteractive) {
-      const defaultFixer = plugin.supportedFixers[0]!;
-      const fixerAnswer = await prompt(
-        `  [${plugin.name}] Fixer strategy (${plugin.supportedFixers.join('/')})`,
-        defaultFixer,
+      fixerStrategy = await selectPrompt(
+        `  [${plugin.name}] Fixer strategy`,
+        plugin.supportedFixers.map((f) => ({ name: f, value: f })),
       );
-      fixerStrategy = plugin.supportedFixers.includes(fixerAnswer as typeof plugin.supportedFixers[0])
-        ? fixerAnswer
-        : defaultFixer;
     } else if (plugin.supportedFixers.length > 0) {
       fixerStrategy = plugin.supportedFixers[0];
     }
@@ -139,12 +122,18 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     const validationCommands: Array<{ name: string; command: string }> = [];
     if (!opts.nonInteractive) {
       for (const defaultCmd of plugin.defaultValidationCommands) {
-        const cmdAnswer = await prompt(
-          `  [${plugin.name}] Validation command "${defaultCmd.name}" (blank to skip)`,
-          defaultCmd.command,
+        const include = await confirmPrompt(
+          `  [${plugin.name}] Include "${defaultCmd.name}" validation command?`,
+          true,
         );
-        if (cmdAnswer.trim()) {
-          validationCommands.push({ name: defaultCmd.name, command: cmdAnswer.trim() });
+        if (include) {
+          const cmdAnswer = await prompt(
+            `  [${plugin.name}] Validation command "${defaultCmd.name}"`,
+            defaultCmd.command,
+          );
+          if (cmdAnswer.trim()) {
+            validationCommands.push({ name: defaultCmd.name, command: cmdAnswer.trim() });
+          }
         }
       }
     } else {
@@ -155,12 +144,18 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     const advisors: Array<{ name: string; command: string }> = [];
     if (!opts.nonInteractive) {
       for (const defaultAdvisor of plugin.defaultAdvisors) {
-        const advisorAnswer = await prompt(
-          `  [${plugin.name}] Advisor "${defaultAdvisor.name}" command (blank to skip)`,
-          defaultAdvisor.command,
+        const include = await confirmPrompt(
+          `  [${plugin.name}] Include "${defaultAdvisor.name}" advisor?`,
+          true,
         );
-        if (advisorAnswer.trim()) {
-          advisors.push({ name: defaultAdvisor.name, command: advisorAnswer.trim() });
+        if (include) {
+          const advisorAnswer = await prompt(
+            `  [${plugin.name}] Advisor "${defaultAdvisor.name}" command`,
+            defaultAdvisor.command,
+          );
+          if (advisorAnswer.trim()) {
+            advisors.push({ name: defaultAdvisor.name, command: advisorAnswer.trim() });
+          }
         }
       }
     } else {
@@ -189,11 +184,13 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
 
       // image_source prompts for npm scanner
       if (!opts.nonInteractive) {
-        const imgSrcAnswer = await prompt(
-          `  [${plugin.name}] Image source (pull/dockerfile)`,
-          'pull',
+        npmImageSource = await selectPrompt(
+          `  [${plugin.name}] Image source`,
+          [
+            { name: 'pull (default)', value: 'pull' as const },
+            { name: 'dockerfile (custom build)', value: 'dockerfile' as const },
+          ],
         );
-        npmImageSource = imgSrcAnswer.trim() === 'dockerfile' ? 'dockerfile' : 'pull';
         if (npmImageSource === 'dockerfile') {
           const dfPath = await prompt(`  [${plugin.name}] Dockerfile path`, './Dockerfile');
           npmDockerfilePath = dfPath.trim() || './Dockerfile';
@@ -225,11 +222,13 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
 
       // image_source prompts for composer scanner
       if (!opts.nonInteractive) {
-        const imgSrcAnswer = await prompt(
-          `  [${plugin.name}] Image source (pull/dockerfile)`,
-          'pull',
+        composerImageSource = await selectPrompt(
+          `  [${plugin.name}] Image source`,
+          [
+            { name: 'pull (default)', value: 'pull' as const },
+            { name: 'dockerfile (custom build)', value: 'dockerfile' as const },
+          ],
         );
-        composerImageSource = imgSrcAnswer.trim() === 'dockerfile' ? 'dockerfile' : 'pull';
         if (composerImageSource === 'dockerfile') {
           const dfPath = await prompt(`  [${plugin.name}] Dockerfile path`, './Dockerfile');
           composerDockerfilePath = dfPath.trim() || './Dockerfile';
@@ -261,11 +260,13 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
 
       // image_source prompts for pip scanner
       if (!opts.nonInteractive) {
-        const imgSrcAnswer = await prompt(
-          `  [${plugin.name}] Image source (pull/dockerfile)`,
-          'pull',
+        pipImageSource = await selectPrompt(
+          `  [${plugin.name}] Image source`,
+          [
+            { name: 'pull (default)', value: 'pull' as const },
+            { name: 'dockerfile (custom build)', value: 'dockerfile' as const },
+          ],
         );
-        pipImageSource = imgSrcAnswer.trim() === 'dockerfile' ? 'dockerfile' : 'pull';
         if (pipImageSource === 'dockerfile') {
           const dfPath = await prompt(`  [${plugin.name}] Dockerfile path`, './Dockerfile');
           pipDockerfilePath = dfPath.trim() || './Dockerfile';
@@ -291,7 +292,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
 
   let enableSonarQube = false;
   if (!opts.nonInteractive) {
-    enableSonarQube = await promptBoolean('Enable SonarQube scanner?', false);
+    enableSonarQube = await confirmPrompt('Enable SonarQube scanner?', false);
   }
 
   // ─── Output / report settings ────────────────────────────────────────────────
@@ -301,10 +302,12 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   let enableMarkdown = true;
 
   if (!opts.nonInteractive) {
-    const langAnswer = await prompt('Report language (pt-br/en)', 'pt-br');
-    reportLanguage = langAnswer === 'en' ? 'en' : 'pt-br';
+    reportLanguage = await selectPrompt<'pt-br' | 'en'>('Report language', [
+      { name: 'Português (pt-br)', value: 'pt-br' },
+      { name: 'English (en)', value: 'en' },
+    ]);
 
-    enableMarkdown = await promptBoolean('Generate markdown reports?', true);
+    enableMarkdown = await confirmPrompt('Generate markdown reports?', true);
 
     if (enableMarkdown) {
       const dirAnswer = await prompt('Reports output directory', '.deep-health/reports');

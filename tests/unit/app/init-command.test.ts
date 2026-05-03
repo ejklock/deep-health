@@ -16,14 +16,24 @@ vi.mock('@infra/utils/prompt', () => ({
   prompt: vi.fn(),
 }));
 
+vi.mock('@infra/utils/inquirer-prompts', () => ({
+  confirmPrompt: vi.fn(),
+  selectPrompt: vi.fn(),
+  checkboxPrompt: vi.fn(),
+}));
+
 import { writeFile, mkdir, access } from 'node:fs/promises';
 import { generateConfigYaml } from '@infra/config/generator';
 import { prompt } from '@infra/utils/prompt';
+import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
 import { runInitCommand } from '@app/commands/init';
 import { ConfigLoadError } from '@core/errors';
 
 const mockPrompt = vi.mocked(prompt);
 const mockAccess = vi.mocked(access);
+const mockConfirm = vi.mocked(confirmPrompt);
+const mockSelect = vi.mocked(selectPrompt);
+const mockCheckbox = vi.mocked(checkboxPrompt);
 
 // ─── Non-interactive mode ─────────────────────────────────────────────────────
 
@@ -147,25 +157,19 @@ describe('runInitCommand — interactive version prompts', () => {
       throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
     });
 
-    // Sequence of prompts: projectName, client,
-    // include npm?, include composer?,
-    // [npm] fixer, [npm] validation cmd, [npm] advisor, [npm] version,
-    // [composer] validation cmd, [composer] advisor, [composer] version,
-    // enable sonarqube?, report language, enable markdown?, output dir
-    mockPrompt.mockImplementation(async (question: string, defaultValue?: string) => {
-      // Version prompt for npm — user accepts the inferred default
-      if (question.includes('Language version') && question.includes('npm')) {
-        return defaultValue ?? ''; // accept inferred default "20"
-      }
-      // Version prompt for composer — user accepts blank default (no inferred)
-      if (question.includes('Language version') && question.includes('Composer')) {
-        return defaultValue ?? ''; // blank → omit
-      }
-      // Boolean-style prompts (promptBoolean uses prompt internally)
-      if (question.includes('Include npm') || question.includes('Include Composer')) {
-        return 'y';
-      }
-      // All other prompts: accept default
+    // checkboxPrompt: select all ecosystems
+    mockCheckbox.mockResolvedValue(['npm', 'composer']);
+    // selectPrompt: first choice for fixer/image-source; pt-br for language
+    mockSelect.mockImplementation(async (_msg: string, choices: any[]) => choices[0].value);
+    // confirmPrompt: skip validation/advisors; no sonarqube; yes markdown
+    mockConfirm.mockImplementation(async (msg: string) => {
+      if (msg.includes('SonarQube')) return false;
+      if (msg.includes('Generate markdown')) return true;
+      return false; // skip validation commands and advisors
+    });
+
+    // prompt: accept defaults for version and free-text
+    mockPrompt.mockImplementation(async (_question: string, defaultValue?: string) => {
       return defaultValue ?? '';
     });
 
@@ -211,11 +215,14 @@ describe('runInitCommand — interactive version prompts', () => {
       throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
     });
 
-    mockPrompt.mockImplementation(async (question: string, defaultValue?: string) => {
-      // User explicitly blanks out the version
+    mockCheckbox.mockResolvedValue(['npm', 'composer']);
+    mockSelect.mockImplementation(async (_msg: string, choices: any[]) => choices[0].value);
+    mockConfirm.mockResolvedValue(false);
+
+    // User explicitly blanks out the version
+    mockPrompt.mockImplementation(async (question: string, _defaultValue?: string) => {
       if (question.includes('Language version')) return '';
-      if (question.includes('Include npm') || question.includes('Include Composer')) return 'y';
-      return defaultValue ?? '';
+      return _defaultValue ?? '';
     });
 
     await runInitCommand({
@@ -251,13 +258,15 @@ describe('runInitCommand — interactive version prompts', () => {
 
     const versionPromptQuestions: string[] = [];
 
+    // Only npm selected — composer excluded
+    mockCheckbox.mockResolvedValue(['npm']);
+    mockSelect.mockImplementation(async (_msg: string, choices: any[]) => choices[0].value);
+    mockConfirm.mockResolvedValue(false);
+
     mockPrompt.mockImplementation(async (question: string, defaultValue?: string) => {
       if (question.includes('Language version')) {
         versionPromptQuestions.push(question);
       }
-      // Only select npm; decline composer
-      if (question.includes('Include npm')) return 'y';
-      if (question.includes('Include Composer')) return 'n';
       return defaultValue ?? '';
     });
 
@@ -291,43 +300,34 @@ describe('runInitCommand — interactive dockerfile image_source prompts', () =>
   });
 
   it('wires image_source -> dockerfile_path -> build_context -> build_args for npm/pip/composer', async () => {
+    // All ecosystems selected
+    mockCheckbox.mockResolvedValue(['npm', 'composer', 'pip']);
+    // selectPrompt: return 'dockerfile' for image source; first choice for fixer; pt-br for language
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('Image source')) return 'dockerfile';
+      return choices[0].value;
+    });
+    // confirmPrompt: skip validation/advisors/sonarqube; no markdown
+    mockConfirm.mockResolvedValue(false);
+
     mockPrompt.mockImplementation(async (question: string, defaultValue?: string) => {
-      // Include all ecosystems
-      if (question.includes('Include npm')) return 'y';
-      if (question.includes('Include Composer')) return 'y';
-      if (question.includes('Include pip')) return 'y';
-
-      // Keep fixer/runtime prompts simple
-      if (question.includes('Fixer strategy')) return defaultValue ?? '';
-      if (question.includes('Language version')) return '';
-      if (question.includes('PHP framework profile')) return 'none';
-
-      // Skip validation/advisors to reduce noise
-      if (question.includes('Validation command')) return '';
-      if (question.includes('Advisor')) return '';
+      // Skip version prompts
+      if (question.includes('Language version') || question.includes('PHP language version') || question.includes('Python language version')) return '';
 
       // npm dockerfile flow
-      if (question.includes('[npm] Image source')) return 'dockerfile';
       if (question.includes('[npm] Dockerfile path')) return '.docker/node.Dockerfile';
       if (question.includes('[npm] Build context')) return 'docker/';
       if (question.includes('[npm] Build args')) return 'NODE_VERSION=22,APP_ENV=production';
 
       // composer dockerfile flow
-      if (question.includes('[Composer] Image source')) return 'dockerfile';
       if (question.includes('[Composer] Dockerfile path')) return '.docker/php.Dockerfile';
       if (question.includes('[Composer] Build context')) return '.docker/';
       if (question.includes('[Composer] Build args')) return 'PHP_VERSION=8.2,APP_ENV=production';
 
       // pip dockerfile flow
-      if (question.includes('[pip] Image source')) return 'dockerfile';
       if (question.includes('[pip] Dockerfile path')) return '.docker/pip.Dockerfile';
       if (question.includes('[pip] Build context')) return 'python/';
       if (question.includes('[pip] Build args')) return 'PYTHON_VERSION=3.11,PIP_INDEX_URL=https://pypi.org/simple';
-
-      // Scanner/report prompts
-      if (question.includes('SonarQube')) return 'n';
-      if (question.includes('Report language')) return 'en';
-      if (question.includes('markdown')) return 'n';
 
       return defaultValue ?? '';
     });

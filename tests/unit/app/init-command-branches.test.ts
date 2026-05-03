@@ -1,10 +1,8 @@
 /**
  * Branch coverage top-up for src/app/commands/init.ts
- * Targets lines 246-256 and 264-269:
- *   - enableSonarQube=true + writeSonarPropertiesTemplateIfMissing returns 'created'
- *   - enableSonarQube=true + writeSonarPropertiesTemplateIfMissing returns 'exists'
- *
- * These paths are only reachable via interactive mode (non-interactive never sets enableSonarQube).
+ * Updated for the @inquirer/prompts-based interactive API (checkboxPrompt /
+ * selectPrompt / confirmPrompt). All interactive tests mock the
+ * @infra/utils/inquirer-prompts seam; nonInteractive tests remain unchanged.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -23,36 +21,61 @@ vi.mock('@infra/utils/prompt', () => ({
   prompt: vi.fn(),
 }));
 
+vi.mock('@infra/utils/inquirer-prompts', () => ({
+  confirmPrompt: vi.fn(),
+  selectPrompt: vi.fn(),
+  checkboxPrompt: vi.fn(),
+}));
+
 vi.mock('@app/commands/sonar-properties-template', () => ({
   writeSonarPropertiesTemplateIfMissing: vi.fn(),
 }));
 
 import { prompt } from '@infra/utils/prompt';
+import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
+import { generateConfigYaml } from '@infra/config/generator';
 import { runInitCommand } from '@app/commands/init';
 import { writeSonarPropertiesTemplateIfMissing } from '@app/commands/sonar-properties-template';
 
 const mockPrompt = vi.mocked(prompt);
+const mockConfirm = vi.mocked(confirmPrompt);
+const mockSelect = vi.mocked(selectPrompt);
+const mockCheckbox = vi.mocked(checkboxPrompt);
 const mockWriteSonar = vi.mocked(writeSonarPropertiesTemplateIfMissing);
 
-// Default prompt handler — accept all defaults; enable sonarqube = 'y'
-function makePromptHandler(enableSonarQube: string) {
-  return async (question: string, defaultValue?: string) => {
-    if (question.includes('Include npm') || question.includes('Include Composer') || question.includes('Include pip')) {
-      return 'y';
-    }
-    if (question.includes('SonarQube')) return enableSonarQube;
-    if (question.includes('markdown')) return 'y';
-    return defaultValue ?? '';
-  };
+/**
+ * Standard interactive setup helper.
+ * - ecosystems: what checkboxPrompt returns
+ * - sonar: confirmPrompt response when msg includes 'SonarQube'
+ * - markdown: confirmPrompt response when msg includes 'Generate markdown'
+ * All other confirms (validation commands, advisors) return false.
+ */
+function setupInteractiveMocks({
+  sonar = false,
+  markdown = true,
+  ecosystems = ['npm', 'composer', 'pip'],
+}: { sonar?: boolean; markdown?: boolean; ecosystems?: string[] } = {}) {
+  mockCheckbox.mockResolvedValue(ecosystems as ReturnType<typeof mockCheckbox.mock.results[0]['value']> extends Promise<infer U> ? U : never);
+  mockSelect.mockImplementation((_msg: string, choices: Array<{ name: string; value: string }>) =>
+    Promise.resolve(choices[0].value),
+  );
+  mockConfirm.mockImplementation((msg: string) => {
+    if (msg.includes('SonarQube')) return Promise.resolve(sonar);
+    if (msg.includes('Generate markdown')) return Promise.resolve(markdown);
+    return Promise.resolve(false); // decline validation commands, advisors
+  });
+  mockPrompt.mockImplementation((_q: string, def?: string) => Promise.resolve(def ?? ''));
 }
 
-describe('runInitCommand() — sonar properties created path (lines 246-256, 264-269)', () => {
+// ─── Sonar properties path ────────────────────────────────────────────────────
+
+describe('runInitCommand() — sonar properties created path', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('writes sonar-project.properties and prints step 3/4 when created=true (lines 251-252, 264-265)', async () => {
-    mockPrompt.mockImplementation(makePromptHandler('y'));
+  it('writes sonar-project.properties and prints step 3/4 when created=true', async () => {
+    setupInteractiveMocks({ sonar: true, markdown: false });
     mockWriteSonar.mockResolvedValue('created');
 
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
@@ -66,17 +89,15 @@ describe('runInitCommand() — sonar properties created path (lines 246-256, 264
     });
 
     expect(mockWriteSonar).toHaveBeenCalled();
-    // Should print the sonar-project.properties Created message
     const calls = stdoutSpy.mock.calls.map((c) => String(c[0]));
     expect(calls.some((s) => s.includes('sonar-project.properties'))).toBe(true);
-    // Should print step 3/4 for sonar review
     expect(calls.some((s) => s.includes('Review sonar-project.properties') || s.includes('3.'))).toBe(true);
 
     stdoutSpy.mockRestore();
   });
 
-  it('prints "Found existing sonar-project.properties" and step 3 when file exists (lines 254, 270-273)', async () => {
-    mockPrompt.mockImplementation(makePromptHandler('y'));
+  it('prints "Found existing sonar-project.properties" and step 3 when file exists', async () => {
+    setupInteractiveMocks({ sonar: true, markdown: false });
     mockWriteSonar.mockResolvedValue('exists');
 
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
@@ -96,22 +117,23 @@ describe('runInitCommand() — sonar properties created path (lines 246-256, 264
   });
 });
 
+// ─── readFile mock shared by several describe blocks ─────────────────────────
+
 import { readFile } from 'node:fs/promises';
 const mockReadFile = vi.mocked(readFile);
 
-describe('runInitCommand — composer non-interactive with inferred version (lines 163, 181)', () => {
+// ─── Non-interactive: composer with inferred version ──────────────────────────
+
+describe('runInitCommand — composer non-interactive with inferred version', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('uses inferredVersion as composerRuntimeVersion in non-interactive mode (line 163)', async () => {
-    // Make composer's inferVersion return '8.2' by simulating .php-version file
+  it('uses inferredVersion as composerRuntimeVersion in non-interactive mode', async () => {
     mockReadFile.mockImplementation(async (p: unknown) => {
       const path = String(p);
       if (path.endsWith('.php-version')) return '8.2.0' as unknown as Buffer;
       if (path.endsWith('composer.json')) return JSON.stringify({ require: { php: '>=8.2' } }) as unknown as Buffer;
       throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
     });
-
-    const { generateConfigYaml } = await import('@infra/config/generator');
 
     await runInitCommand({
       cwd: '/repo',
@@ -129,29 +151,22 @@ describe('runInitCommand — composer non-interactive with inferred version (lin
   });
 });
 
-describe('runInitCommand — outputs: undefined path (line 234)', () => {
+// ─── outputs: undefined when markdown disabled ────────────────────────────────
+
+describe('runInitCommand — outputs: undefined path', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('passes outputs: undefined when markdown disabled non-interactively', async () => {
-    // In non-interactive mode, outputsDir is always set to default so outputs is never undefined.
-    // Need to verify by checking the call args directly.
+  it('passes outputs: undefined when markdown disabled', async () => {
     mockReadFile.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
 
-    const { generateConfigYaml } = await import('@infra/config/generator');
-
-    // Interactive mode: decline sonarqube AND markdown → outputsDir stays undefined
-    const mockPromptLocal = vi.mocked(prompt);
-    mockPromptLocal.mockImplementation(async (question: string, defaultValue?: string) => {
-      if (question.includes('Include npm')) return 'y';
-      if (question.includes('Include Composer') || question.includes('Include pip')) return 'n';
-      if (question.includes('SonarQube') || question.includes('markdown')) return 'n';
-      return defaultValue ?? '';
-    });
-
-    const { writeSonarPropertiesTemplateIfMissing: wsp } = await import(
-      '@app/commands/sonar-properties-template'
+    mockCheckbox.mockResolvedValue(['npm']);
+    mockSelect.mockImplementation((_m: string, c: Array<{ name: string; value: string }>) =>
+      Promise.resolve(c[0].value),
     );
-    vi.mocked(wsp).mockResolvedValue('created');
+    mockConfirm.mockResolvedValue(false); // declines SonarQube AND 'Generate markdown'
+    mockPrompt.mockImplementation((_q: string, def?: string) => Promise.resolve(def ?? ''));
+
+    mockWriteSonar.mockResolvedValue('created');
 
     await runInitCommand({
       cwd: '/repo',
@@ -167,12 +182,12 @@ describe('runInitCommand — outputs: undefined path (line 234)', () => {
   });
 });
 
-// ─── Coverage gap: lines 34, 54, 101, 141, 163, 181 ─────────────────────────
+// ─── Output default path (non-interactive) ────────────────────────────────────
 
-describe('runInitCommand — output default path (line 34)', () => {
+describe('runInitCommand — output default path', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('uses DEFAULT_CONFIG_PATH when opts.output is not specified (line 34)', async () => {
+  it('uses DEFAULT_CONFIG_PATH when opts.output is not specified', async () => {
     const { writeFile, access } = await import('node:fs/promises');
     vi.mocked(access).mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
     vi.mocked(writeFile).mockResolvedValue(undefined);
@@ -184,29 +199,34 @@ describe('runInitCommand — output default path (line 34)', () => {
       nonInteractive: true,
       projectName: 'P',
       client: 'C',
-      // output intentionally omitted → line 34
+      // output intentionally omitted → DEFAULT_CONFIG_PATH
     });
     stdoutSpy.mockRestore();
     expect(vi.mocked(writeFile)).toHaveBeenCalled();
   });
 });
 
-describe('runInitCommand — client prompt (line 54)', () => {
+// ─── Client prompt ────────────────────────────────────────────────────────────
+
+describe('runInitCommand — client prompt', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('prompts for client name when opts.client is not provided (line 54)', async () => {
+  it('prompts for client name when opts.client is not provided', async () => {
     const { writeFile, access } = await import('node:fs/promises');
     vi.mocked(access).mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
     vi.mocked(writeFile).mockResolvedValue(undefined);
-    const { writeSonarPropertiesTemplateIfMissing: wsp } = await import('@app/commands/sonar-properties-template');
-    vi.mocked(wsp).mockResolvedValue('created');
+    mockWriteSonar.mockResolvedValue('created');
+
+    // Ecosystem/fixer/image source handled by inquirer mocks (no ecosystems selected → loop skipped)
+    mockCheckbox.mockResolvedValue([]);
+    mockSelect.mockImplementation((_m: string, c: Array<{ name: string; value: string }>) =>
+      Promise.resolve(c[0].value),
+    );
+    mockConfirm.mockResolvedValue(false);
 
     const mockPromptLocal = vi.mocked(prompt);
     mockPromptLocal.mockImplementation(async (question: string, defaultValue?: string) => {
-      if (question.includes('Client name')) return 'PromptedClient'; // line 54
-      if (question.includes('Include npm')) return 'n';
-      if (question.includes('Include Composer') || question.includes('Include pip')) return 'n';
-      if (question.includes('SonarQube') || question.includes('markdown')) return 'n';
+      if (question.includes('Client name')) return 'PromptedClient';
       return defaultValue ?? '';
     });
 
@@ -216,36 +236,35 @@ describe('runInitCommand — client prompt (line 54)', () => {
       force: true,
       projectName: 'P',
       output: 'project-config.yml',
-      // client intentionally omitted → triggers line 54
+      // client intentionally omitted → triggers prompt
     });
     stdoutSpy.mockRestore();
 
-    expect(mockPromptLocal).toHaveBeenCalledWith(expect.stringContaining('Client name'), expect.any(String));
+    expect(mockPromptLocal).toHaveBeenCalledWith(
+      expect.stringContaining('Client name'),
+      expect.any(String),
+    );
   });
 });
 
-describe('runInitCommand — interactive fixer answer not in supportedFixers (line 101)', () => {
+// ─── Fixer strategy via selectPrompt (replaces obsolete invalid-fixer test) ───
+
+describe('runInitCommand — fixer strategy via selectPrompt', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('falls back to defaultFixer when prompt answer is not in supportedFixers (line 101)', async () => {
+  it('calls selectPrompt for fixer strategy with plugin.supportedFixers as choices', async () => {
     const { writeFile, access } = await import('node:fs/promises');
     vi.mocked(access).mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
     vi.mocked(writeFile).mockResolvedValue(undefined);
-    const { writeSonarPropertiesTemplateIfMissing: wsp } = await import('@app/commands/sonar-properties-template');
-    vi.mocked(wsp).mockResolvedValue('created');
+    mockWriteSonar.mockResolvedValue('created');
 
-    const mockPromptLocal = vi.mocked(prompt);
-    mockPromptLocal.mockImplementation(async (question: string, defaultValue?: string) => {
-      if (question.includes('Include npm')) return 'y';
-      if (question.includes('Include Composer') || question.includes('Include pip')) return 'n';
-      if (question.includes('Fixer strategy')) return 'invalid-fixer'; // not in supportedFixers → line 101
-      if (question.includes('Validation command')) return '';
-      if (question.includes('Language version')) return '';
-      if (question.includes('SonarQube') || question.includes('markdown')) return 'n';
-      return defaultValue ?? '';
-    });
+    mockCheckbox.mockResolvedValue(['npm']);
+    mockSelect.mockImplementation((_m: string, c: Array<{ name: string; value: string }>) =>
+      Promise.resolve(c[0].value),
+    );
+    mockConfirm.mockResolvedValue(false);
+    mockPrompt.mockImplementation((_q: string, def?: string) => Promise.resolve(def ?? ''));
 
-    const { generateConfigYaml } = await import('@infra/config/generator');
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     await runInitCommand({
       cwd: '/repo',
@@ -256,19 +275,31 @@ describe('runInitCommand — interactive fixer answer not in supportedFixers (li
     });
     stdoutSpy.mockRestore();
 
+    // selectPrompt must have been called with a message containing 'Fixer strategy'
+    const fixerCall = mockSelect.mock.calls.find(([msg]) =>
+      typeof msg === 'string' && msg.includes('Fixer strategy'),
+    );
+    expect(fixerCall).toBeDefined();
+
+    // Choices must include npm's supported fixers: ['osv', 'npm-audit', 'osv-then-audit']
+    const choices = fixerCall![1] as Array<{ name: string; value: string }>;
+    expect(choices.map((c) => c.value)).toEqual(
+      expect.arrayContaining(['osv', 'npm-audit', 'osv-then-audit']),
+    );
     expect(vi.mocked(generateConfigYaml)).toHaveBeenCalled();
   });
 });
 
-describe('runInitCommand — inferVersion absent on plugin (line 141)', () => {
+// ─── Non-interactive: inferVersion absent ─────────────────────────────────────
+
+describe('runInitCommand — inferVersion absent on plugin', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('sets inferredVersion to undefined when plugin has no inferVersion (line 141)', async () => {
+  it('sets inferredVersion to undefined when plugin has no inferVersion', async () => {
     const { writeFile, access } = await import('node:fs/promises');
     vi.mocked(access).mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
     vi.mocked(writeFile).mockResolvedValue(undefined);
-    const { writeSonarPropertiesTemplateIfMissing: wsp } = await import('@app/commands/sonar-properties-template');
-    vi.mocked(wsp).mockResolvedValue('created');
+    mockWriteSonar.mockResolvedValue('created');
 
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     await runInitCommand({
@@ -286,34 +317,37 @@ describe('runInitCommand — inferVersion absent on plugin (line 141)', () => {
   });
 });
 
-describe('runInitCommand — composer interactive with inferred version (lines 163, 181)', () => {
+// ─── Interactive: composer inferred version ───────────────────────────────────
+
+describe('runInitCommand — composer interactive with inferred version', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('shows inferred PHP version in prompt and does NOT ask for framework profile (removed field)', async () => {
     const { writeFile, access } = await import('node:fs/promises');
     vi.mocked(access).mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
     vi.mocked(writeFile).mockResolvedValue(undefined);
-    const { writeSonarPropertiesTemplateIfMissing: wsp } = await import('@app/commands/sonar-properties-template');
-    vi.mocked(wsp).mockResolvedValue('created');
+    mockWriteSonar.mockResolvedValue('created');
 
-    const { readFile } = await import('node:fs/promises');
-    vi.mocked(readFile).mockImplementation(async (p: unknown) => {
+    const { readFile: rf } = await import('node:fs/promises');
+    vi.mocked(rf).mockImplementation(async (p: unknown) => {
       const path = String(p);
       if (path.endsWith('.php-version')) return '8.2.0' as unknown as Buffer;
       if (path.endsWith('composer.json')) return JSON.stringify({ require: { php: '>=8.2' } }) as unknown as Buffer;
       throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
     });
 
+    // Only composer selected — no npm/pip loop overhead
+    mockCheckbox.mockResolvedValue(['composer']);
+    mockSelect.mockImplementation((_m: string, c: Array<{ name: string; value: string }>) =>
+      Promise.resolve(c[0].value),
+    );
+    mockConfirm.mockResolvedValue(false); // skip validation/advisors/sonar/markdown
+
     const mockPromptLocal = vi.mocked(prompt);
     const promptQuestions: string[] = [];
     mockPromptLocal.mockImplementation(async (question: string, defaultValue?: string) => {
       promptQuestions.push(question);
-      if (question.includes('Include Composer')) return 'y';
-      if (question.includes('Include npm') || question.includes('Include pip')) return 'n';
-      if (question.includes('Fixer strategy')) return defaultValue ?? '';
-      if (question.includes('Validation command')) return '';
       if (question.includes('PHP language version')) return '8.2.0';
-      if (question.includes('SonarQube') || question.includes('markdown')) return 'n';
       return defaultValue ?? '';
     });
 
@@ -336,19 +370,26 @@ describe('runInitCommand — composer interactive with inferred version (lines 1
   });
 });
 
-describe('runInitCommand() — branch coverage top-up (lines 53, 207, 213)', () => {
+// ─── Branch coverage top-up ───────────────────────────────────────────────────
+
+describe('runInitCommand() — branch coverage top-up', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockWriteSonar.mockResolvedValue('created');
   });
 
-  it('calls prompt for projectName and client when not provided in opts (line 53 right branches)', async () => {
+  it('calls prompt for projectName and client when not provided in opts', async () => {
     const promptted: string[] = [];
+
+    // No ecosystems selected — skips per-ecosystem loop entirely
+    mockCheckbox.mockResolvedValue([]);
+    mockSelect.mockImplementation((_m: string, c: Array<{ name: string; value: string }>) =>
+      Promise.resolve(c[0].value),
+    );
+    mockConfirm.mockResolvedValue(false);
+
     mockPrompt.mockImplementation(async (question: string, defaultValue?: string) => {
       promptted.push(question);
-      if (question.includes('ecosystem') || question.includes('Include')) return 'n';
-      if (question.includes('SonarQube')) return 'n';
-      if (question.includes('markdown')) return 'n';
       return defaultValue ?? 'auto-answer';
     });
 
@@ -367,14 +408,15 @@ describe('runInitCommand() — branch coverage top-up (lines 53, 207, 213)', () 
     expect(promptted.some((q) => q.includes('Client name'))).toBe(true);
   });
 
-  it('selects "en" language when prompt returns "en" (line 207 true branch)', async () => {
-    mockPrompt.mockImplementation(async (question: string, defaultValue?: string) => {
-      if (question.includes('Report language')) return 'en';
-      if (question.includes('ecosystem') || question.includes('Include')) return 'n';
-      if (question.includes('SonarQube')) return 'n';
-      if (question.includes('markdown')) return 'n';
-      return defaultValue ?? '';
+  it('selectPrompt called with en choice; generateConfigYaml called with reportLanguage: en', async () => {
+    setupInteractiveMocks();
+    mockCheckbox.mockResolvedValue([]);
+    mockSelect.mockImplementation(async (msg: string, choices: Array<{ name: string; value: string }>) => {
+      if (msg === 'Report language') return 'en';
+      return choices[0].value;
     });
+    mockConfirm.mockResolvedValue(false);
+    mockPrompt.mockImplementation((_q: string, def?: string) => Promise.resolve(def ?? ''));
 
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
@@ -387,16 +429,23 @@ describe('runInitCommand() — branch coverage top-up (lines 53, 207, 213)', () 
     });
 
     stdoutSpy.mockRestore();
-    // If no error thrown, 'en' branch was reached
+
+    expect(vi.mocked(generateConfigYaml)).toHaveBeenCalledWith(
+      expect.objectContaining({ reportLanguage: 'en' }),
+    );
   });
 
   it('uses default reports dir when dirAnswer is empty string (line 213 || branch)', async () => {
+    mockCheckbox.mockResolvedValue([]);
+    mockSelect.mockImplementation((_m: string, c: Array<{ name: string; value: string }>) =>
+      Promise.resolve(c[0].value),
+    );
+    mockConfirm.mockImplementation((msg: string) => {
+      if (msg.includes('Generate markdown')) return Promise.resolve(true);
+      return Promise.resolve(false); // decline SonarQube and others
+    });
     mockPrompt.mockImplementation(async (question: string, defaultValue?: string) => {
-      if (question.includes('Report language')) return 'pt-br';
-      if (question.includes('markdown')) return 'y';
-      if (question.includes('output directory')) return '   '; // whitespace → trim → empty
-      if (question.includes('ecosystem') || question.includes('Include')) return 'n';
-      if (question.includes('SonarQube')) return 'n';
+      if (question.includes('output directory')) return '   '; // whitespace → trim → empty → fallback
       return defaultValue ?? '';
     });
 
