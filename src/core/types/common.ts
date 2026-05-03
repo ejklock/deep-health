@@ -17,7 +17,18 @@ export interface CommandRunnerOptions {
   cwd?: string;
   timeout?: number;
   env?: Record<string, string>;
+  /**
+   * When true, stream stdout to the terminal via inherit.
+   * Used by ecosystem runners that want live output.
+   */
   stream?: boolean;
+  /**
+   * Called with each output line (stdout and stderr) as it arrives in real time.
+   * When provided, the executor pipes stdout/stderr and forwards each line to this
+   * callback so callers can route output through a logger (e.g. Listr2 task output).
+   * Takes precedence over `stream` for the sonar-scanner path.
+   */
+  onLine?: (line: string) => void;
 }
 
 export interface CommandRunner {

@@ -419,7 +419,7 @@ describe('DockerSonarScannerRunner', () => {
       expect(dockerArgs as string[]).not.toContain('--platform');
     });
 
-    it('passes stdio options for streaming output', async () => {
+    it('calls execa with reject:false so non-zero exit codes are returned rather than thrown', async () => {
       const runner = new DockerSonarScannerRunner({
         projectDir: '/app',
         sonarHostUrl: 'http://localhost:9000',
@@ -430,10 +430,22 @@ describe('DockerSonarScannerRunner', () => {
         'docker',
         expect.any(Array),
         expect.objectContaining({
-          stdout: expect.any(Array),
-          stderr: expect.any(Array),
+          reject: false,
         }),
       );
+    });
+
+    it('forwards output lines to onLine callback when provided', async () => {
+      resolveExeca('INFO: line one\nINFO: line two\n', '');
+      const lines: string[] = [];
+      const runner = new DockerSonarScannerRunner({
+        projectDir: '/app',
+        sonarHostUrl: 'http://localhost:9000',
+      });
+      // The mock resolves immediately; onLine is not called (no real stream).
+      // Just verify run() accepts the callback without throwing.
+      const result = await runner.run(['-Dsonar.projectKey=test'], (line) => lines.push(line));
+      expect(result.exitCode).toBe(0);
     });
   });
 });

@@ -2,6 +2,27 @@ import { execa } from 'execa';
 import type { CommandRunner, CommandRunnerOptions, CommandResult } from '@core/types/common';
 import { EnvironmentError } from '@core/errors';
 
+/**
+ * Attach a line-by-line listener to a readable stream, calling `cb` for each
+ * non-empty line as data arrives. Used to forward subprocess output in real time
+ * to an onLine callback (e.g. logger.info → Listr2 task.output).
+ */
+function forwardLines(stream: NodeJS.ReadableStream | null, cb: (line: string) => void): void {
+  if (!stream) return;
+  let buffer = '';
+  stream.on('data', (chunk: Buffer) => {
+    buffer += chunk.toString();
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) {
+      if (line.trim()) cb(line);
+    }
+  });
+  stream.on('end', () => {
+    if (buffer.trim()) cb(buffer);
+  });
+}
+
 export class LocalExecutor implements CommandRunner {
   readonly dryRun: boolean;
   readonly environment = 'local' as const;
@@ -22,11 +43,10 @@ export class LocalExecutor implements CommandRunner {
     }
 
     try {
-      const stdio = options.stream
-        ? (['pipe', 'inherit'] as const)
-        : ('pipe' as const);
+      const useInherit = options.stream && !options.onLine;
+      const stdio = useInherit ? (['pipe', 'inherit'] as const) : ('pipe' as const);
       const startMs = Date.now();
-      const result = await execa(command, {
+      const subprocess = execa(command, {
         shell: true,
         cwd: options.cwd,
         timeout: options.timeout,
@@ -35,6 +55,12 @@ export class LocalExecutor implements CommandRunner {
         stdout: stdio,
         stderr: stdio,
       });
+      if (options.onLine) {
+        const cb = options.onLine;
+        forwardLines(subprocess.stdout, cb);
+        forwardLines(subprocess.stderr, cb);
+      }
+      const result = await subprocess;
       const durationMs = Date.now() - startMs;
 
       return {
@@ -77,11 +103,10 @@ export class LocalExecutor implements CommandRunner {
     }
 
     try {
-      const stdio = options.stream
-        ? (['pipe', 'inherit'] as const)
-        : ('pipe' as const);
+      const useInherit = options.stream && !options.onLine;
+      const stdio = useInherit ? (['pipe', 'inherit'] as const) : ('pipe' as const);
       const startMs = Date.now();
-      const result = await execa(file, args, {
+      const subprocess = execa(file, args, {
         shell: false,
         cwd: options.cwd,
         timeout: options.timeout,
@@ -90,6 +115,12 @@ export class LocalExecutor implements CommandRunner {
         stdout: stdio,
         stderr: stdio,
       });
+      if (options.onLine) {
+        const cb = options.onLine;
+        forwardLines(subprocess.stdout, cb);
+        forwardLines(subprocess.stderr, cb);
+      }
+      const result = await subprocess;
       const durationMs = Date.now() - startMs;
 
       return {

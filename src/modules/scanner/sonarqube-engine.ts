@@ -494,7 +494,7 @@ async function executeSonarScan(
   );
 
   const scanStartMs = Date.now();
-  const scanRun = await runner.runArgs('sonar-scanner', scanArgs, { cwd, timeout: ec.scannerTimeoutMs, stream: true });
+  const scanRun = await runner.runArgs('sonar-scanner', scanArgs, { cwd, timeout: ec.scannerTimeoutMs, onLine: (line) => logger.info(line) });
   const scanDurationMs = scanRun.durationMs ?? (Date.now() - scanStartMs);
   const elapsedS = Math.round(scanDurationMs / 1000);
 
@@ -571,7 +571,7 @@ async function executeSonarScanViaContainer(
 
   let scanRun: Awaited<ReturnType<typeof scannerRunner.run>>;
   try {
-    scanRun = await Promise.race([scannerRunner.run(extraArgs), timeoutPromise]);
+    scanRun = await Promise.race([scannerRunner.run(extraArgs, (line) => logger.info(line)), timeoutPromise]);
     clearTimeout(timeoutId);
   } catch (err) {
     clearTimeout(timeoutId);

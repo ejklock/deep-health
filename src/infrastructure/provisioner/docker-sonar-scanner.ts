@@ -7,6 +7,28 @@ import type {
   ContainerRunResult,
 } from './types';
 
+// ─── Helpers ────────────────────────────────────────────────────────────────────
+
+/**
+ * Attach a line-by-line listener to a readable stream, calling `cb` for each
+ * non-empty line as data arrives in real time.
+ */
+function forwardLines(stream: NodeJS.ReadableStream | null, cb: (line: string) => void): void {
+  if (!stream) return;
+  let buffer = '';
+  stream.on('data', (chunk: Buffer) => {
+    buffer += chunk.toString();
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) {
+      if (line.trim()) cb(line);
+    }
+  });
+  stream.on('end', () => {
+    if (buffer.trim()) cb(buffer);
+  });
+}
+
 // ─── Image default ──────────────────────────────────────────────────────────────
 
 const DEFAULT_IMAGE = 'sonarsource/sonar-scanner-cli:latest';
@@ -62,9 +84,11 @@ export class DockerSonarScannerRunner implements EphemeralContainerRunner<string
    *
    * @param extraArgs - Additional `-Dsonar.*` args (e.g. projectKey, token).
    *   Do NOT include `-Dsonar.host.url` — it is injected automatically.
+   * @param onLine - Optional callback invoked for each output line in real time.
+   *   Use this to route container output through a logger (e.g. Listr2 task.output).
    * @returns `ContainerRunResult` with exitCode and combined output.
    */
-  async run(extraArgs: string[]): Promise<ContainerRunResult> {
+  async run(extraArgs: string[], onLine?: (line: string) => void): Promise<ContainerRunResult> {
     // Translate localhost/127.0.0.1 → host.docker.internal so the container
     // can reach the ephemeral SonarQube service on the Docker host.
     const containerHostUrl = this._translateHostUrl(this.sonarHostUrl);
@@ -74,11 +98,13 @@ export class DockerSonarScannerRunner implements EphemeralContainerRunner<string
     logger.debug(`DockerSonarScannerRunner: docker ${dockerArgs.join(' ')}`);
 
     try {
-      const result = await execa('docker', dockerArgs, {
-        reject: false,
-        stdout: ['pipe', 'inherit'],
-        stderr: ['pipe', 'inherit'],
-      });
+      const subprocess = execa('docker', dockerArgs, { reject: false });
+      if (onLine) {
+        const cb = onLine;
+        forwardLines(subprocess.stdout, cb);
+        forwardLines(subprocess.stderr, cb);
+      }
+      const result = await subprocess;
       const exitCode = result.exitCode ?? 0;
       logger.debug(`DockerSonarScannerRunner: sonar-scanner container exited ${exitCode}`);
       return { exitCode, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };

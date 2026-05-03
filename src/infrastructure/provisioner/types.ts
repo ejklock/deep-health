@@ -24,7 +24,7 @@ export interface ContainerRunResult {
  *   Defaults to `string[]` (a flat args array, no shell quoting hazards).
  */
 export interface EphemeralContainerRunner<TArgs = string[]> {
-  run(args: TArgs): Promise<ContainerRunResult>;
+  run(args: TArgs, onLine?: (line: string) => void): Promise<ContainerRunResult>;
   /**
    * Execute an arbitrary shell command inside the container.
    * `command` is passed as a single argv element to `sh -c` — not interpolated.
