@@ -219,7 +219,10 @@ export async function runOrchestrator(
     branch,
   };
 
-  // Run all scanner engines via the Scanner Sweep module; collect results + warnings.
+  // Run scan-phase engines via the Scanner Sweep module; collect results + warnings.
+  // Only engines with phase='scan' (or no phase, which defaults to 'scan') run here.
+  // Post-fix engines (e.g. SonarQube) run after ecosystem fixers complete.
+  //
   // The orchestrator is config-aware (it builds the policy callback), but the sweep
   // module itself is config-agnostic.
   //
@@ -230,7 +233,7 @@ export async function runOrchestrator(
   let warnings: EngineWarning[];
   try {
     const sweep = await executeScannerSweep(
-      engineRegistry.getAll(),
+      engineRegistry.getByPhase('scan'),
       ctx,
       {
         primaryEngineId,
@@ -341,6 +344,39 @@ export async function runOrchestrator(
     if (outcome.status === "error") {
       result.overallStatus = "error";
       break;
+    }
+  }
+
+  // Post-fix sweep: run engines that declared phase='post-fix' (e.g. SonarQube).
+  // These engines analyse the final state of the code after all fixers have run.
+  // Skip when the pipeline has already errored — no point analysing a broken state.
+  const postFixEngines = engineRegistry.getByPhase('post-fix');
+  if (postFixEngines.length > 0 && result.overallStatus !== 'error') {
+    logger.phase('Post-Fix Scan');
+    try {
+      const postFixSweep = await executeScannerSweep(
+        postFixEngines,
+        ctx,
+        {
+          // Post-fix engines are all secondary — use a sentinel primary that won't match any
+          // engine in this sweep; failures are governed by resolveOnFailure only.
+          primaryEngineId: '__post-fix-no-primary__',
+          resolveOnFailure: (id) => resolveOnFailure(id, config),
+        },
+        listr2ScannerSweepRenderer(options.rendererType ?? 'default'),
+      );
+      // Merge post-fix engine entries and warnings into the aggregated result
+      engineEntries.push(...postFixSweep.engineEntries);
+      result.warnings.push(...postFixSweep.warnings);
+      // Re-aggregate so the post-fix engine results appear in result.aggregated.engineResults
+      result.aggregated = aggregateScanResults(engineEntries, result.warnings, primaryEngineId);
+    } catch (err) {
+      if (err instanceof PrimaryEngineFailure) {
+        // No primary in the post-fix sweep — this path is unexpected, but guard defensively
+        result.warnings.push(...err.partialWarnings);
+      } else {
+        throw err;
+      }
     }
   }
 

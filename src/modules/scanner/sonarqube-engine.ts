@@ -693,6 +693,11 @@ export class SonarQubeEngine implements ScannerEngine {
   readonly id = 'sonarqube';
   readonly name = 'SonarQube';
   readonly order = 100;
+  /**
+   * SonarQube runs in the post-fix phase so it analyses the final state of the
+   * code after all ecosystem fixers have completed.
+   */
+  readonly phase = 'post-fix' as const;
 
   /**
    * Verify that sonar-scanner CLI is available.

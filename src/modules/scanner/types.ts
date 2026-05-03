@@ -50,6 +50,19 @@ export interface ScannerEngine {
   readonly order?: number;
 
   /**
+   * Execution phase for this engine.
+   *
+   * - `'scan'` (default): runs in the pre-fix scanner sweep, before ecosystem fixers.
+   *   OSV and most engines belong here.
+   * - `'post-fix'`: runs AFTER all ecosystem fixers complete, so it analyses the
+   *   final state of the code. SonarQube uses this phase so its report reflects
+   *   the post-remediation code rather than the pre-fix state.
+   *
+   * Engines that omit this field are treated as `'scan'` (backward compatible).
+   */
+  readonly phase?: 'scan' | 'post-fix';
+
+  /**
    * Check whether this engine is available in the current environment.
    * Should throw EnvironmentError with install instructions if not available.
    */

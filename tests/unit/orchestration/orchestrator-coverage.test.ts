@@ -66,8 +66,11 @@ import { ScannerEngineRegistry } from '@modules/scanner/registry';
 import { OsvScannerEngine } from '@modules/scanner/osv-engine';
 import { npmPlugin } from '@modules/ecosystem/plugins/npm';
 import { pipPlugin } from '@modules/ecosystem/plugins/pip';
+import * as runEcosystemFixModule from '@orchestration/run-ecosystem-fix';
 import type { CommandRunner, CommandResult, CommandRunnerOptions, ExecutionEnv } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
+import type { ScannerEngine, ScannerEngineContext } from '@modules/scanner/types';
+import type { ScanResultJson } from '@core/types/scan';
 import { logger } from '@infra/utils/logger.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -835,5 +838,168 @@ describe('orchestrator — line 559: String(err) when verify throws non-Error', 
     });
     expect(result).toBeDefined();
     runUpdaterSpy.mockRestore();
+  });
+});
+
+// ── Post-fix phase: SonarQube runs after fixers ───────────────────────────────
+
+describe('orchestrator — post-fix phase: SonarQube runs after ecosystem fixers', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('executes post-fix engines after fixers and merges results into aggregated', async () => {
+    const executionOrder: string[] = [];
+
+    // Mock npm updater — records when it runs
+    const runUpdaterSpy = vi.spyOn(npmPlugin, 'runUpdater').mockImplementation(async () => {
+      executionOrder.push('npm-fixer');
+      return successUpdaterResult;
+    });
+
+    // OSV scan engine (phase: 'scan' by default)
+    const osvScanResult: ScanResultJson = {
+      $schema: 'osv-scan-result/v1',
+      agent: 'osv',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {
+        npm: {
+          vulnerabilities_total: 1, auto_safe: 1, breaking: 0, manual: 0,
+          auto_safe_packages: ['lodash@4.17.21'], breaking_packages: [], manual_packages: [],
+          vulnerabilities: [{
+            ecosystem: 'npm', package: 'lodash', currentVersion: '4.17.15', safeVersion: '4.17.21',
+            cvss: '7.5', ghsaId: 'GHSA-test', risk: 'high', classification: 'auto_safe', reason: 'patch',
+          }],
+        },
+      },
+      error: null,
+    };
+    const osvEngine = new OsvScannerEngine();
+    vi.spyOn(osvEngine, 'scan').mockResolvedValue(osvScanResult);
+
+    // Mock post-fix engine (phase: 'post-fix') — records when it runs
+    const postFixScanResult: ScanResultJson = {
+      $schema: 'osv-scan-result/v1',
+      agent: 'sonarqube-mock',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {},
+      error: null,
+    };
+    const postFixEngine: ScannerEngine = {
+      id: 'sonarqube-mock',
+      name: 'SonarQube Mock',
+      order: 100,
+      phase: 'post-fix',
+      assertAvailable: vi.fn().mockResolvedValue(undefined),
+      scan: vi.fn().mockImplementation(async (_ctx: ScannerEngineContext) => {
+        executionOrder.push('sonarqube-mock');
+        return postFixScanResult;
+      }),
+    };
+
+    const reg = new ScannerEngineRegistry();
+    reg.register(osvEngine);
+    reg.register(postFixEngine);
+
+    const config = baseNpmConfig({
+      ecosystems: [{ id: 'npm', validationCommands: [], advisors: [] }],
+      scanners: { 'sonarqube-mock': { on_failure: 'warn' } },
+    });
+
+    const result = await runOrchestrator(new MockCommandRunner(), config, {
+      configPath: 'config.yml',
+      cwd: '/project',
+      dryRun: false,
+      verbose: false,
+      scannerRegistry: reg,
+    });
+
+    // npm-fixer must appear before sonarqube-mock in execution order
+    const fixerIdx = executionOrder.indexOf('npm-fixer');
+    const sonarIdx = executionOrder.indexOf('sonarqube-mock');
+    expect(fixerIdx).toBeGreaterThanOrEqual(0);
+    expect(sonarIdx).toBeGreaterThanOrEqual(0);
+    expect(fixerIdx).toBeLessThan(sonarIdx);
+
+    // Post-fix engine result must be present in the aggregated engineResults
+    expect(result.aggregated?.engineResults['sonarqube-mock']).toBeDefined();
+
+    runUpdaterSpy.mockRestore();
+  });
+
+  it('skips post-fix sweep when pipeline has errored', async () => {
+    // OSV scan engine
+    const osvEngine = new OsvScannerEngine();
+    vi.spyOn(osvEngine, 'scan').mockResolvedValue({
+      $schema: 'osv-scan-result/v1',
+      agent: 'osv',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {
+        npm: {
+          vulnerabilities_total: 1, auto_safe: 1, breaking: 0, manual: 0,
+          auto_safe_packages: ['lodash@4.17.21'], breaking_packages: [], manual_packages: [],
+          vulnerabilities: [{
+            ecosystem: 'npm', package: 'lodash', currentVersion: '4.17.15', safeVersion: '4.17.21',
+            cvss: '7.5', ghsaId: 'GHSA-test', risk: 'high', classification: 'auto_safe', reason: 'patch',
+          }],
+        },
+      },
+      error: null,
+    });
+
+    const postFixScanSpy = vi.fn().mockResolvedValue({
+      $schema: 'osv-scan-result/v1',
+      agent: 'sonarqube-mock',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {},
+      error: null,
+    });
+    const postFixEngine: ScannerEngine = {
+      id: 'sonarqube-mock',
+      name: 'SonarQube Mock',
+      order: 100,
+      phase: 'post-fix',
+      assertAvailable: vi.fn().mockResolvedValue(undefined),
+      scan: postFixScanSpy,
+    };
+
+    // Directly mock runEcosystemFix to return status: 'error' without triggering Gate validation
+    const runEcosystemFixSpy = vi.spyOn(runEcosystemFixModule, 'runEcosystemFix').mockResolvedValue({
+      status: 'error',
+      updateResult: {
+        $schema: 'osv-update-result/v1',
+        agent: 'deep-health/test',
+        status: 'error',
+        packages_updated: [],
+        packages_skipped: [],
+        packages_pending_breaking: [],
+        validations: [],
+        error: 'fixer crashed',
+      },
+    });
+
+    const reg = new ScannerEngineRegistry();
+    reg.register(osvEngine);
+    reg.register(postFixEngine);
+
+    const config = baseNpmConfig({
+      ecosystems: [{ id: 'npm', validationCommands: [], advisors: [] }],
+    });
+
+    const result = await runOrchestrator(new MockCommandRunner(), config, {
+      configPath: 'config.yml',
+      cwd: '/project',
+      dryRun: false,
+      verbose: false,
+      scannerRegistry: reg,
+    });
+
+    expect(result.overallStatus).toBe('error');
+    // Post-fix engine must NOT have run
+    expect(postFixScanSpy).not.toHaveBeenCalled();
+
+    runEcosystemFixSpy.mockRestore();
   });
 });

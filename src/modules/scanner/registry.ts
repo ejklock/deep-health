@@ -34,6 +34,16 @@ export class ScannerEngineRegistry {
   }
 
   /**
+   * Return all engines for a given execution phase.
+   *
+   * Engines that do not declare a `phase` are treated as `'scan'` (backward compatible).
+   * Results are ordered the same way as `getAll()`.
+   */
+  getByPhase(phase: 'scan' | 'post-fix'): ScannerEngine[] {
+    return this.getAll().filter((e) => (e.phase ?? 'scan') === phase);
+  }
+
+  /**
    * Return a single engine by id, or undefined if not found.
    */
   get(id: string): ScannerEngine | undefined {
