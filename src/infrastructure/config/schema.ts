@@ -264,6 +264,12 @@ const SonarQubeConfigSchema = z
       scanner_seconds_per_kloc: z.number().positive().default(3),
       ce_seconds_per_kloc: z.number().positive().default(1.5),
     }).default({}),
+    /**
+     * JVM options passed to sonar-scanner via the SONAR_SCANNER_OPTS environment variable.
+     * Use this to increase heap for large codebases.
+     * Example: "-Xmx2048m" for 2GB heap.
+     */
+    scanner_jvm_opts: z.string().optional(),
   })
   .strict();
 
