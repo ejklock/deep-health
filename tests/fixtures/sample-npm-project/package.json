@@ -1,0 +1,9 @@
+{
+  "name": "sample-npm-project",
+  "version": "1.0.0",
+  "description": "Minimal npm fixture for integration tests",
+  "private": true,
+  "dependencies": {
+    "lodash": "4.17.20"
+  }
+}

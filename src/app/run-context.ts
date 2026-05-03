@@ -1,6 +1,6 @@
 import { loadConfig } from '@infra/config/loader';
 import { LocalExecutor } from '@infra/executor/local-executor';
-import { setLogLevel } from '@infra/utils/logger';
+import { setLogLevel, setJsonMode } from '@infra/utils/logger';
 import { defaultRegistry } from '@modules/ecosystem/index';
 import type { ProjectConfig } from '@core/types/config';
 import type { CommandRunner } from '@core/types/common';
@@ -16,6 +16,7 @@ export interface RunContextOptions {
   dryRun: boolean;
   verbose: boolean;
   quiet: boolean;
+  json?: boolean;
 }
 
 /**
@@ -28,6 +29,7 @@ export async function createRunContext(
 ): Promise<RunContext> {
   if (opts.verbose) setLogLevel('debug');
   if (opts.quiet) setLogLevel('error');
+  if (opts.json) setJsonMode(true);
 
   const config = await loadConfig(opts.config, opts.cwd, defaultRegistry);
   const runner = new LocalExecutor({ dryRun: opts.dryRun });

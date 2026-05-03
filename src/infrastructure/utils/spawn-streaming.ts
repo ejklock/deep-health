@@ -36,12 +36,20 @@ export interface SpawnStreamingOptions {
    * Default: 'debug'.
    */
   stderrLevel?: LogLevel;
+  /**
+   * Optional timeout in milliseconds. When elapsed, the child process is
+   * killed with SIGKILL and the result has `timedOut: true` with a
+   * descriptive stderr message.
+   */
+  timeoutMs?: number;
 }
 
 export interface SpawnStreamingResult {
   exitCode: number;
   stdout: string;
   stderr: string;
+  /** True when the child was killed due to timeoutMs being exceeded. */
+  timedOut: boolean;
 }
 
 /**
@@ -61,13 +69,23 @@ export async function spawnStreaming(
     label,
     stdoutLevel = 'debug',
     stderrLevel = 'debug',
+    timeoutMs,
   } = options;
 
   return new Promise<SpawnStreamingResult>((resolve) => {
     const stdoutChunks: string[] = [];
     const stderrChunks: string[] = [];
+    let killedByTimeout = false;
 
     const child = spawn(file, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    if (timeoutMs !== undefined) {
+      timeoutHandle = setTimeout(() => {
+        killedByTimeout = true;
+        child.kill('SIGKILL');
+      }, timeoutMs);
+    }
 
     child.stdout.on('data', (chunk: Buffer) => {
       const text = chunk.toString();
@@ -90,19 +108,32 @@ export async function spawnStreaming(
     });
 
     child.on('close', (code) => {
+      if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+      if (killedByTimeout) {
+        resolve({
+          exitCode: 1,
+          stdout: stdoutChunks.join(''),
+          stderr: `Timed out after ${timeoutMs}ms`,
+          timedOut: true,
+        });
+        return;
+      }
       resolve({
         exitCode: typeof code === 'number' ? code : 1,
         stdout: stdoutChunks.join(''),
         stderr: stderrChunks.join(''),
+        timedOut: false,
       });
     });
 
     child.on('error', (err) => {
       // spawn itself failed (e.g. binary not found) — treat as exit code 1.
+      if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
       resolve({
         exitCode: 1,
         stdout: stdoutChunks.join(''),
         stderr: err.message,
+        timedOut: false,
       });
     });
   });

@@ -16,11 +16,12 @@ vi.mock('@infra/executor/local-executor', () => ({
 
 vi.mock('@infra/utils/logger', () => ({
   setLogLevel: vi.fn(),
+  setJsonMode: vi.fn(),
 }));
 
 import { loadConfig } from '@infra/config/loader';
 import { LocalExecutor } from '@infra/executor/local-executor';
-import { setLogLevel } from '@infra/utils/logger';
+import { setLogLevel, setJsonMode } from '@infra/utils/logger';
 import { createRunContext } from '@app/run-context';
 
 const baseConfig: ProjectConfig = {
@@ -83,5 +84,34 @@ describe('createRunContext', () => {
 
     expect(setLogLevel).toHaveBeenCalledWith('debug');
     expect(setLogLevel).toHaveBeenCalledWith('error');
+  });
+
+  it('calls setJsonMode(true) when opts.json is true', async () => {
+    vi.mocked(loadConfig).mockResolvedValue(baseConfig);
+
+    await createRunContext({
+      config: 'project-config.yml',
+      cwd: '/repo',
+      dryRun: false,
+      verbose: false,
+      quiet: false,
+      json: true,
+    });
+
+    expect(setJsonMode).toHaveBeenCalledWith(true);
+  });
+
+  it('does NOT call setJsonMode when opts.json is falsy', async () => {
+    vi.mocked(loadConfig).mockResolvedValue(baseConfig);
+
+    await createRunContext({
+      config: 'project-config.yml',
+      cwd: '/repo',
+      dryRun: false,
+      verbose: false,
+      quiet: false,
+    });
+
+    expect(setJsonMode).not.toHaveBeenCalled();
   });
 });

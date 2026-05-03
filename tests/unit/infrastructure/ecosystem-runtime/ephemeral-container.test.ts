@@ -4,8 +4,10 @@
  *
  * Covers the regression case: --entrypoint "" must be injected when entrypointOverride=""
  * (for project-built images) so the image ENTRYPOINT cannot shadow the ecosystem CLI.
+ *
+ * Also covers the pull timeout path in _ensureImagePresent.
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('@infra/utils/docker-platform', () => ({
   needsHostGateway: () => false,
@@ -162,5 +164,184 @@ describe('EphemeralEcosystemContainer — _buildDockerArgs', () => {
     expect(args[volIdx + 1]).toContain('/project:/project');
     expect(args).toContain('--workdir');
     expect(args[args.indexOf('--workdir') + 1]).toBe('/project');
+  });
+});
+
+// ─── _ensureImagePresent pull timeout ────────────────────────────────────────
+
+describe('EphemeralEcosystemContainer — pull timeout', () => {
+  let spawnStreamingMock: ReturnType<typeof vi.fn>;
+  let execFileMock: ReturnType<typeof vi.fn>;
+  let warnSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    spawnStreamingMock = vi.fn();
+    execFileMock = vi.fn();
+    warnSpy = vi.fn();
+
+    vi.doMock('@infra/utils/spawn-streaming', () => ({
+      spawnStreaming: spawnStreamingMock,
+    }));
+
+    vi.doMock('@infra/utils/logger', () => ({
+      logger: {
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: warnSpy,
+        error: vi.fn(),
+        tagged: vi.fn(),
+        phase: vi.fn(),
+        skip: vi.fn(),
+        header: vi.fn(),
+      },
+    }));
+
+    vi.doMock('@infra/utils/docker-platform', () => ({
+      needsHostGateway: () => false,
+      resolvePlatform: (p: string | undefined) => p,
+    }));
+
+    vi.doMock('@infra/utils/retry', () => ({
+      withRetry: async (fn: () => Promise<unknown>) => fn(),
+      isDockerTransientError: () => false,
+    }));
+
+    vi.doMock('node:child_process', async () => {
+      const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process');
+      return {
+        ...actual,
+        execFile: execFileMock,
+        spawn: vi.fn(),
+      };
+    });
+
+    vi.doMock('node:util', () => ({
+      promisify: (fn: unknown) => {
+        // promisify of execFile — return a function that calls execFileMock as promise
+        return (...args: unknown[]) =>
+          new Promise((resolve, reject) => {
+            execFileMock(...args, (err: unknown, result: unknown) => {
+              if (err) reject(err);
+              else resolve(result);
+            });
+          });
+      },
+    }));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+  });
+
+  it('passes timeoutMs to spawnStreaming during docker pull', async () => {
+    // docker image inspect fails → image not cached → pull happens
+    execFileMock.mockImplementation(
+      (_file: unknown, _args: unknown, callback: (err: Error | null, result?: unknown) => void) => {
+        callback(new Error('image not found'));
+      },
+    );
+
+    spawnStreamingMock.mockResolvedValue({
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      timedOut: false,
+    });
+
+    const { EphemeralEcosystemContainer: Container } = await import(
+      '@infra/ecosystem-runtime/ephemeral-container'
+    );
+
+    const container = new Container({
+      runMode: { kind: 'direct-exec', binary: 'npm' },
+      projectDir: '/project',
+      image: 'node:20',
+      logPrefix: 'npm',
+    });
+
+    // run() calls _ensureImagePresent internally
+    // We stub it by spying; instead just verify spawnStreaming was called with timeoutMs
+    await container.run(['--version']).catch(() => {
+      // docker run itself may fail since execFile is mocked — that's fine
+    });
+
+    expect(spawnStreamingMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        file: 'docker',
+        args: ['pull', 'node:20'],
+        timeoutMs: 300_000,
+      }),
+    );
+  });
+
+  it('logs a warning when docker pull times out', async () => {
+    execFileMock.mockImplementation(
+      (_file: unknown, _args: unknown, callback: (err: Error | null, result?: unknown) => void) => {
+        callback(new Error('image not found'));
+      },
+    );
+
+    spawnStreamingMock.mockResolvedValue({
+      exitCode: 1,
+      stdout: '',
+      stderr: 'Timed out after 300000ms',
+      timedOut: true,
+    });
+
+    const { EphemeralEcosystemContainer: Container } = await import(
+      '@infra/ecosystem-runtime/ephemeral-container'
+    );
+    const { logger } = await import('@infra/utils/logger');
+
+    const container = new Container({
+      runMode: { kind: 'direct-exec', binary: 'npm' },
+      projectDir: '/project',
+      image: 'node:20',
+      logPrefix: 'npm',
+    });
+
+    await container.run(['--version']).catch(() => {});
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Docker pull timed out'),
+    );
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('node:20'),
+    );
+  });
+
+  it('does NOT log a warning when docker pull succeeds (timedOut=false)', async () => {
+    execFileMock.mockImplementation(
+      (_file: unknown, _args: unknown, callback: (err: Error | null, result?: unknown) => void) => {
+        callback(new Error('image not found'));
+      },
+    );
+
+    spawnStreamingMock.mockResolvedValue({
+      exitCode: 0,
+      stdout: 'Digest: sha256:abc',
+      stderr: '',
+      timedOut: false,
+    });
+
+    const { EphemeralEcosystemContainer: Container } = await import(
+      '@infra/ecosystem-runtime/ephemeral-container'
+    );
+    const { logger } = await import('@infra/utils/logger');
+
+    const container = new Container({
+      runMode: { kind: 'direct-exec', binary: 'npm' },
+      projectDir: '/project',
+      image: 'node:20',
+      logPrefix: 'npm',
+    });
+
+    await container.run(['--version']).catch(() => {});
+
+    expect(logger.warn).not.toHaveBeenCalledWith(
+      expect.stringContaining('Docker pull timed out'),
+    );
   });
 });

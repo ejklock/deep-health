@@ -1,11 +1,11 @@
 /**
  * Tests for src/infrastructure/utils/logger.ts
- * Covers all log levels, setLogLevel, shouldLog filtering.
+ * Covers all log levels, setLogLevel, shouldLog filtering, JSON mode, and timestamps.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// Import the module — note logger module has module-level state (currentLevel)
-// We need to reset between tests by reimporting or calling setLogLevel
+// Import the module — note logger module has module-level state (currentLevel, jsonMode)
+// We need to reset between tests by reimporting
 
 describe('logger', () => {
   let stderrSpy: ReturnType<typeof vi.spyOn>;
@@ -62,6 +62,118 @@ describe('logger', () => {
     const { logger, setLogLevel } = await import('@infra/utils/logger');
     setLogLevel('error');
     logger.warn('suppressed warn');
+    expect(stderrSpy).not.toHaveBeenCalled();
+  });
+
+  it('includes ISO timestamp prefix in debug (verbose) mode', async () => {
+    const { logger, setLogLevel } = await import('@infra/utils/logger');
+    setLogLevel('debug');
+    logger.debug('timestamped debug');
+    const written = String((stderrSpy.mock.calls[0] as string[])[0]);
+    // ISO 8601 format: YYYY-MM-DDTHH:MM:SS...Z
+    expect(written).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+  });
+
+  it('does NOT include ISO timestamp on info messages in non-debug mode', async () => {
+    const { logger } = await import('@infra/utils/logger');
+    logger.info('regular info');
+    const written = String((stderrSpy.mock.calls[0] as string[])[0]);
+    expect(written).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+  });
+});
+
+describe('logger — JSON mode', () => {
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('emits valid NDJSON with level/ts/msg for info in JSON mode', async () => {
+    const { logger, setJsonMode } = await import('@infra/utils/logger');
+    setJsonMode(true);
+    logger.info('json info message');
+    const written = String((stderrSpy.mock.calls[0] as string[])[0]).trim();
+    const parsed = JSON.parse(written) as Record<string, unknown>;
+    expect(parsed['level']).toBe('info');
+    expect(parsed['msg']).toBe('json info message');
+    expect(typeof parsed['ts']).toBe('string');
+    // ts must be ISO 8601
+    expect(String(parsed['ts'])).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+  });
+
+  it('emits valid NDJSON for warn in JSON mode', async () => {
+    const { logger, setJsonMode } = await import('@infra/utils/logger');
+    setJsonMode(true);
+    logger.warn('json warn message');
+    const written = String((stderrSpy.mock.calls[0] as string[])[0]).trim();
+    const parsed = JSON.parse(written) as Record<string, unknown>;
+    expect(parsed['level']).toBe('warn');
+    expect(parsed['msg']).toBe('json warn message');
+  });
+
+  it('emits valid NDJSON for error in JSON mode', async () => {
+    const { logger, setJsonMode } = await import('@infra/utils/logger');
+    setJsonMode(true);
+    logger.error('json error message');
+    const written = String((stderrSpy.mock.calls[0] as string[])[0]).trim();
+    const parsed = JSON.parse(written) as Record<string, unknown>;
+    expect(parsed['level']).toBe('error');
+    expect(parsed['msg']).toBe('json error message');
+  });
+
+  it('emits valid NDJSON for debug in JSON mode when log level is debug', async () => {
+    const { logger, setJsonMode, setLogLevel } = await import('@infra/utils/logger');
+    setJsonMode(true);
+    setLogLevel('debug');
+    logger.debug('json debug message');
+    const written = String((stderrSpy.mock.calls[0] as string[])[0]).trim();
+    const parsed = JSON.parse(written) as Record<string, unknown>;
+    expect(parsed['level']).toBe('debug');
+    expect(parsed['msg']).toBe('json debug message');
+  });
+
+  it('does NOT emit plain text in JSON mode', async () => {
+    const { logger, setJsonMode } = await import('@infra/utils/logger');
+    setJsonMode(true);
+    logger.info('plain test');
+    const written = String((stderrSpy.mock.calls[0] as string[])[0]);
+    expect(written).not.toContain('[INFO]');
+  });
+
+  it('setJsonMode(false) restores plain text output', async () => {
+    const { logger, setJsonMode } = await import('@infra/utils/logger');
+    setJsonMode(true);
+    setJsonMode(false);
+    logger.info('plain after toggle');
+    const written = String((stderrSpy.mock.calls[0] as string[])[0]);
+    expect(written).toContain('[INFO]');
+    expect(() => JSON.parse(written)).toThrow();
+  });
+
+  it('JSON mode does NOT route info through progressSink', async () => {
+    const { logger, setJsonMode, setProgressSink } = await import('@infra/utils/logger');
+    setJsonMode(true);
+    const sinkMessages: string[] = [];
+    setProgressSink((msg) => sinkMessages.push(msg));
+    logger.info('json mode info');
+    setProgressSink(null);
+    // progressSink should NOT have been called in JSON mode
+    expect(sinkMessages).toHaveLength(0);
+    // stderr should have been called with JSON
+    expect(stderrSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('JSON mode still respects log level filtering', async () => {
+    const { logger, setJsonMode } = await import('@infra/utils/logger');
+    setJsonMode(true);
+    // default level is info — debug should be suppressed
+    logger.debug('suppressed in json mode');
     expect(stderrSpy).not.toHaveBeenCalled();
   });
 });

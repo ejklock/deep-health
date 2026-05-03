@@ -265,8 +265,10 @@ export class EphemeralEcosystemContainer implements EphemeralContainerRunner<str
    * No-op when the image is already cached — probed via `docker image inspect`.
    * Does NOT throw on pull failure; the subsequent `docker run` will surface its
    * own error with a clear message.
+   *
+   * @param pullTimeoutMs - Maximum time to wait for docker pull (default 300 000 ms = 5 min).
    */
-  private async _ensureImagePresent(): Promise<void> {
+  private async _ensureImagePresent(pullTimeoutMs = 300_000): Promise<void> {
     try {
       await execFileAsync('docker', ['image', 'inspect', this.image]);
       // Image is already cached — nothing to do.
@@ -281,15 +283,23 @@ export class EphemeralEcosystemContainer implements EphemeralContainerRunner<str
       `Pulling image: ${this.image}`,
     );
 
-    await spawnStreaming({
+    const result = await spawnStreaming({
       file: 'docker',
       args: ['pull', this.image],
       logPrefix: this.logPrefix,
       label: 'docker pull',
       stdoutLevel: 'info',
       stderrLevel: 'info',
+      timeoutMs: pullTimeoutMs,
     });
-    // Pull failure is intentionally swallowed — the downstream docker run will
+
+    if (result.timedOut) {
+      logger.warn(
+        `Docker pull timed out after ${Math.round(pullTimeoutMs / 1000)}s for image ${this.image}. ` +
+        `The downstream docker run may fail if the image is not cached.`,
+      );
+    }
+    // Pull failure (non-timeout) is intentionally swallowed — the downstream docker run will
     // fail with a descriptive error if the image is still unavailable.
   }
 

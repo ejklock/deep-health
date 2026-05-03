@@ -1,0 +1,12 @@
+{
+  "name": "sample/composer-project",
+  "description": "Minimal composer fixture for integration tests",
+  "type": "project",
+  "require": {
+    "php": ">=8.1",
+    "symfony/http-foundation": "^6.0"
+  },
+  "config": {
+    "preferred-install": "dist"
+  }
+}
