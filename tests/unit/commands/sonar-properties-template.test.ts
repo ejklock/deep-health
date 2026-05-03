@@ -54,7 +54,7 @@ describe('buildSonarPropertiesTemplate', () => {
     expect(content).not.toMatch(/^sonar\.host\.url=/m);
   });
 
-  it('applies npm ecosystem exclusions (node_modules, dist, build)', () => {
+  it('applies npm ecosystem exclusions', () => {
     const content = buildSonarPropertiesTemplate({
       projectName: 'test',
       ecosystemIds: ['npm'],
@@ -64,9 +64,14 @@ describe('buildSonarPropertiesTemplate', () => {
     expect(exclusions).toContain('node_modules/**');
     expect(exclusions).toContain('dist/**');
     expect(exclusions).toContain('build/**');
+    expect(exclusions).toContain('coverage/**');
+    expect(exclusions).toContain('.next/**');
+    expect(exclusions).toContain('.nuxt/**');
+    expect(exclusions).toContain('**/*.min.js');
+    expect(exclusions).toContain('**/*.min.css');
   });
 
-  it('applies composer ecosystem exclusions (vendor)', () => {
+  it('applies composer ecosystem exclusions', () => {
     const content = buildSonarPropertiesTemplate({
       projectName: 'test',
       ecosystemIds: ['composer'],
@@ -74,9 +79,16 @@ describe('buildSonarPropertiesTemplate', () => {
     const parsed = parsePropertiesFile(content);
     const exclusions = parsed.get('sonar.exclusions') ?? '';
     expect(exclusions).toContain('vendor/**');
+    expect(exclusions).toContain('coverage/**');
+    expect(exclusions).toContain('storage/**');
+    expect(exclusions).toContain('bootstrap/cache/**');
+    expect(exclusions).toContain('public/css/**');
+    expect(exclusions).toContain('public/js/**');
+    expect(exclusions).toContain('public/vendor/**');
+    expect(exclusions).toContain('_ide_helper*.php');
   });
 
-  it('applies pip ecosystem exclusions (venv, __pycache__)', () => {
+  it('applies pip ecosystem exclusions', () => {
     const content = buildSonarPropertiesTemplate({
       projectName: 'test',
       ecosystemIds: ['pip'],
@@ -85,6 +97,10 @@ describe('buildSonarPropertiesTemplate', () => {
     const exclusions = parsed.get('sonar.exclusions') ?? '';
     expect(exclusions).toContain('venv/**');
     expect(exclusions).toContain('__pycache__');
+    expect(exclusions).toContain('coverage/**');
+    expect(exclusions).toContain('htmlcov/**');
+    expect(exclusions).toContain('.tox/**');
+    expect(exclusions).toContain('*.egg-info/**');
   });
 
   it('merges ecosystem-specific exclusion lists when multiple are selected', () => {
@@ -98,7 +114,7 @@ describe('buildSonarPropertiesTemplate', () => {
     expect(exclusions).toContain('vendor/**');
   });
 
-  it('deduplicates patterns across ecosystems (tests/** appears once)', () => {
+  it('deduplicates patterns across ecosystems', () => {
     const content = buildSonarPropertiesTemplate({
       projectName: 'test',
       ecosystemIds: ['npm', 'composer', 'pip'],
@@ -109,6 +125,21 @@ describe('buildSonarPropertiesTemplate', () => {
     // tests/** is in all three lists — must not be duplicated
     const testsMatches = parts.filter((p) => p === 'tests/**');
     expect(testsMatches.length).toBe(1);
+    // coverage/** is in all three lists — must not be duplicated
+    const coverageMatches = parts.filter((p) => p === 'coverage/**');
+    expect(coverageMatches.length).toBe(1);
+  });
+
+  it('coverage is excluded for all ecosystems', () => {
+    for (const ecosystemId of ['npm', 'composer', 'pip']) {
+      const content = buildSonarPropertiesTemplate({
+        projectName: 'test',
+        ecosystemIds: [ecosystemId],
+      });
+      const parsed = parsePropertiesFile(content);
+      const exclusions = parsed.get('sonar.exclusions') ?? '';
+      expect(exclusions, `coverage/** missing for ${ecosystemId}`).toContain('coverage/**');
+    }
   });
 
   it('falls back to a safe default when no ecosystems are selected', () => {

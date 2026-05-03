@@ -8,9 +8,12 @@
  * (external mode).
  *
  * Ecosystem-aware defaults:
- * - npm      → excludes node_modules, tests, dist, build (recursive globs)
- * - composer → excludes vendor, tests (recursive globs)
- * - pip      → excludes venv, .venv, __pycache__, tests (recursive globs)
+ * - npm      → excludes node_modules, tests, dist, build, coverage, .next, .nuxt,
+ *              minified JS/CSS (recursive globs)
+ * - composer → excludes vendor, tests, coverage, storage, bootstrap/cache,
+ *              public/css, public/js, public/vendor, IDE helper stubs
+ * - pip      → excludes venv, .venv, __pycache__, tests, coverage, htmlcov,
+ *              .tox, egg-info (recursive globs)
  *
  * Sources default to './' — users typically refine this later; '.' is a safe
  * starting point that covers most layouts.
@@ -21,9 +24,9 @@ import { resolve } from 'node:path';
 import { normalizeSonarProjectKey } from '@infra/config/generator';
 
 const ECOSYSTEM_SONAR_EXCLUSIONS: Record<string, string[]> = {
-  npm: ['node_modules/**', 'tests/**', 'dist/**', 'build/**'],
-  composer: ['vendor/**', 'tests/**'],
-  pip: ['venv/**', '.venv/**', '**/__pycache__/**', 'tests/**'],
+  npm: ['node_modules/**', 'tests/**', 'dist/**', 'build/**', 'coverage/**', '.next/**', '.nuxt/**', '**/*.min.js', '**/*.min.css'],
+  composer: ['vendor/**', 'tests/**', 'coverage/**', 'storage/**', 'bootstrap/cache/**', 'public/css/**', 'public/js/**', 'public/vendor/**', '_ide_helper*.php'],
+  pip: ['venv/**', '.venv/**', '**/__pycache__/**', 'tests/**', 'coverage/**', 'htmlcov/**', '.tox/**', '*.egg-info/**'],
 };
 
 const DEFAULT_EXCLUSIONS = ['tests/**'];
