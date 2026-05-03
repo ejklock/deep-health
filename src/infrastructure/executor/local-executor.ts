@@ -25,6 +25,7 @@ export class LocalExecutor implements CommandRunner {
       const stdio = options.stream
         ? (['pipe', 'inherit'] as const)
         : ('pipe' as const);
+      const startMs = Date.now();
       const result = await execa(command, {
         shell: true,
         cwd: options.cwd,
@@ -34,6 +35,7 @@ export class LocalExecutor implements CommandRunner {
         stdout: stdio,
         stderr: stdio,
       });
+      const durationMs = Date.now() - startMs;
 
       return {
         stdout: result.stdout ?? '',
@@ -41,6 +43,8 @@ export class LocalExecutor implements CommandRunner {
         exitCode: result.exitCode ?? 1,
         command,
         dryRun: false,
+        timedOut: result.timedOut ?? false,
+        durationMs,
       };
     } catch (err) {
       const isEnoent =
@@ -73,6 +77,7 @@ export class LocalExecutor implements CommandRunner {
     }
 
     try {
+      const startMs = Date.now();
       const result = await execa(file, args, {
         shell: false,
         cwd: options.cwd,
@@ -80,6 +85,7 @@ export class LocalExecutor implements CommandRunner {
         env: options.env ? { ...process.env, ...options.env } : process.env,
         reject: false,
       });
+      const durationMs = Date.now() - startMs;
 
       return {
         stdout: result.stdout ?? '',
@@ -87,6 +93,8 @@ export class LocalExecutor implements CommandRunner {
         exitCode: result.exitCode ?? 1,
         command,
         dryRun: false,
+        timedOut: result.timedOut ?? false,
+        durationMs,
       };
     } catch (err) {
       const isEnoent =

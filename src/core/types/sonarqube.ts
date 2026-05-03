@@ -23,4 +23,6 @@ export interface SonarQubeScanMetadata {
   qualityGateConditions?: SonarQubeQualityGateCondition[];
   metrics?: Record<string, string>;
   issues?: SonarQubeIssue[];
+  ceTaskOutcome?: 'success' | 'timeout' | 'failed' | 'skipped';
+  scanDurationMs?: number;
 }

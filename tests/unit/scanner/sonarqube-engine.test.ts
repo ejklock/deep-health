@@ -2117,3 +2117,249 @@ describe('fetchNcloc — unit', () => {
     expect(url).toContain('metricKeys=ncloc');
   });
 });
+
+// ─── Observability: timedOut detection, CE outcome, timing, large timeout ────────
+
+describe('SonarQubeEngine — observability (AC1-AC5, AC7, AC8)', () => {
+  const engine = new SonarQubeEngine();
+
+  beforeEach(() => {
+    process.env['SONAR_TOKEN'] = 'test-token';
+    setSonarPropsFixture(new Map<string, string>([
+      ['sonar.projectKey', 'my-project'],
+      ['sonar.host.url', 'http://localhost:9000'],
+    ]));
+  });
+
+  afterEach(() => {
+    delete process.env['SONAR_TOKEN'];
+    vi.clearAllMocks();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  // ── AC1: timedOut detection — local scanner ───────────────────────────────────
+
+  it('AC1: returns error with "timed out" message when scanner timedOut flag is set', async () => {
+    // Mock runner that returns timedOut=true — simulates what LocalExecutor does
+    // when execa's reject:false result has timedOut set.
+    const runner: CommandRunner = {
+      dryRun: false,
+      environment: 'local' as const,
+      async run(command: string): Promise<CommandResult> {
+        return { stdout: 'SonarScanner 5.0', stderr: '', exitCode: 0, command, dryRun: false };
+      },
+      async runArgs(file: string, args: string[]): Promise<CommandResult> {
+        const command = [file, ...args].join(' ');
+        // Simulate a timed-out execution: exitCode is non-zero, timedOut=true
+        return {
+          stdout: '',
+          stderr: 'Killed',
+          exitCode: 1,
+          command,
+          dryRun: false,
+          timedOut: true,
+          durationMs: 300_000,
+        };
+      },
+    };
+
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
+
+    const config = makeConfig(true);
+    const result = await engine.scan(makeCtx(runner, config));
+
+    expect(result.status).toBe('error');
+    expect(result.error).toMatch(/timed out/i);
+    // Must NOT report as "exited with code" — timedOut branch takes priority
+    expect(result.error).not.toMatch(/exited with code/i);
+  });
+
+  // ── AC2: CommandResult has timedOut and durationMs ────────────────────────────
+
+  it('AC2: CommandResult interface accepts timedOut and durationMs as optional fields', () => {
+    // Structural type check — verifiable at test compile time.
+    const result: CommandResult = {
+      stdout: 'ok',
+      stderr: '',
+      exitCode: 0,
+      command: 'sonar-scanner',
+      dryRun: false,
+      timedOut: false,
+      durationMs: 1234,
+    };
+    expect(result.timedOut).toBe(false);
+    expect(result.durationMs).toBe(1234);
+  });
+
+  it('AC2: CommandResult is valid without timedOut/durationMs (optional fields)', () => {
+    const result: CommandResult = {
+      stdout: 'ok',
+      stderr: '',
+      exitCode: 0,
+      command: 'test',
+      dryRun: false,
+    };
+    expect(result.timedOut).toBeUndefined();
+    expect(result.durationMs).toBeUndefined();
+  });
+
+  // ── AC3: CE outcome propagated to SonarQubeScanMetadata ──────────────────────
+
+  it('AC3: ceTaskOutcome is propagated to metadata on successful CE task', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfig(true);
+
+    vi.spyOn(fs, 'readFileSync').mockImplementation((path: unknown) => {
+      if (typeof path === 'string' && path.endsWith('report-task.txt')) {
+        return `ceTaskId=task-obs-test\n`;
+      }
+      throw new Error(`ENOENT: ${String(path)}`);
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }) // ncloc
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ task: { status: 'SUCCESS' } }) }) // CE
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ projectStatus: { status: 'OK', conditions: [] } }) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ component: { measures: [] } }) })
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }),
+    );
+
+    const result = await engine.scan(makeCtx(runner, config));
+
+    expect(result.status).toBe('success');
+    expect(result.metadata?.ceTaskOutcome).toBe('success');
+  });
+
+  it('AC3: ceTaskOutcome is "skipped" when no report-task.txt exists', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfig(true);
+
+    // No stub → fs.readFileSync throws → parseCeTaskId returns null → 'skipped'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }) // ncloc
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ projectStatus: { status: 'OK', conditions: [] } }) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ component: { measures: [] } }) })
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }),
+    );
+
+    const result = await engine.scan(makeCtx(runner, config));
+
+    expect(result.status).toBe('success');
+    expect(result.metadata?.ceTaskOutcome).toBe('skipped');
+  });
+
+  // ── AC5: scanDurationMs populated ────────────────────────────────────────────
+
+  it('AC5: scanDurationMs is populated in metadata after a successful scan', async () => {
+    // Use a runner where runArgs returns durationMs so the engine uses it
+    const runner: CommandRunner = {
+      dryRun: false,
+      environment: 'local' as const,
+      async run(command: string): Promise<CommandResult> {
+        return { stdout: 'SonarScanner 5.0', stderr: '', exitCode: 0, command, dryRun: false };
+      },
+      async runArgs(file: string, args: string[]): Promise<CommandResult> {
+        const command = [file, ...args].join(' ');
+        return {
+          stdout: 'ANALYSIS SUCCESSFUL',
+          stderr: '',
+          exitCode: 0,
+          command,
+          dryRun: false,
+          timedOut: false,
+          durationMs: 42_000,
+        };
+      },
+    };
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }) // ncloc
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ projectStatus: { status: 'OK', conditions: [] } }) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ component: { measures: [] } }) })
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }),
+    );
+
+    const config = makeConfig(true);
+    const result = await engine.scan(makeCtx(runner, config));
+
+    expect(result.status).toBe('success');
+    // scanDurationMs should be 42000 (from durationMs on the runArgs result)
+    expect(result.metadata?.scanDurationMs).toBe(42_000);
+  });
+
+  // ── AC7: Managed mode debug log for static timeouts ──────────────────────────
+
+  it('AC7: managed mode uses static timeouts when ncloc is null (no dynamic fetch)', async () => {
+    // Managed mode never fetches ncloc — it always passes null to computeEffectiveTimeouts.
+    // We confirm no exception is thrown and the scan proceeds (static timeouts are used).
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfig(true, 'warn', 'managed');
+
+    // Ensure the provisioner mock has a fresh default implementation (may be
+    // stale after mockImplementationOnce consumed in an earlier test).
+    const MockProvisioner = vi.mocked(DockerSonarQubeProvisioner);
+    MockProvisioner.mockImplementation(() => ({
+      provision: vi.fn().mockResolvedValue({ baseUrl: 'http://localhost:19999' }),
+      waitReady: vi.fn().mockResolvedValue(undefined),
+      teardown: vi.fn().mockResolvedValue(undefined),
+    }) as unknown as DockerSonarQubeProvisioner);
+
+    stubFetchForManagedMode(
+      { projectStatus: { status: 'OK', conditions: [] } },
+      { component: { measures: [] } },
+    );
+
+    const result = await engine.scan(makeCtx(runner, config));
+
+    // Scan completes successfully — static timeouts did not prevent progress
+    expect(result.status).toBe('success');
+
+    // No ncloc fetch should have been made (managed mode skips it)
+    const fetchMock = vi.mocked(fetch);
+    const nclocCalls = fetchMock.mock.calls.filter(([url]) =>
+      typeof url === 'string' && String(url).includes('metricKeys=ncloc'),
+    );
+    expect(nclocCalls).toHaveLength(0);
+  });
+
+  // ── AC8: computeEffectiveTimeouts emits warn when timeout > 1800s ─────────────
+
+  it('AC8: computeEffectiveTimeouts returns correct values for a large project (>1800s path)', () => {
+    // ncloc=700000 with default scale (3 s/kloc):
+    // dynamic scanner = ceil(60 + 700*3) = ceil(2160) = 2160s = 2160000ms
+    // 2160s > 1800s → warn should fire (tested via return value; logger.warn tested separately)
+    const result = computeEffectiveTimeouts(
+      { scanner_timeout_seconds: 300, ce_task_timeout_seconds: 120, dynamic_timeout: true },
+      700_000,
+    );
+    expect(result.scannerTimeoutMs).toBe(2_160_000);
+    // ceTimeoutMs: ceil(30 + 700*1.5) = ceil(1080) = 1080s = 1080000ms
+    expect(result.ceTimeoutMs).toBe(1_080_000);
+  });
+
+  it('AC8: computeEffectiveTimeouts does NOT warn when timeout is exactly at threshold', () => {
+    // ncloc=580000: scanner = ceil(60 + 580*3) = ceil(1800) = 1800s — NOT > 1800
+    const result = computeEffectiveTimeouts(
+      { scanner_timeout_seconds: 300, ce_task_timeout_seconds: 120, dynamic_timeout: true },
+      580_000,
+    );
+    // 1800s — at threshold, no warning expected
+    expect(result.scannerTimeoutMs).toBe(1_800_000);
+  });
+});

@@ -409,3 +409,98 @@ describe('docker-sonarqube additional branch coverage', () => {
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('string-rm-err'));
   });
 });
+
+// ─── AC6: docker logs captured on readiness timeout ──────────────────────────
+
+describe('DockerSonarQubeProvisioner — docker logs on readiness timeout (AC6)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it('AC6: includes container logs in readiness timeout error (best-effort)', async () => {
+    // SonarQube never becomes ready → waitReady throws
+    stubNeverReadyFetch();
+
+    // Simulate docker logs returning some output
+    setupExecFileMock((_cmd, args, cb) => {
+      const argList = args as string[];
+      if (argList[0] === 'logs') {
+        cb(null, { stdout: 'SonarQube startup log line 1\nSonarQube startup log line 2', stderr: '' });
+      } else {
+        cb(null, { stdout: '', stderr: '' });
+      }
+    });
+
+    const provisioner = new DockerSonarQubeProvisioner({
+      hostPort: 19200,
+      pollIntervalMs: 0,
+    });
+    await provisioner.provision();
+
+    const error = await provisioner.waitReady(50).catch((e: Error) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(/did not become ready/i);
+    // Logs should be appended to the error message
+    expect((error as Error).message).toContain('Container logs');
+    expect((error as Error).message).toContain('SonarQube startup log line 1');
+  });
+
+  it('AC6: readiness timeout error is still thrown even when docker logs fails (best-effort)', async () => {
+    // SonarQube never ready
+    stubNeverReadyFetch();
+
+    // docker logs throws an error
+    setupExecFileMock((_cmd, args, cb) => {
+      const argList = args as string[];
+      if (argList[0] === 'logs') {
+        cb(new Error('docker logs: container not found'), { stdout: '', stderr: '' });
+      } else {
+        cb(null, { stdout: '', stderr: '' });
+      }
+    });
+
+    const provisioner = new DockerSonarQubeProvisioner({
+      hostPort: 19201,
+      pollIntervalMs: 0,
+    });
+    await provisioner.provision();
+
+    // The readiness timeout error must still be thrown — docker logs failure must not mask it
+    const error = await provisioner.waitReady(50).catch((e: Error) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(/did not become ready/i);
+  });
+
+  it('AC6: calls docker logs --tail 50 with the container name', async () => {
+    stubNeverReadyFetch();
+
+    const logsCalls: string[][] = [];
+    setupExecFileMock((_cmd, args, cb) => {
+      const argList = args as string[];
+      if (argList[0] === 'logs') {
+        logsCalls.push(argList);
+        cb(null, { stdout: 'some log output', stderr: '' });
+      } else {
+        cb(null, { stdout: '', stderr: '' });
+      }
+    });
+
+    const provisioner = new DockerSonarQubeProvisioner({
+      hostPort: 19202,
+      containerNamePrefix: 'test-sq',
+      pollIntervalMs: 0,
+    });
+    await provisioner.provision();
+    await provisioner.waitReady(50).catch(() => undefined);
+
+    // docker logs should have been called exactly once with the container name and --tail 50
+    expect(logsCalls).toHaveLength(1);
+    const logsArgs = logsCalls[0]!;
+    expect(logsArgs).toContain('--tail');
+    expect(logsArgs).toContain('50');
+    // Container name should start with the prefix
+    const containerNameArg = logsArgs[1];
+    expect(containerNameArg).toMatch(/^test-sq-/);
+  });
+});

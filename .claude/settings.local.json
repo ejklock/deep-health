@@ -19,7 +19,8 @@
       "Bash(rtk npm *)",
       "Bash(rtk proxy *)",
       "Bash(rtk wc *)",
-      "mcp__agent-memory-store__set_state"
+      "mcp__agent-memory-store__set_state",
+      "Bash(npx tsc *)"
     ]
   },
   "outputStyle": "Explanatory"

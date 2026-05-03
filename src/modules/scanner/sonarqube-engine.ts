@@ -264,6 +264,12 @@ async function fetchSonarIssues(
 // ─── Dynamic timeout helpers ─────────────────────────────────────────────────────
 
 /**
+ * Scanner timeout threshold (seconds) above which a warning is emitted.
+ * Constant — not a config field.
+ */
+const LARGE_SCANNER_TIMEOUT_THRESHOLD_S = 1800;
+
+/**
  * Fetch ncloc (non-commented lines of code) from the last SonarQube analysis.
  * Best-effort — returns null on any error (no prior analysis, API unavailable, etc.).
  * Only called for external mode before scan submission.
@@ -325,6 +331,15 @@ function computeEffectiveTimeouts(
     `SonarQube: dynamic timeout — ncloc=${ncloc} (${kloc.toFixed(1)}k lines) → ` +
     `scanner=${Math.round(scannerTimeoutMs / 1000)}s, ce=${Math.round(ceTimeoutMs / 1000)}s`,
   );
+
+  const scannerTimeoutS = Math.round(scannerTimeoutMs / 1000);
+  if (scannerTimeoutS > LARGE_SCANNER_TIMEOUT_THRESHOLD_S) {
+    logger.warn(
+      `SonarQube: computed scanner timeout is ${scannerTimeoutS}s (ncloc=${ncloc ?? 'n/a'}) — ` +
+      `this exceeds ${LARGE_SCANNER_TIMEOUT_THRESHOLD_S}s. ` +
+      `Consider reducing timeout_scale.scanner_seconds_per_kloc or setting scanner_timeout_seconds manually.`,
+    );
+  }
 
   return { scannerTimeoutMs, ceTimeoutMs };
 }
@@ -478,7 +493,20 @@ async function executeSonarScan(
     (ec.branch ? `, branch: ${ec.branch}` : ''),
   );
 
+  const scanStartMs = Date.now();
   const scanRun = await runner.runArgs('sonar-scanner', scanArgs, { cwd, timeout: ec.scannerTimeoutMs });
+  const scanDurationMs = scanRun.durationMs ?? (Date.now() - scanStartMs);
+  const elapsedS = Math.round(scanDurationMs / 1000);
+
+  logger.info(`SonarQube: sonar-scanner finished in ${elapsedS}s`);
+
+  if (scanRun.timedOut) {
+    return {
+      ...base,
+      status: 'error',
+      error: `sonar-scanner timed out after ${elapsedS}s (computed timeout: ${Math.round(ec.scannerTimeoutMs / 1000)}s)`,
+    };
+  }
 
   if (scanRun.exitCode !== 0) {
     return {
@@ -489,9 +517,15 @@ async function executeSonarScan(
   }
 
   const taskId = parseCeTaskId(cwd);
-  await waitForCeTask(ec.hostUrl, taskId, authHeader, ec.ceTimeoutMs);
+  const ceTaskOutcome = await waitForCeTask(ec.hostUrl, taskId, authHeader, ec.ceTimeoutMs);
 
-  return collectSonarMetadataAndBuildResult(ec.hostUrl, ec.projectKey, authHeader, base);
+  if (ceTaskOutcome === 'timeout') {
+    logger.warn(
+      `SonarQube: CE task did not complete in time — quality gate results may reflect a previous analysis.`,
+    );
+  }
+
+  return collectSonarMetadataAndBuildResult(ec.hostUrl, ec.projectKey, authHeader, base, ceTaskOutcome, scanDurationMs);
 }
 
 /**
@@ -527,9 +561,10 @@ async function executeSonarScanViaContainer(
 
   const timeoutMs = ec.scannerTimeoutMs;
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const containerScanStartMs = Date.now();
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(
-      () => reject(Object.assign(new Error(`sonar-scanner (container) timed out after ${Math.round(timeoutMs / 1000)}s`), { isScannerTimeout: true })),
+      () => reject(Object.assign(new Error(`sonar-scanner (container) timed out after ${Math.round(timeoutMs / 1000)}s (computed timeout: ${Math.round(timeoutMs / 1000)}s)`), { isScannerTimeout: true })),
       timeoutMs,
     );
   });
@@ -540,6 +575,9 @@ async function executeSonarScanViaContainer(
     clearTimeout(timeoutId);
   } catch (err) {
     clearTimeout(timeoutId);
+    const containerDurationMs = Date.now() - containerScanStartMs;
+    const containerElapsedS = Math.round(containerDurationMs / 1000);
+    logger.info(`SonarQube: sonar-scanner (container) finished in ${containerElapsedS}s`);
     // Only swallow timeout errors — let scanner errors propagate so callers'
     // finally blocks (e.g. provisioner teardown) still execute.
     if ((err as { isScannerTimeout?: boolean }).isScannerTimeout) {
@@ -547,6 +585,10 @@ async function executeSonarScanViaContainer(
     }
     throw err;
   }
+
+  const containerDurationMs = Date.now() - containerScanStartMs;
+  const containerElapsedS = Math.round(containerDurationMs / 1000);
+  logger.info(`SonarQube: sonar-scanner (container) finished in ${containerElapsedS}s`);
 
   if (scanRun.exitCode !== 0) {
     return {
@@ -557,9 +599,15 @@ async function executeSonarScanViaContainer(
   }
 
   const taskId = parseCeTaskId(cwd);
-  await waitForCeTask(ec.hostUrl, taskId, authHeader, ec.ceTimeoutMs);
+  const ceTaskOutcome = await waitForCeTask(ec.hostUrl, taskId, authHeader, ec.ceTimeoutMs);
 
-  return collectSonarMetadataAndBuildResult(ec.hostUrl, ec.projectKey, authHeader, base);
+  if (ceTaskOutcome === 'timeout') {
+    logger.warn(
+      `SonarQube: CE task did not complete in time — quality gate results may reflect a previous analysis.`,
+    );
+  }
+
+  return collectSonarMetadataAndBuildResult(ec.hostUrl, ec.projectKey, authHeader, base, ceTaskOutcome, containerDurationMs);
 }
 
 /**
@@ -571,6 +619,8 @@ async function collectSonarMetadataAndBuildResult(
   projectKey: string,
   authHeader: string,
   base: ScanResultJson,
+  ceTaskOutcome: 'success' | 'timeout' | 'failed' | 'skipped',
+  scanDurationMs: number,
 ): Promise<ScanResultJson> {
   logger.info('SonarQube: scan complete, collecting quality gate status...');
 
@@ -598,6 +648,8 @@ async function collectSonarMetadataAndBuildResult(
       : {}),
     ...(metrics ? { metrics } : {}),
     ...(issues ? { issues } : {}),
+    ceTaskOutcome,
+    scanDurationMs,
   };
 
   return {
@@ -737,6 +789,7 @@ export class SonarQubeEngine implements ScannerEngine {
     let ncloc: number | null = null;
 
     if (mode === 'managed') {
+      logger.debug('SonarQube: managed mode — using static timeouts (no prior ncloc available)');
       const { scannerTimeoutMs, ceTimeoutMs } = computeEffectiveTimeouts(sonarConfig, null);
       return this._scanManaged(ctx, projectKey, sonarConfig.scanner_image, (sonarConfig as any).server_image as string | undefined, base, sonarConfig.send_branch_name ?? false, ceTimeoutMs, scannerTimeoutMs);
     }

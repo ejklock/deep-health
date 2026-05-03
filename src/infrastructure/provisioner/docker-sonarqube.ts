@@ -37,11 +37,14 @@ function findFreePort(): Promise<number> {
 /**
  * Poll GET /api/system/status until SonarQube reports status 'UP'.
  * Returns when ready; throws when timeoutMs is exceeded.
+ * On timeout, captures the last 50 lines of `docker logs` (best-effort)
+ * and includes them in the error message for diagnosis.
  */
 async function waitForSonarQube(
   baseUrl: string,
   timeoutMs: number,
   pollIntervalMs: number,
+  containerName?: string,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   const statusUrl = `${baseUrl}/api/system/status`;
@@ -66,8 +69,22 @@ async function waitForSonarQube(
     await sleep(pollIntervalMs);
   }
 
+  // Best-effort: capture recent container logs for diagnosis
+  let dockerLogsTail = '';
+  if (containerName) {
+    try {
+      const logsResult = await execFileAsync('docker', ['logs', containerName, '--tail', '50']);
+      const logOutput = (logsResult.stdout || logsResult.stderr || '').trim();
+      if (logOutput) {
+        dockerLogsTail = `\n\nContainer logs (last 50 lines):\n${logOutput}`;
+      }
+    } catch {
+      // Best-effort — never fail the pipeline if docker logs fails
+    }
+  }
+
   throw new Error(
-    `SonarQube provisioner: service did not become ready within ${timeoutMs}ms`,
+    `SonarQube provisioner: service did not become ready within ${timeoutMs}ms${dockerLogsTail}`,
   );
 }
 
@@ -208,6 +225,7 @@ export class DockerSonarQubeProvisioner implements ServiceProvisioner {
       this._baseUrl(),
       timeoutMs ?? this.readinessTimeoutMs,
       this.pollIntervalMs,
+      this.containerName,
     );
   }
 

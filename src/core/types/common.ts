@@ -9,6 +9,8 @@ export interface CommandResult {
   exitCode: number;
   command: string;
   dryRun: boolean;
+  timedOut?: boolean;
+  durationMs?: number;
 }
 
 export interface CommandRunnerOptions {
