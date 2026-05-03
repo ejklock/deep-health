@@ -303,6 +303,58 @@ describe('DockerSonarScannerRunner', () => {
       expect(platformIdx).toBeGreaterThanOrEqual(0);
       expect(volumeIdx).toBeGreaterThan(platformIdx);
     });
+
+    describe('env injection', () => {
+      it('injects --env KEY=VALUE when env is provided', () => {
+        const runner = new DockerSonarScannerRunner({
+          projectDir: '/app',
+          sonarHostUrl: 'http://localhost:9000',
+          env: { SONAR_SCANNER_OPTS: '-Xmx2048m' },
+        });
+        const args = runner._buildDockerArgs('http://host.docker.internal:9000', []);
+        const envIdx = args.indexOf('--env');
+        expect(envIdx).toBeGreaterThanOrEqual(0);
+        expect(args[envIdx + 1]).toBe('SONAR_SCANNER_OPTS=-Xmx2048m');
+      });
+
+      it('places --env flags before the image name', () => {
+        const runner = new DockerSonarScannerRunner({
+          projectDir: '/app',
+          sonarHostUrl: 'http://localhost:9000',
+          env: { SONAR_SCANNER_OPTS: '-Xmx2048m' },
+        });
+        const args = runner._buildDockerArgs('http://host.docker.internal:9000', []);
+        const envIdx = args.indexOf('--env');
+        const imageIdx = args.indexOf('sonarsource/sonar-scanner-cli:latest');
+        expect(envIdx).toBeGreaterThanOrEqual(0);
+        expect(imageIdx).toBeGreaterThan(envIdx);
+      });
+
+      it('does not inject --env when env is undefined', () => {
+        const runner = new DockerSonarScannerRunner({
+          projectDir: '/app',
+          sonarHostUrl: 'http://localhost:9000',
+        });
+        const args = runner._buildDockerArgs('http://host.docker.internal:9000', []);
+        expect(args).not.toContain('--env');
+      });
+
+      it('injects multiple env vars when env has multiple keys', () => {
+        const runner = new DockerSonarScannerRunner({
+          projectDir: '/app',
+          sonarHostUrl: 'http://localhost:9000',
+          env: { A: '1', B: '2' },
+        });
+        const args = runner._buildDockerArgs('http://host.docker.internal:9000', []);
+        expect(args).toContain('--env');
+        expect(args).toContain('A=1');
+        expect(args).toContain('B=2');
+        // Both pairs should be present
+        const firstEnvIdx = args.indexOf('--env');
+        const secondEnvIdx = args.indexOf('--env', firstEnvIdx + 1);
+        expect(secondEnvIdx).toBeGreaterThan(firstEnvIdx);
+      });
+    });
   });
 
   // ── run() ───────────────────────────────────────────────────────────────────

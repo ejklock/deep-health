@@ -442,6 +442,9 @@ interface SonarScanExecContext {
    * Defaults to `Bearer ${token}` when absent.
    * Managed mode sets this to Basic admin:admin for reliability. */
   pollAuthHeader?: string;
+  /** JVM options passed to sonar-scanner via SONAR_SCANNER_OPTS env var.
+   * When set, injected via the runner env option (local) or DockerSonarScannerRunner env (container). */
+  scannerJvmOpts?: string;
 }
 
 /** Build the `-D` args common to both local and container scanner invocations. */
@@ -487,6 +490,10 @@ async function executeSonarScan(
   const scanArgs = buildSonarScanCliArgs(ec);
   const authHeader = ec.pollAuthHeader ?? `Bearer ${ec.token}`;
 
+  if (ec.scannerJvmOpts) {
+    logger.info(`SonarQube: applying JVM options via SONAR_SCANNER_OPTS: ${ec.scannerJvmOpts}`);
+  }
+
   logger.info(
     `SonarQube: running sonar-scanner (timeout: ${Math.round(ec.scannerTimeoutMs / 1000)}s) — ` +
     `host: ${ec.hostUrl}, projectKey: ${ec.projectKey}` +
@@ -494,7 +501,12 @@ async function executeSonarScan(
   );
 
   const scanStartMs = Date.now();
-  const scanRun = await runner.runArgs('sonar-scanner', scanArgs, { cwd, timeout: ec.scannerTimeoutMs, onLine: (line) => logger.info(line) });
+  const scanRun = await runner.runArgs('sonar-scanner', scanArgs, {
+    cwd,
+    timeout: ec.scannerTimeoutMs,
+    onLine: (line) => logger.info(line),
+    ...(ec.scannerJvmOpts ? { env: { SONAR_SCANNER_OPTS: ec.scannerJvmOpts } } : {}),
+  });
   const scanDurationMs = scanRun.durationMs ?? (Date.now() - scanStartMs);
   const elapsedS = Math.round(scanDurationMs / 1000);
 
@@ -542,10 +554,15 @@ async function executeSonarScanViaContainer(
   ec: SonarScanExecContext,
   scannerImage?: string,
 ): Promise<ScanResultJson> {
+  if (ec.scannerJvmOpts) {
+    logger.info(`SonarQube: applying JVM options via SONAR_SCANNER_OPTS: ${ec.scannerJvmOpts}`);
+  }
+
   const scannerRunner = new DockerSonarScannerRunner({
     projectDir: cwd,
     sonarHostUrl: ec.hostUrl,
     ...(scannerImage ? { image: scannerImage } : {}),
+    ...(ec.scannerJvmOpts ? { env: { SONAR_SCANNER_OPTS: ec.scannerJvmOpts } } : {}),
   });
 
   // The scanner runner injects `-Dsonar.host.url` itself (translating localhost
@@ -796,7 +813,7 @@ export class SonarQubeEngine implements ScannerEngine {
     if (mode === 'managed') {
       logger.debug('SonarQube: managed mode — using static timeouts (no prior ncloc available)');
       const { scannerTimeoutMs, ceTimeoutMs } = computeEffectiveTimeouts(sonarConfig, null);
-      return this._scanManaged(ctx, projectKey, sonarConfig.scanner_image, (sonarConfig as any).server_image as string | undefined, base, sonarConfig.send_branch_name ?? false, ceTimeoutMs, scannerTimeoutMs);
+      return this._scanManaged(ctx, projectKey, sonarConfig.scanner_image, (sonarConfig as any).server_image as string | undefined, base, sonarConfig.send_branch_name ?? false, ceTimeoutMs, scannerTimeoutMs, sonarConfig.scanner_jvm_opts);
     }
 
     // ─── External mode ────────────────────────────────────────────────────────
@@ -849,6 +866,7 @@ export class SonarQubeEngine implements ScannerEngine {
         ceTimeoutMs,
         scannerTimeoutMs,
         sanitized,
+        ...(sonarConfig.scanner_jvm_opts ? { scannerJvmOpts: sonarConfig.scanner_jvm_opts } : {}),
       });
     } finally {
       await sanitized.cleanup();
@@ -866,6 +884,7 @@ export class SonarQubeEngine implements ScannerEngine {
     sendBranchName: boolean,
     ceTimeoutMs: number,
     scannerTimeoutMs: number,
+    scannerJvmOpts?: string,
   ): Promise<ScanResultJson> {
     const { runner, cwd } = ctx;
 
@@ -942,6 +961,7 @@ export class SonarQubeEngine implements ScannerEngine {
           scannerTimeoutMs,
           sanitized,
           pollAuthHeader: adminAuthHeader,
+          ...(scannerJvmOpts ? { scannerJvmOpts } : {}),
         };
         if (localAvailable) {
           return await executeSonarScan(ctx, base, ec);

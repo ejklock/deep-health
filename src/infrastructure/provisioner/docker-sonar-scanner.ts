@@ -71,12 +71,14 @@ export class DockerSonarScannerRunner implements EphemeralContainerRunner<string
   private readonly projectDir: string;
   private readonly sonarHostUrl: string;
   private readonly resolvedPlatform: string | undefined;
+  private readonly env: Record<string, string> | undefined;
 
   constructor(options: DockerSonarScannerRunnerOptions) {
     this.image = options.image ?? DEFAULT_IMAGE;
     this.projectDir = options.projectDir;
     this.sonarHostUrl = options.sonarHostUrl;
     this.resolvedPlatform = resolvePlatform(options.platform, SONAR_SCANNER_DEFAULT_PLATFORM);
+    this.env = options.env;
   }
 
   /**
@@ -152,6 +154,14 @@ export class DockerSonarScannerRunner implements EphemeralContainerRunner<string
     // explicitly mapped via the host-gateway special target.
     if (needsHostGateway()) {
       args.push('--add-host', 'host.docker.internal:host-gateway');
+    }
+
+    // Inject --env flags BEFORE the image name (Docker syntax: these are docker run
+    // flags, not scanner args). When env is empty or undefined, no flags are added.
+    if (this.env) {
+      for (const [key, value] of Object.entries(this.env)) {
+        args.push('--env', `${key}=${value}`);
+      }
     }
 
     args.push(this.image);

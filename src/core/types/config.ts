@@ -311,6 +311,14 @@ export interface SonarQubeConfig {
     scanner_seconds_per_kloc?: number;
     ce_seconds_per_kloc?: number;
   };
+  /**
+   * JVM options passed to sonar-scanner via the SONAR_SCANNER_OPTS environment variable.
+   * Use this to increase heap for large codebases.
+   * Example: "-Xmx2048m" for 2GB heap.
+   * Applies to both local and container scanner execution.
+   * When omitted, sonar-scanner uses its built-in JVM defaults (~512MB heap).
+   */
+  scanner_jvm_opts?: string;
 }
 
 /** Runner selection for composer commands */

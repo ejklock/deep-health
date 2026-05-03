@@ -101,6 +101,11 @@ export interface DockerSonarScannerRunnerOptions {
    * Set to an empty string '' to suppress the auto-detection and omit --platform entirely.
    */
   platform?: string;
+  /**
+   * Environment variables to inject into the container via --env flags.
+   * Used to pass SONAR_SCANNER_OPTS for JVM configuration.
+   */
+  env?: Record<string, string>;
 }
 
 // ─── DockerSonarQubeProvisionerOptions ─────────────────────────────────────────
