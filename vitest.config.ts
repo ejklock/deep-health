@@ -56,6 +56,7 @@ export default defineConfig({
           name: 'unit',
           include: ['tests/unit/**/*.test.ts'],
           globals: true,
+          setupFiles: ['tests/helpers/silence-logger.ts'],
         },
       },
       {
@@ -64,6 +65,7 @@ export default defineConfig({
           name: 'integration',
           include: ['tests/integration/**/*.test.ts'],
           globals: true,
+          setupFiles: ['tests/helpers/silence-logger.ts'],
         },
       },
       {
