@@ -5,6 +5,7 @@ import { generateConfigYaml, type GenerateConfigOptions } from '@infra/config/ge
 import { writeSonarPropertiesTemplateIfMissing } from './sonar-properties-template';
 import { prompt } from '@infra/utils/prompt';
 import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
+import { detectEcosystems } from '@infra/utils/detect-ecosystems';
 import { defaultRegistry } from '@modules/ecosystem/index';
 import { ConfigLoadError } from '@core/errors';
 import { resolveDefaultLocale } from '@core/locale-detect';
@@ -68,15 +69,18 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   // ─── Ecosystem selection (registry-driven) ───────────────────────────────────
 
   const allPlugins = defaultRegistry.getAll();
+  const detectedIds = await detectEcosystems(opts.cwd, allPlugins);
   let selectedEcosystemIds: string[];
 
   if (opts.nonInteractive) {
-    // Non-interactive: pick all registered plugins
-    selectedEcosystemIds = allPlugins.map((p) => p.id);
+    // Non-interactive: use detected ecosystems when found, otherwise fallback to all (safe for CI/new projects)
+    selectedEcosystemIds = detectedIds.size > 0
+      ? allPlugins.filter((p) => detectedIds.has(p.id)).map((p) => p.id)
+      : allPlugins.map((p) => p.id);
   } else {
     selectedEcosystemIds = await checkboxPrompt(
-      'Select ecosystems to configure',
-      allPlugins.map((p) => ({ name: `${p.name} (${p.id})`, value: p.id, checked: true })),
+      'Select ecosystems to configure (Space to toggle, Enter to confirm)',
+      allPlugins.map((p) => ({ name: `${p.name} (${p.id})`, value: p.id, checked: detectedIds.has(p.id) })),
     );
   }
 

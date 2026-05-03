@@ -22,10 +22,15 @@ vi.mock('@infra/utils/inquirer-prompts', () => ({
   checkboxPrompt: vi.fn(),
 }));
 
+vi.mock('@infra/utils/detect-ecosystems', () => ({
+  detectEcosystems: vi.fn(),
+}));
+
 import { writeFile, mkdir, access } from 'node:fs/promises';
 import { generateConfigYaml } from '@infra/config/generator';
 import { prompt } from '@infra/utils/prompt';
 import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
+import { detectEcosystems } from '@infra/utils/detect-ecosystems';
 import { runInitCommand } from '@app/commands/init';
 import { ConfigLoadError } from '@core/errors';
 
@@ -34,12 +39,15 @@ const mockAccess = vi.mocked(access);
 const mockConfirm = vi.mocked(confirmPrompt);
 const mockSelect = vi.mocked(selectPrompt);
 const mockCheckbox = vi.mocked(checkboxPrompt);
+const mockDetectEcosystems = vi.mocked(detectEcosystems);
 
 // ─── Non-interactive mode ─────────────────────────────────────────────────────
 
 describe('runInitCommand — non-interactive', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: no ecosystems detected → fallback to all (preserves pre-detection behavior)
+    mockDetectEcosystems.mockResolvedValue(new Set());
   });
 
   it('generates declarative config via ecosystemConfigs in non-interactive mode', async () => {
@@ -143,6 +151,8 @@ describe('runInitCommand — non-interactive', () => {
 describe('runInitCommand — interactive version prompts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: no ecosystems detected → nothing pre-selected (checkboxPrompt mock controls selection)
+    mockDetectEcosystems.mockResolvedValue(new Set());
   });
 
   it('shows inferred version as default and uses it when user accepts', async () => {
@@ -297,6 +307,8 @@ describe('runInitCommand — interactive version prompts', () => {
 describe('runInitCommand — interactive dockerfile image_source prompts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: no ecosystems detected → nothing pre-selected (checkboxPrompt mock controls selection)
+    mockDetectEcosystems.mockResolvedValue(new Set());
   });
 
   it('wires image_source -> dockerfile_path -> build_context -> build_args for npm/pip/composer', async () => {
@@ -377,6 +389,8 @@ describe('runInitCommand — existing file guard', () => {
     mockAccess.mockReset();
     // Simulate "file not found" (ENOENT) so the guard proceeds by default
     mockAccess.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+    // Default: no ecosystems detected → fallback to all
+    mockDetectEcosystems.mockResolvedValue(new Set());
   });
 
   it('throws ConfigLoadError (exit code 3 semantics) when output file exists and --force is not set', async () => {
@@ -480,5 +494,117 @@ describe('runInitCommand — existing file guard', () => {
     ).rejects.toThrow('EACCES: permission denied');
 
     expect(writeFile).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Ecosystem detection ──────────────────────────────────────────────────────
+
+describe('runInitCommand — ecosystem detection', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAccess.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+  });
+
+  it('pre-selects only detected ecosystems in the checkbox prompt (interactive)', async () => {
+    // Only npm detected
+    mockDetectEcosystems.mockResolvedValue(new Set(['npm']));
+
+    // checkboxPrompt: capture choices and return only npm
+    let capturedChoices: Array<{ name: string; value: string; checked: boolean }> = [];
+    mockCheckbox.mockImplementation(async (_msg: string, choices: any[]) => {
+      capturedChoices = choices;
+      return ['npm'];
+    });
+
+    mockSelect.mockImplementation(async (_msg: string, choices: any[]) => choices[0].value);
+    mockConfirm.mockImplementation(async (msg: string) => {
+      if (msg.includes('SonarQube')) return false;
+      if (msg.includes('Generate markdown')) return true;
+      return false;
+    });
+    mockPrompt.mockImplementation(async (_question: string, defaultValue?: string) => defaultValue ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'Detection Project',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    const npmChoice = capturedChoices.find((c) => c.value === 'npm');
+    const composerChoice = capturedChoices.find((c) => c.value === 'composer');
+    const pipChoice = capturedChoices.find((c) => c.value === 'pip');
+
+    expect(npmChoice?.checked).toBe(true);
+    expect(composerChoice?.checked).toBe(false);
+    expect(pipChoice?.checked).toBe(false);
+  });
+
+  it('checkbox message includes keyboard hint text', async () => {
+    mockDetectEcosystems.mockResolvedValue(new Set());
+
+    let capturedMessage = '';
+    mockCheckbox.mockImplementation(async (msg: string, choices: any[]) => {
+      capturedMessage = msg;
+      return choices.map((c: any) => c.value);
+    });
+
+    mockSelect.mockImplementation(async (_msg: string, choices: any[]) => choices[0].value);
+    mockConfirm.mockImplementation(async (msg: string) => {
+      if (msg.includes('SonarQube')) return false;
+      if (msg.includes('Generate markdown')) return true;
+      return false;
+    });
+    mockPrompt.mockImplementation(async (_question: string, defaultValue?: string) => defaultValue ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'Hint Project',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    expect(capturedMessage).toMatch(/Space/i);
+    expect(capturedMessage).toMatch(/Enter/i);
+  });
+
+  it('non-interactive mode uses only detected ecosystems when detection finds some', async () => {
+    // Only composer detected
+    mockDetectEcosystems.mockResolvedValue(new Set(['composer']));
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      projectName: 'Detected Composer',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    const call = vi.mocked(generateConfigYaml).mock.calls[0]![0];
+    expect(call.ecosystemConfigs?.map((e) => e.id)).toEqual(['composer']);
+  });
+
+  it('non-interactive mode falls back to all ecosystems when nothing is detected', async () => {
+    // Nothing detected → fallback to all
+    mockDetectEcosystems.mockResolvedValue(new Set());
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      projectName: 'Fallback Project',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    const call = vi.mocked(generateConfigYaml).mock.calls[0]![0];
+    const ids = call.ecosystemConfigs?.map((e) => e.id) ?? [];
+    // All three plugins should be present when nothing detected
+    expect(ids).toContain('npm');
+    expect(ids).toContain('composer');
+    expect(ids).toContain('pip');
   });
 });
