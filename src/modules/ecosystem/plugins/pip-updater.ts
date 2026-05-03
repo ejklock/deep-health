@@ -1,12 +1,10 @@
 import type { CommandRunner } from '@core/types/common';
 import type { ValidationCommandConfig } from '@core/types/config';
-import type { UpdateResultJson, ValidationEntry } from '@core/types/update';
+import type { UpdateResultJson } from '@core/types/update';
 import type { ScanResultJson } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
-import { PhaseError } from '@core/errors';
 import { logger } from '@infra/utils/logger';
-import { runValidations } from '../utils/validation-runner';
-import { beginUpdaterTransaction } from '../utils/updater-transaction';
+import { runUpdaterLifecycle } from '../utils/updater-lifecycle';
 
 const PIP_FILES = ['requirements.txt'];
 
@@ -105,12 +103,6 @@ export function buildPipPackagesUpdated(
   return updated;
 }
 
-async function checkCurrentState(runner: CommandRunner, cwd: string): Promise<void> {
-  logger.debug('Running pip list --outdated (informational)...');
-  // Ignore exit code — informational only
-  await runner.runArgs('pip', ['list', '--outdated'], { cwd });
-}
-
 export async function runPipUpdater(
   runner: CommandRunner,
   _config: unknown,
@@ -123,27 +115,6 @@ export async function runPipUpdater(
 
   const pipEcosystem = scanResult.ecosystems['pip'] ?? emptyEcosystem();
 
-  // Build skipped validation entries for early-return paths
-  const skippedEntries: ValidationEntry[] =
-    validationCommands.length > 0
-      ? validationCommands.map((vc) => ({
-          name: vc.name,
-          status: 'skipped' as const,
-          detail: 'No validation commands configured — skipped',
-        }))
-      : [{ name: 'validation', status: 'skipped', detail: 'No validation commands configured' }];
-
-  const base: UpdateResultJson = {
-    $schema: 'osv-update-result/v1',
-    agent: 'pip-safe-update',
-    status: 'success',
-    packages_updated: [],
-    packages_skipped: [],
-    packages_pending_breaking: pipEcosystem.breaking_packages,
-    validations: skippedEntries,
-    error: null,
-  };
-
   const autoSafePackageNames = pipEcosystem.auto_safe_packages.map(stripPipVersion);
   const breakingPackageNames = authorizeBreaking
     ? pipEcosystem.breaking_packages.map(stripPipVersion)
@@ -151,90 +122,80 @@ export async function runPipUpdater(
   const packageNamesToUpdate = [...new Set([...autoSafePackageNames, ...breakingPackageNames])];
 
   if (packageNamesToUpdate.length === 0) {
-    return { ...base, validations: [{ name: 'validation', status: 'skipped', detail: 'No packages to update' }] };
+    return {
+      $schema: 'osv-update-result/v1',
+      agent: 'pip-safe-update',
+      status: 'success',
+      packages_updated: [],
+      packages_skipped: [],
+      packages_pending_breaking: pipEcosystem.breaking_packages,
+      validations: [{ name: 'validation', status: 'skipped', detail: 'No packages to update' }],
+      error: null,
+    };
   }
 
   if (runner.dryRun) {
     logger.tagged('pip', 'DRY-RUN', `Would execute: pip install -U ${packageNamesToUpdate.join(' ')}`);
-    if (validationCommands.length > 0) {
-      for (const vc of validationCommands) {
-        logger.tagged('pip', 'DRY-RUN', `Would execute: ${vc.command}`);
-      }
+    for (const vc of validationCommands) {
+      logger.tagged('pip', 'DRY-RUN', `Would execute: ${vc.command}`);
     }
-    const dryRunEntries: ValidationEntry[] =
+    const dryRunEntries =
       validationCommands.length > 0
         ? validationCommands.map((vc) => ({
             name: vc.name,
             status: 'skipped' as const,
             detail: 'Dry-run — not executed',
           }))
-        : [{ name: 'validation', status: 'skipped', detail: 'No validation commands configured — skipped' }];
+        : [{ name: 'validation', status: 'skipped' as const, detail: 'No validation commands configured — skipped' }];
     return {
-      ...base,
+      $schema: 'osv-update-result/v1',
+      agent: 'pip-safe-update',
+      status: 'success',
       packages_updated: pipEcosystem.auto_safe_packages,
+      packages_skipped: [],
+      packages_pending_breaking: pipEcosystem.breaking_packages,
       validations: dryRunEntries,
+      error: null,
     };
   }
 
-  try {
-    const tx = await beginUpdaterTransaction({
-      files: PIP_FILES,
-      base,
-      cwd,
-      runner,
+  return runUpdaterLifecycle(
+    {
+      agentName: 'pip-safe-update',
+      ecosystemKey: 'pip',
+      backupPaths: PIP_FILES,
       bootstrapSpec: {
         binary: 'pip',
         args: ['install', '-r', 'requirements.txt'],
         label: 'pip install -r requirements.txt (revert)',
       },
-    });
 
-    await checkCurrentState(runner, cwd);
+      async applyFix(ctx) {
+        logger.debug('Running pip list --outdated (informational)...');
+        await ctx.runner.runArgs('pip', ['list', '--outdated'], { cwd: ctx.cwd });
 
-    const pkgList = packageNamesToUpdate.join(' ');
-    logger.info(`Updating packages: ${pkgList}`);
-    // SEC: use runArgs (shell: false) — package names from scanner are variable data
-    const updateResult = await runner.runArgs('pip', ['install', '-U', ...packageNamesToUpdate], { cwd, stream: true });
-    if (updateResult.exitCode !== 0) {
-      // pip install -U can mutate requirements.txt in projects where a post-hook
-      // or pip-tools compile is wired in, and always mutates the Python env.
-      // Revert to guarantee the working tree and env match the pre-update state.
-      logger.error('pip install -U failed — reverting pip changes...');
-      return tx.abortWithError({
-        error: `pip install -U failed: ${updateResult.stderr}`,
-        validations: [{ name: 'validation', status: 'skipped', detail: 'pip install -U failed — changes reverted' }],
-      });
-    }
+        const pkgList = packageNamesToUpdate.join(' ');
+        logger.info(`Updating packages: ${pkgList}`);
+        // SEC: use runArgs (shell: false) — package names from scanner are variable data
+        const updateResult = await ctx.runner.runArgs(
+          'pip',
+          ['install', '-U', ...packageNamesToUpdate],
+          { cwd: ctx.cwd, stream: true },
+        );
 
-    // Parse actually-installed versions from pip stdout to report real installed versions.
-    // Falls back to scan safeVersion per-package when a package is absent from the output.
-    const installedVersions = parsePipInstalledVersions(updateResult.stdout ?? '');
-    const packagesUpdated = buildPipPackagesUpdated(pipEcosystem.auto_safe_packages, installedVersions);
+        if (updateResult.exitCode !== 0) {
+          logger.error('pip install -U failed — reverting pip changes...');
+          return { ok: false, error: `pip install -U failed: ${updateResult.stderr}` };
+        }
 
-    // Run configured validation commands
-    const validationResult = await runValidations({
-      runner,
-      cwd,
-      commands: validationCommands,
-    });
+        return { ok: true, value: updateResult.stdout ?? '' };
+      },
 
-    if (!validationResult.allPassed) {
-      logger.error('Validations failed — reverting pip updates...');
-      return tx.abortWithError({
-        error: 'Validations failed after pip update — changes reverted',
-        validations: validationResult.entries,
-      });
-    }
-
-    return tx.success({
-      packages_updated: packagesUpdated,
-      validations: validationResult.entries,
-    });
-  } catch (err) {
-    throw new PhaseError(
-      `pip updater phase failed: ${err instanceof Error ? err.message : String(err)}`,
-      'pip-updater',
-      err,
-    );
-  }
+      async derivePackagesUpdated(_ctx, stdout) {
+        const installedVersions = parsePipInstalledVersions(stdout);
+        return buildPipPackagesUpdated(pipEcosystem.auto_safe_packages, installedVersions);
+      },
+    },
+    { runner, cwd, scanResult, ecosystemId: 'pip', validationCommands, authorizeBreaking },
+  );
 }

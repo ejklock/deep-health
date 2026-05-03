@@ -1,15 +1,13 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { CommandRunner, CommandResult } from '@core/types/common';
+import type { CommandRunner } from '@core/types/common';
 import type { ProjectConfig, ValidationCommandConfig } from '@core/types/config';
-import type { UpdateResultJson, ValidationEntry } from '@core/types/update';
+import type { UpdateResultJson } from '@core/types/update';
 import type { ScanResultJson } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
-import { PhaseError } from '@core/errors';
 import { logger } from '@infra/utils/logger';
-import { runValidations } from '../utils/validation-runner';
-import { beginUpdaterTransaction } from '../utils/updater-transaction';
 import { runEcosystemEnvironmentProbe } from '../utils/environment-probe';
+import { runUpdaterLifecycle } from '../utils/updater-lifecycle';
 
 const COMPOSER_FILES = ['composer.json', 'composer.lock'];
 
@@ -66,7 +64,7 @@ export function buildComposerPackagesUpdated(
   return updated;
 }
 
-function extractPackageNames(packageRefs: string[]): string[] {
+export function extractPackageNames(packageRefs: string[]): string[] {
   return packageRefs.map((ref) => {
     const atIndex = ref.lastIndexOf('@');
     return atIndex > 0 ? ref.slice(0, atIndex) : ref;
@@ -96,28 +94,6 @@ function buildComposerAutomationArgs(runner: CommandRunner, config: ProjectConfi
   ];
 }
 
-async function checkCurrentState(runner: CommandRunner, cwd: string): Promise<void> {
-  logger.debug('Running composer outdated --direct (informational)...');
-  // SEC: static args only — no variable data
-  await runner.runArgs('composer', ['outdated', '--direct'], { cwd });
-}
-
-async function applyComposerUpdate(
-  runner: CommandRunner,
-  packageNames: string[],
-  cwd: string,
-  automationArgs: string[],
-): Promise<CommandResult> {
-  const pkgList = packageNames.join(' ');
-  logger.info(`Updating packages: ${pkgList}`);
-  // SEC: use runArgs (shell: false) — packageNames from scanner are variable data
-  return runner.runArgs(
-    'composer',
-    ['update', ...packageNames, '--with-all-dependencies', ...automationArgs],
-    { cwd, stream: true },
-  );
-}
-
 export async function runComposerUpdater(
   runner: CommandRunner,
   config: ProjectConfig,
@@ -131,27 +107,6 @@ export async function runComposerUpdater(
   const automationArgs = buildComposerAutomationArgs(runner, config);
   const composerEcosystem = scanResult.ecosystems['composer'] ?? emptyEcosystem();
 
-  // Build skipped validation entries for early-return paths
-  const skippedEntries: ValidationEntry[] =
-    validationCommands.length > 0
-      ? validationCommands.map((vc) => ({
-          name: vc.name,
-          status: 'skipped' as const,
-          detail: 'No validation commands configured — skipped',
-        }))
-      : [{ name: 'validation', status: 'skipped', detail: 'No validation commands configured' }];
-
-  const base: UpdateResultJson = {
-    $schema: 'osv-update-result/v1',
-    agent: 'composer-safe-update',
-    status: 'success',
-    packages_updated: [],
-    packages_skipped: [],
-    packages_pending_breaking: composerEcosystem.breaking_packages,
-    validations: skippedEntries,
-    error: null,
-  };
-
   const autoSafePackageNames = extractPackageNames(composerEcosystem.auto_safe_packages);
   const breakingPackageNames = authorizeBreaking
     ? extractPackageNames(composerEcosystem.breaking_packages)
@@ -159,120 +114,116 @@ export async function runComposerUpdater(
   const packageNamesToUpdate = [...new Set([...autoSafePackageNames, ...breakingPackageNames])];
 
   if (packageNamesToUpdate.length === 0) {
-    return { ...base, validations: [{ name: 'validation', status: 'skipped', detail: 'No packages to update' }] };
+    return {
+      $schema: 'osv-update-result/v1',
+      agent: 'composer-safe-update',
+      status: 'success',
+      packages_updated: [],
+      packages_skipped: [],
+      packages_pending_breaking: composerEcosystem.breaking_packages,
+      validations: [{ name: 'validation', status: 'skipped', detail: 'No packages to update' }],
+      error: null,
+    };
   }
 
   if (runner.dryRun) {
     logger.tagged('composer', 'DRY-RUN', `Would execute: composer install ${automationArgs.join(' ')} (env-check)`);
     logger.tagged('composer', 'DRY-RUN', `Would execute: composer update ${packageNamesToUpdate.join(' ')} ${automationArgs.join(' ')}`);
-    if (validationCommands.length > 0) {
-      for (const vc of validationCommands) {
-        logger.tagged('composer', 'DRY-RUN', `Would execute: ${vc.command}`);
-      }
+    for (const vc of validationCommands) {
+      logger.tagged('composer', 'DRY-RUN', `Would execute: ${vc.command}`);
     }
-    const dryRunEntries: ValidationEntry[] =
-      validationCommands.length > 0
-        ? validationCommands.map((vc) => ({
-            name: vc.name,
-            status: 'skipped' as const,
-            detail: 'Dry-run — not executed',
-          }))
-        : [{ name: 'validation', status: 'skipped', detail: 'No validation commands configured — skipped' }];
-    return {
-      ...base,
-      packages_updated: [],
-      validations: dryRunEntries,
-    };
   }
 
-  try {
-    // ── Environment check: verify PHP + composer are functional BEFORE any mutation ──
-    // Uses the named Ecosystem Environment Probe primitive so the same args array is
-    // shared with the BootstrapSpec (no duplicate literal).
-    const probeArgs = ['install', ...automationArgs];
-    const probe = await runEcosystemEnvironmentProbe(runner, {
-      binary: 'composer',
-      args: probeArgs,
-      cwd,
-      errorPrefix: 'Composer environment mismatch',
-      label: 'composer',
-    });
-    if (!probe.ok) {
-      return {
-        ...base,
-        status: 'error',
-        validations: [{ name: 'validation', status: 'skipped', detail: 'Composer environment check failed — skipped' }],
-        error: probe.error,
-      };
-    }
+  const probeArgs = ['install', ...automationArgs];
 
-    const tx = await beginUpdaterTransaction({
-      files: COMPOSER_FILES,
-      base,
-      cwd,
-      runner,
+  // Capture the before-lock text here so derivePackagesUpdated can access it.
+  // Populated before applyFix runs (at backup time) via a separate backup call.
+  let beforeLockText = '';
+
+  return runUpdaterLifecycle(
+    {
+      agentName: 'composer-safe-update',
+      ecosystemKey: 'composer',
+      backupPaths: COMPOSER_FILES,
       bootstrapSpec: {
         binary: 'composer',
         args: probeArgs,
         label: 'composer install (revert)',
       },
-    });
 
-    await checkCurrentState(runner, cwd);
+      async probe(ctx) {
+        // ── Environment check: verify PHP + composer are functional BEFORE any mutation ──
+        const probe = await runEcosystemEnvironmentProbe(ctx.runner, {
+          binary: 'composer',
+          args: probeArgs,
+          cwd: ctx.cwd,
+          errorPrefix: 'Composer environment mismatch',
+          label: 'composer',
+        });
+        if (!probe.ok) {
+          return {
+            $schema: 'osv-update-result/v1' as const,
+            agent: 'composer-safe-update',
+            status: 'error' as const,
+            packages_updated: [],
+            packages_skipped: [],
+            packages_pending_breaking: composerEcosystem.breaking_packages,
+            validations: [{ name: 'validation', status: 'skipped' as const, detail: 'Composer environment check failed — skipped' }],
+            error: probe.error,
+          };
+        }
+        return null;
+      },
 
-    const updateResult = await applyComposerUpdate(runner, packageNamesToUpdate, cwd, automationArgs);
-    if (updateResult.exitCode !== 0) {
-      // composer update may fail AFTER writing composer.lock (post-autoload-dump
-      // scripts, e.g. Laravel's `artisan package:discover`, run at the end and can
-      // return non-zero even though the lockfile is already on disk). Revert so
-      // the working tree is left byte-identical to the pre-update state.
-      logger.error('composer update failed — reverting Composer changes...');
-      return tx.abortWithError({
-        error: `composer update failed: ${updateResult.stderr}`,
-        validations: [{ name: 'validation', status: 'skipped', detail: 'composer update failed — changes reverted' }],
-      });
-    }
+      async applyFix(ctx) {
+        // Capture the pre-update composer.lock before mutation so derivePackagesUpdated
+        // can diff before/after. Read directly — backupFiles already ran inside the lifecycle
+        // but its Map is internal. A second read here is a single file read, not a backup copy.
+        try {
+          beforeLockText = await readFile(join(ctx.cwd, 'composer.lock'), 'utf-8');
+        } catch {
+          // File missing before update — treat as empty; derivePackagesUpdated will fall back
+          beforeLockText = '';
+        }
 
-    // Run configured validation commands
-    const validationResult = await runValidations({
-      runner,
-      cwd,
-      commands: validationCommands,
-    });
+        logger.debug('Running composer outdated --direct (informational)...');
+        await ctx.runner.runArgs('composer', ['outdated', '--direct'], { cwd: ctx.cwd });
 
-    if (!validationResult.allPassed) {
-      logger.error('Validations failed — reverting Composer updates...');
-      return tx.abortWithError({
-        error: 'Validations failed after composer update — changes reverted',
-        validations: validationResult.entries,
-      });
-    }
+        const pkgList = packageNamesToUpdate.join(' ');
+        logger.info(`Updating packages: ${pkgList}`);
+        // SEC: use runArgs (shell: false) — packageNames from scanner are variable data
+        const updateResult = await ctx.runner.runArgs(
+          'composer',
+          ['update', ...packageNamesToUpdate, '--with-all-dependencies', ...automationArgs],
+          { cwd: ctx.cwd, stream: true },
+        );
 
-    // Derive packages_updated from pre/post composer.lock versions
-    const beforeLockText = tx.backups.get('composer.lock') ?? '';
-    const beforeVersions = extractComposerLockVersions(beforeLockText);
+        if (updateResult.exitCode !== 0) {
+          // composer update may fail AFTER writing composer.lock (post-autoload-dump
+          // scripts, e.g. Laravel's `artisan package:discover`, run at the end and can
+          // return non-zero even though the lockfile is already on disk). Revert so
+          // the working tree is left byte-identical to the pre-update state.
+          logger.error('composer update failed — reverting Composer changes...');
+          return { ok: false, error: `composer update failed: ${updateResult.stderr}` };
+        }
 
-    let packagesUpdated: string[];
-    try {
-      const afterLockText = await readFile(join(cwd, 'composer.lock'), 'utf-8');
-      const afterVersions = extractComposerLockVersions(afterLockText);
-      packagesUpdated = buildComposerPackagesUpdated(packageNamesToUpdate, beforeVersions, afterVersions);
-    } catch (readErr) {
-      logger.warn(
-        `composer-updater: could not read post-update composer.lock (${readErr instanceof Error ? readErr.message : String(readErr)}) — falling back to scan package list`,
-      );
-      packagesUpdated = composerEcosystem.auto_safe_packages;
-    }
+        return { ok: true, value: undefined as void };
+      },
 
-    return tx.success({
-      packages_updated: packagesUpdated,
-      validations: validationResult.entries,
-    });
-  } catch (err) {
-    throw new PhaseError(
-      `Composer updater phase failed: ${err instanceof Error ? err.message : String(err)}`,
-      'composer-updater',
-      err,
-    );
-  }
+      async derivePackagesUpdated(ctx) {
+        const beforeVersions = extractComposerLockVersions(beforeLockText);
+        try {
+          const afterLockText = await readFile(join(ctx.cwd, 'composer.lock'), 'utf-8');
+          const afterVersions = extractComposerLockVersions(afterLockText);
+          return buildComposerPackagesUpdated(packageNamesToUpdate, beforeVersions, afterVersions);
+        } catch (readErr) {
+          logger.warn(
+            `composer-updater: could not read post-update composer.lock (${readErr instanceof Error ? readErr.message : String(readErr)}) — falling back to scan package list`,
+          );
+          return composerEcosystem.auto_safe_packages;
+        }
+      },
+    },
+    { runner, cwd, scanResult, ecosystemId: 'composer', validationCommands, authorizeBreaking },
+  );
 }

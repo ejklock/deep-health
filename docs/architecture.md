@@ -27,6 +27,7 @@ graph TD
             NPM_P["NpmPlugin"]
             COMP_P["ComposerPlugin"]
             PIP_P["PipPlugin"]
+            UPDATER_LC["utils/updater-lifecycle.ts<br/>runUpdaterLifecycle()"]
             UPDATER_TX["utils/updater-transaction.ts<br/>beginUpdaterTransaction()"]
             VAL_RUN["utils/validation-runner.ts"]
             DRY_PREV["utils/dry-run-preview.ts"]
@@ -77,12 +78,11 @@ graph TD
     ORCH --> RUN_ECO_FIX
     RUN_ECO_FIX --> OSV_FIX
     RUN_ECO_FIX --> GATE
-    NPM_P --> UPDATER_TX
-    COMP_P --> UPDATER_TX
-    PIP_P --> UPDATER_TX
-    NPM_P --> VAL_RUN
-    COMP_P --> VAL_RUN
-    PIP_P --> VAL_RUN
+    NPM_P --> UPDATER_LC
+    COMP_P --> UPDATER_LC
+    PIP_P --> UPDATER_LC
+    UPDATER_LC --> UPDATER_TX
+    UPDATER_LC --> VAL_RUN
     ECO_REG --> NPM_P
     ECO_REG --> COMP_P
     ECO_REG --> PIP_P
@@ -161,7 +161,7 @@ flowchart TD
         DRY_PREVIEW["Dry-run preview<br/>(if --dry-run)"]
         DRY_PREVIEW --> RUN_UPDATER
 
-        RUN_UPDATER["plugin.runUpdater()<br/>via beginUpdaterTransaction"]
+        RUN_UPDATER["plugin.runUpdater()<br/>via runUpdaterLifecycle()"]
         RUN_UPDATER --> BREAKING
 
         BREAKING{"authorizeBreaking<br/>+ plugin.installBreakingPackages?"}
@@ -290,6 +290,8 @@ export type RunEcosystemFixOutcome =
 
 `src/modules/ecosystem/utils/updater-transaction.ts` concentrates the duplicated revert/result-building boilerplate that previously lived in three updaters (`npm-updater.ts`, `composer-updater.ts`, `pip-updater.ts`).
 
+**This module is no longer called directly by updaters.** It is invoked by `runUpdaterLifecycle()` (see [Updater Lifecycle](#updater-lifecycle-runupdaterlifecycle) below), which orchestrates the full probe → fix → validate → revert sequence. Updaters supply an `UpdaterRecipe<T>` to the lifecycle function instead of calling `beginUpdaterTransaction` themselves.
+
 The transaction is created with a `BootstrapSpec` (`{ binary, args, label }`) that describes how to reinstall dependencies during revert (e.g. `npm ci`, `composer install --no-interaction --no-scripts`, `pip install -r requirements.txt`). The transaction owns the full revert protocol internally: `restore → bootstrap → restore-byte-identical → warn-only dirty-tree check`.
 
 ```ts
@@ -312,11 +314,101 @@ return tx.abortWithError({
 });
 ```
 
-**Contract:** `abortWithError` runs the revert protocol and lets bootstrap failures propagate. If `npm ci` (or `composer install`, `pip install`) fails during revert, the error throws — the outer `try/catch → PhaseError` in each updater wraps it. This surfaces ambiguous on-disk state rather than silently continuing.
+**Contract:** `abortWithError` runs the revert protocol and lets bootstrap failures propagate. If `npm ci` (or `composer install`, `pip install`) fails during revert, the error throws — the lifecycle's outer `try/catch → PhaseError` wraps it. This surfaces ambiguous on-disk state rather than silently continuing.
 
 **BootstrapSpec** is supplied once at transaction creation and is distinct from `ProbeSpec` (which drives the pre-flight environment check in the Ecosystem Environment Probe). Bootstrap drives revert only.
 
 **Why this seam:** three updaters each repeated ~25 lines of "build skipped entries + base UpdateResultJson + outer error-result spread" before the deepening. A bug in revert correctness (e.g. the npm "double-restore after `npm ci` lockfile-format normalization" trick) had three places to be remembered. After the deepening, the result-shaping invariant lives in one 60-line module.
+
+---
+
+## Updater Lifecycle (`runUpdaterLifecycle`)
+
+`src/modules/ecosystem/utils/updater-lifecycle.ts` is the generic skeleton shared by all three ecosystem updaters (npm, pip, composer). It owns the full sequence from pre-flight probe through fix, validation, partial revert, and final success or abort — eliminating the need for each updater to duplicate that orchestration.
+
+Updaters no longer call `beginUpdaterTransaction` directly. Instead they define an `UpdaterRecipe<TFixerResult>` and pass it to `runUpdaterLifecycle()`, which drives the lifecycle and delegates low-level revert bookkeeping to the transaction.
+
+### Lifecycle Flowchart
+
+```mermaid
+flowchart TD
+    START([runUpdaterLifecycle called]) --> PROBE
+
+    PROBE{"recipe.probe?()"}
+    PROBE -- "non-null result" --> EARLY_RETURN([return probe result])
+    PROBE -- "null / not defined" --> DRY_GATE
+
+    DRY_GATE{"runner.dryRun?"}
+    DRY_GATE -- yes --> DRY_RETURN([return base with skipped validations])
+    DRY_GATE -- no --> BEGIN_TX
+
+    BEGIN_TX["beginUpdaterTransaction(backupPaths, bootstrapSpec, ...)"]
+    BEGIN_TX --> APPLY_FIX
+
+    APPLY_FIX["recipe.applyFix(ctx)"]
+    APPLY_FIX -- "ok: false" --> ABORT_FIX(["tx.abortWithError — full revert"])
+    APPLY_FIX -- "ok: true" --> PRE_VAL
+
+    PRE_VAL{"recipe.preValidation?(ctx, fixerResult)"}
+    PRE_VAL -- throws --> ABORT_PRE(["tx.abortWithError — full revert"])
+    PRE_VAL -- ok / not defined --> VALIDATE
+
+    VALIDATE["runValidations(validationCommands)"]
+    VALIDATE -- "allPassed" --> DERIVE
+
+    VALIDATE -- "!allPassed" --> PARTIAL_REVERT{"recipe.partialRevert?(ctx, fixerResult)"}
+
+    PARTIAL_REVERT -- "not defined" --> FULL_REVERT(["tx.abortWithError — full revert"])
+    PARTIAL_REVERT -- "returns null" --> FULL_REVERT
+    PARTIAL_REVERT -- throws --> PHASE_ERR(["throw PhaseError('partial-revert-bootstrap')"])
+    PARTIAL_REVERT -- "returns { packagesUpdated }" --> RE_VALIDATE
+
+    RE_VALIDATE["runValidations again"]
+    RE_VALIDATE -- "allPassed" --> PARTIAL_SUCCESS(["tx.success — partial packages_updated"])
+    RE_VALIDATE -- "!allPassed" --> FULL_REVERT
+
+    DERIVE["recipe.derivePackagesUpdated?(ctx, fixerResult) ?? []"]
+    DERIVE --> SUCCESS(["tx.success(packages_updated, validations)"])
+
+    SUCCESS --> OUTER_CATCH
+    ABORT_FIX --> OUTER_CATCH
+    ABORT_PRE --> OUTER_CATCH
+    PARTIAL_SUCCESS --> OUTER_CATCH
+    FULL_REVERT --> OUTER_CATCH
+
+    OUTER_CATCH{"Unhandled throw?"}
+    OUTER_CATCH -- "instanceof PhaseError" --> RE_THROW([re-throw as-is])
+    OUTER_CATCH -- "other error" --> WRAP_PHASE(["throw new PhaseError('&lt;eco&gt;-updater', err)"])
+```
+
+### `UpdaterRecipe<T>` Interface
+
+```ts
+interface UpdaterRecipe<TFixerResult = void> {
+  agentName: string;          // e.g. 'npm-updater'
+  ecosystemKey: string;       // e.g. 'npm', 'pip', 'composer'
+  backupPaths: string[];      // files backed up at transaction start
+  bootstrapSpec: BootstrapSpec; // how to reinstall deps during revert
+
+  probe?(ctx): Promise<UpdateResultJson | null>;
+  applyFix(ctx): Promise<FixResult<TFixerResult>>;
+  preValidation?(ctx, fixerResult): Promise<void>;
+  derivePackagesUpdated?(ctx, fixerResult): Promise<string[]>;
+  partialRevert?(ctx, fixerResult): Promise<{ packagesUpdated: string[] } | null>;
+}
+```
+
+`FixResult<T>` is `{ ok: true; value: T } | { ok: false; error: string; validationStatus?: 'fail' | 'skipped' }`.
+
+### Recipe-to-Ecosystem Mapping
+
+| Hook | npm | pip | composer |
+|---|---|---|---|
+| `probe` | — | — | `runEcosystemEnvironmentProbe` |
+| `applyFix` | `FIXER_MAP[strategy]` dispatch | `pip install -U` | `composer update` + automationArgs |
+| `preValidation` | `npm ci` (stream: true) | — | — |
+| `partialRevert` | `fixerResult.partialRevert` → osv-only packages | — | — |
+| `derivePackagesUpdated` | `fixerResult.packagesUpdated` | `parsePipInstalledVersions` | diff `composer.lock` before/after |
 
 ---
 

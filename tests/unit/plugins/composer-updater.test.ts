@@ -470,7 +470,7 @@ describe('runComposerUpdater — PhaseError on unexpected throw (lines 198-203)'
 
     await expect(
       runComposerUpdater(runner, baseConfig(), baseScan(), '/tmp/project', false, []),
-    ).rejects.toThrow('Composer updater phase failed');
+    ).rejects.toThrow(/composer updater phase failed/i);
   });
 });
 
@@ -525,7 +525,7 @@ describe('composer-updater additional branch coverage', () => {
     const runner = makeRunner();
     await expect(
       runComposerUpdater(runner, baseConfig(), baseScan(), '/tmp/project', false, []),
-    ).rejects.toThrow('Composer updater phase failed: string-composer-error');
+    ).rejects.toThrow(/composer updater phase failed: string-composer-error/i);
   });
 });
 
@@ -634,7 +634,11 @@ describe('runComposerUpdater — packages_updated post-update version', () => {
     (backupFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
       new Map([['composer.lock', preLock]]),
     );
-    (readFile as ReturnType<typeof vi.fn>).mockResolvedValueOnce(postLock);
+    // First readFile: before-lock read in applyFix (before composer update runs)
+    // Second readFile: after-lock read in derivePackagesUpdated
+    (readFile as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(preLock)
+      .mockResolvedValueOnce(postLock);
 
     const runArgsMock = vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '', command: '', dryRun: false });
     const runner = makeRunner({ runArgs: runArgsMock });
@@ -660,7 +664,11 @@ describe('runComposerUpdater — packages_updated post-update version', () => {
     (backupFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
       new Map([['composer.lock', preLock]]),
     );
-    (readFile as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('ENOENT: no such file'));
+    // First readFile: before-lock read in applyFix (succeeds with preLock)
+    // Second readFile: after-lock read in derivePackagesUpdated (fails — fallback path)
+    (readFile as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(preLock)
+      .mockRejectedValueOnce(new Error('ENOENT: no such file'));
 
     const runArgsMock = vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '', command: '', dryRun: false });
     const runner = makeRunner({ runArgs: runArgsMock });

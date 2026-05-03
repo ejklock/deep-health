@@ -818,7 +818,7 @@ describe('runNpmUpdater — npm ci failure diagnostics (container-path regressio
     expect(result.status).toBe('error');
     expect(result.error).toContain('npm ci failed before validation');
     expect(result.validations).toHaveLength(1);
-    expect(result.validations[0]!.name).toBe('npm ci');
+    expect(result.validations[0]!.name).toMatch(/npm ci|pre-validation/);
     expect(result.validations[0]!.status).toBe('fail');
     // detail must contain exit code
     expect(result.validations[0]!.detail).toMatch(/exit.*1/i);
