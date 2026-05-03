@@ -78,6 +78,13 @@ scanners:
     on_failure: 'warn'
     # ce_task_timeout_seconds: 120     # optional — seconds to wait for Compute Engine task before
     #                                  #   fetching quality gate; 0 disables waiting (default: 120)
+    # scanner_timeout_seconds: 300     # optional — max seconds for sonar-scanner subprocess (default: 300)
+    # dynamic_timeout: true            # optional — auto-scale timeouts by ncloc from last analysis
+    #                                  #   true (default): fetch ncloc pre-scan, scale up for large projects
+    #                                  #   false: use only static ce_task/scanner_timeout_seconds values
+    # timeout_scale:                   # optional — multipliers for dynamic timeout (only when dynamic_timeout: true)
+    #   scanner_seconds_per_kloc: 3    # seconds of scanner budget per 1,000 lines (default: 3)
+    #   ce_seconds_per_kloc: 1.5       # seconds of CE budget per 1,000 lines (default: 1.5)
     # send_branch_name: false          # optional — forward git branch as -Dsonar.branch.name
     #                                  #   (requires SonarQube Developer Edition or higher)
     # scanner_image: 'sonarsource/sonar-scanner-cli:latest'  # optional — only used in managed mode
@@ -106,6 +113,9 @@ runners:
 #     mode: 'managed'                    # 'managed' (default) | 'external'
 #     on_failure: 'warn'                 # 'warn' (default) | 'fail'
 #     # ce_task_timeout_seconds: 120     # optional — seconds to wait for CE task (0 = disable; default: 120)
+#     # scanner_timeout_seconds: 300     # optional — max seconds for sonar-scanner subprocess (default: 300)
+#     # dynamic_timeout: true            # optional — auto-scale timeouts by ncloc (default: true)
+#     # timeout_scale:                   # optional — per-kloc multipliers (scanner_seconds_per_kloc: 3, ce_seconds_per_kloc: 1.5)
 #     # send_branch_name: false          # optional — requires Developer Edition or higher
 #     # scanner_image: 'sonarsource/sonar-scanner-cli:latest'  # optional — managed-mode container fallback
 #     # project_key, host_url, exclusions, etc. live in sonar-project.properties.

@@ -253,6 +253,17 @@ const SonarQubeConfigSchema = z
      * Defaults to 300 (5 minutes).
      */
     scanner_timeout_seconds: z.number().int().positive().optional(),
+    /**
+     * When true (default), auto-scales timeouts based on ncloc from previous analysis.
+     */
+    dynamic_timeout: z.boolean().default(true),
+    /**
+     * Per-kloc multipliers for dynamic timeout scaling.
+     */
+    timeout_scale: z.object({
+      scanner_seconds_per_kloc: z.number().positive().default(3),
+      ce_seconds_per_kloc: z.number().positive().default(1.5),
+    }).default({}),
   })
   .strict();
 

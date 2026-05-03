@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { SonarQubeEngine } from '@modules/scanner/sonarqube-engine';
+import { SonarQubeEngine, computeEffectiveTimeouts, fetchNcloc } from '@modules/scanner/sonarqube-engine';
 import { EnvironmentError } from '@core/errors';
 import type { ScannerEngineContext } from '@modules/scanner/types';
 import type { CommandRunner, CommandResult, CommandRunnerOptions, ExecutionEnv } from '@core/types/common';
@@ -413,6 +413,9 @@ describe('SonarQubeEngine', () => {
       vi.stubGlobal(
         'fetch',
         vi.fn()
+          // NOTE: fetch call order — (1) fetchNcloc pre-scan, (2) quality gate, (3) measures, (4+) issues
+          // fetchNcloc is called first for external mode with dynamic_timeout:true (default)
+          .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }) // ncloc (no prior analysis)
           .mockResolvedValueOnce({
             ok: true,
             status: 200,
@@ -464,6 +467,8 @@ describe('SonarQubeEngine', () => {
       vi.stubGlobal(
         'fetch',
         vi.fn()
+          // NOTE: fetch call order — (1) fetchNcloc pre-scan, (2) quality gate, (3) measures, (4+) issues
+          .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }) // ncloc (no prior analysis)
           .mockResolvedValueOnce({
             ok: true,
             status: 200,
@@ -1280,13 +1285,16 @@ describe('SonarQubeEngine — CE-task waiting', () => {
     stubReportTaskFile('task-abc-123');
 
     // fetch sequence:
-    // 1. CE task poll → SUCCESS
-    // 2. qualitygates/project_status
-    // 3. measures/component
-    // 4. issues/search (optional — 404)
+    // 1. fetchNcloc pre-scan (external mode dynamic_timeout:true)
+    // 2. CE task poll → SUCCESS
+    // 3. qualitygates/project_status
+    // 4. measures/component
+    // 5. issues/search (optional — 404)
     vi.stubGlobal(
       'fetch',
       vi.fn()
+        // ncloc pre-scan (no prior analysis → null)
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) })
         // CE task poll
         .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ task: { status: 'SUCCESS' } }) })
         // quality gate
@@ -1307,8 +1315,9 @@ describe('SonarQubeEngine — CE-task waiting', () => {
     expect(result.metadata?.qualityGateStatus).toBe('OK');
 
     // Verify CE task was polled using hostUrl (http://localhost:9000), NOT the serverUrl from the file
+    // Note: mock.calls[0] is the fetchNcloc pre-scan call; CE poll is at index 1
     const fetchMock = vi.mocked(fetch);
-    const ceCallUrl = fetchMock.mock.calls[0]?.[0] as string;
+    const ceCallUrl = fetchMock.mock.calls[1]?.[0] as string;
     expect(ceCallUrl).toContain('localhost:9000');
     expect(ceCallUrl).toContain('/api/ce/task?id=task-abc-123');
     // Must NOT use the internal Docker URL from report-task.txt
@@ -1387,10 +1396,12 @@ describe('SonarQubeEngine — CE-task waiting (no fake timers)', () => {
     const config = makeConfig(true);
 
     // No stub → fs.readFileSync throws → parseCeTaskId returns null → CE wait skipped
-    // fetch: directly quality gate + measures + issues
+    // fetch: (1) ncloc pre-scan, (2) quality gate, (3) measures, (4) issues
     vi.stubGlobal(
       'fetch',
       vi.fn()
+        // NOTE: fetch call order — (1) fetchNcloc pre-scan, (2) quality gate, (3) measures, (4) issues
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }) // ncloc (no prior analysis)
         .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ projectStatus: { status: 'OK', conditions: [] } }) })
         .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ component: { measures: [] } }) })
         .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }),
@@ -1432,6 +1443,8 @@ describe('SonarQubeEngine — CE-task waiting (no fake timers)', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn()
+        // NOTE: fetch call order — (1) fetchNcloc pre-scan, (2) quality gate, (3) measures, (4) issues
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }) // ncloc (no prior analysis)
         .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ projectStatus: { status: 'OK', conditions: [] } }) })
         .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ component: { measures: [] } }) })
         .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }),
@@ -1482,6 +1495,8 @@ describe('SonarQubeEngine — parseCeTaskId edge cases (line 82, 83-86)', () => 
     vi.stubGlobal(
       'fetch',
       vi.fn()
+        // NOTE: fetch call order — (1) fetchNcloc pre-scan, (2) quality gate, (3) measures, (4) issues
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }) // ncloc (no prior analysis)
         .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ projectStatus: { status: 'OK', conditions: [] } }) })
         .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ component: { measures: [] } }) })
         .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }),
@@ -1509,6 +1524,8 @@ describe('SonarQubeEngine — parseCeTaskId edge cases (line 82, 83-86)', () => 
     vi.stubGlobal(
       'fetch',
       vi.fn()
+        // NOTE: fetch call order — (1) fetchNcloc pre-scan, (2) quality gate, (3) measures, (4) issues
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }) // ncloc (no prior analysis)
         .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ projectStatus: { status: 'OK', conditions: [] } }) })
         .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ component: { measures: [] } }) })
         .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }),
@@ -1558,6 +1575,8 @@ describe('SonarQubeEngine — waitForCeTask branches (lines 129, 140-142, 146-14
     vi.stubGlobal(
       'fetch',
       vi.fn()
+        // NOTE: fetch call order — (1) fetchNcloc pre-scan, (2+) CE polls, then quality gate, measures, issues
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }) // ncloc (no prior analysis)
         // First CE poll → non-ok (line 129)
         .mockResolvedValueOnce({ ok: false, status: 503, statusText: 'Service Unavailable', json: async () => ({}) })
         // Second CE poll → SUCCESS
@@ -1588,6 +1607,8 @@ describe('SonarQubeEngine — waitForCeTask branches (lines 129, 140-142, 146-14
     vi.stubGlobal(
       'fetch',
       vi.fn()
+        // NOTE: fetch call order — (1) fetchNcloc pre-scan, (2) CE poll, then quality gate, measures, issues
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }) // ncloc (no prior analysis)
         // CE poll → FAILED
         .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ task: { status: 'FAILED' } }) })
         // quality gate
@@ -1617,6 +1638,8 @@ describe('SonarQubeEngine — waitForCeTask branches (lines 129, 140-142, 146-14
     vi.stubGlobal(
       'fetch',
       vi.fn()
+        // NOTE: fetch call order — (1) fetchNcloc pre-scan, (2) CE poll, then quality gate, measures, issues
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }) // ncloc (no prior analysis)
         // CE poll → CANCELED
         .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ task: { status: 'CANCELED' } }) })
         .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ projectStatus: { status: 'OK', conditions: [] } }) })
@@ -1642,6 +1665,8 @@ describe('SonarQubeEngine — waitForCeTask branches (lines 129, 140-142, 146-14
     vi.stubGlobal(
       'fetch',
       vi.fn()
+        // NOTE: fetch call order — (1) fetchNcloc pre-scan, (2) CE poll throws, (3) second CE poll SUCCESS, then QG/measures/issues
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }) // ncloc (no prior analysis)
         // CE poll → throws (lines 146-147)
         .mockRejectedValueOnce(new Error('network error'))
         // Second CE poll → SUCCESS
@@ -1689,6 +1714,8 @@ describe('SonarQubeEngine — fetchSonarQualityGate non-ok + fetchSonarMetrics n
     vi.stubGlobal(
       'fetch',
       vi.fn()
+        // NOTE: fetch call order — (1) fetchNcloc pre-scan, (2) quality gate, (3) measures, (4) issues
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }) // ncloc (no prior analysis)
         // quality gate → non-ok (lines 189-191)
         .mockResolvedValueOnce({ ok: false, status: 403, statusText: 'Forbidden', json: async () => ({}) })
         // measures
@@ -1719,6 +1746,8 @@ describe('SonarQubeEngine — fetchSonarQualityGate non-ok + fetchSonarMetrics n
     vi.stubGlobal(
       'fetch',
       vi.fn()
+        // NOTE: fetch call order — (1) fetchNcloc pre-scan, (2) quality gate, (3) measures, (4) issues
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }) // ncloc (no prior analysis)
         // quality gate → ok
         .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ projectStatus: { status: 'OK', conditions: [] } }) })
         // measures → non-ok (lines 212-214)
@@ -1929,5 +1958,162 @@ describe('SonarQubeEngine — scan input validation (lines 615-620, 624-628, 656
     await expect(
       engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null }),
     ).rejects.toThrow(EnvironmentError);
+  });
+});
+
+// ─── computeEffectiveTimeouts — unit tests ──────────────────────────────────────
+
+describe('computeEffectiveTimeouts — unit', () => {
+  it('returns floor values when ncloc is null', () => {
+    const result = computeEffectiveTimeouts(
+      { scanner_timeout_seconds: 300, ce_task_timeout_seconds: 120, dynamic_timeout: true },
+      null,
+    );
+    expect(result.scannerTimeoutMs).toBe(300_000);
+    expect(result.ceTimeoutMs).toBe(120_000);
+  });
+
+  it('returns floor values when dynamic_timeout is false, ignoring ncloc', () => {
+    const result = computeEffectiveTimeouts(
+      { scanner_timeout_seconds: 300, ce_task_timeout_seconds: 120, dynamic_timeout: false },
+      100_000,
+    );
+    expect(result.scannerTimeoutMs).toBe(300_000);
+    expect(result.ceTimeoutMs).toBe(120_000);
+  });
+
+  it('computes dynamic timeouts correctly for ncloc=100000 (AC1)', () => {
+    // scanner = max(300000, ceil(60 + 100*3)*1000) = max(300000, 360000) = 360000
+    // ce      = max(120000, ceil(30 + 100*1.5)*1000) = max(120000, 180000) = 180000
+    const result = computeEffectiveTimeouts(
+      { scanner_timeout_seconds: 300, ce_task_timeout_seconds: 120, dynamic_timeout: true },
+      100_000,
+    );
+    expect(result.scannerTimeoutMs).toBe(360_000);
+    expect(result.ceTimeoutMs).toBe(180_000);
+  });
+
+  it('floor is respected for small projects (ncloc=10000)', () => {
+    // dynamic scanner = ceil(60 + 10*3)*1000 = ceil(90)*1000 = 90000ms
+    // floor = 300000ms → stays at 300000
+    const result = computeEffectiveTimeouts(
+      { scanner_timeout_seconds: 300, ce_task_timeout_seconds: 120, dynamic_timeout: true },
+      10_000,
+    );
+    expect(result.scannerTimeoutMs).toBe(300_000);
+    expect(result.ceTimeoutMs).toBe(120_000);
+  });
+
+  it('uses custom floor (scanner_timeout_seconds:600) — never goes below it', () => {
+    // ncloc=10 (tiny project): dynamic scanner = ceil(60 + 0.01*3)*1000 = 61000ms < 600000ms floor
+    const result = computeEffectiveTimeouts(
+      { scanner_timeout_seconds: 600, ce_task_timeout_seconds: 180, dynamic_timeout: true },
+      10,
+    );
+    expect(result.scannerTimeoutMs).toBe(600_000);
+    expect(result.ceTimeoutMs).toBe(180_000);
+  });
+
+  it('respects custom timeout_scale multipliers', () => {
+    // ncloc=100000, scannerPerKloc=6, cePerKloc=3
+    // dynamic scanner = ceil(60 + 100*6)*1000 = ceil(660)*1000 = 660000
+    // dynamic ce      = ceil(30 + 100*3)*1000 = ceil(330)*1000 = 330000
+    const result = computeEffectiveTimeouts(
+      {
+        scanner_timeout_seconds: 300,
+        ce_task_timeout_seconds: 120,
+        dynamic_timeout: true,
+        timeout_scale: { scanner_seconds_per_kloc: 6, ce_seconds_per_kloc: 3 },
+      },
+      100_000,
+    );
+    expect(result.scannerTimeoutMs).toBe(660_000);
+    expect(result.ceTimeoutMs).toBe(330_000);
+  });
+
+  it('uses default floor (300s scanner, 120s CE) when not specified', () => {
+    const result = computeEffectiveTimeouts({}, null);
+    expect(result.scannerTimeoutMs).toBe(300_000);
+    expect(result.ceTimeoutMs).toBe(120_000);
+  });
+});
+
+// ─── fetchNcloc — unit tests ────────────────────────────────────────────────────
+
+describe('fetchNcloc — unit', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('returns integer ncloc on valid 200 response (AC5)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        component: { measures: [{ metric: 'ncloc', value: '75000' }] },
+      }),
+    }));
+
+    const result = await fetchNcloc('http://sonar:9000', 'my-project', 'Bearer tok');
+    expect(result).toBe(75_000);
+  });
+
+  it('returns null on non-ok API response (AC4)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({}),
+    }));
+
+    const result = await fetchNcloc('http://sonar:9000', 'my-project', 'Bearer tok');
+    expect(result).toBeNull();
+  });
+
+  it('returns null on network error without propagating (AC6)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('connection refused')));
+
+    const result = await fetchNcloc('http://sonar:9000', 'my-project', 'Bearer tok');
+    expect(result).toBeNull();
+  });
+
+  it('returns null when ncloc measure is missing from response', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        component: { measures: [{ metric: 'bugs', value: '5' }] }, // no ncloc
+      }),
+    }));
+
+    const result = await fetchNcloc('http://sonar:9000', 'my-project', 'Bearer tok');
+    expect(result).toBeNull();
+  });
+
+  it('returns null when measure value is undefined', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        component: { measures: [{ metric: 'ncloc' }] }, // no value field
+      }),
+    }));
+
+    const result = await fetchNcloc('http://sonar:9000', 'my-project', 'Bearer tok');
+    expect(result).toBeNull();
+  });
+
+  it('encodes projectKey in URL (component param)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ component: { measures: [{ metric: 'ncloc', value: '1000' }] } }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await fetchNcloc('http://sonar:9000', 'org:my-project', 'Bearer tok');
+
+    const url = fetchMock.mock.calls[0]![0] as string;
+    expect(url).toContain('component=org%3Amy-project');
+    expect(url).toContain('metricKeys=ncloc');
   });
 });

@@ -261,6 +261,74 @@ async function fetchSonarIssues(
   }
 }
 
+// ─── Dynamic timeout helpers ─────────────────────────────────────────────────────
+
+/**
+ * Fetch ncloc (non-commented lines of code) from the last SonarQube analysis.
+ * Best-effort — returns null on any error (no prior analysis, API unavailable, etc.).
+ * Only called for external mode before scan submission.
+ */
+async function fetchNcloc(
+  hostUrl: string,
+  projectKey: string,
+  authHeader: string,
+): Promise<number | null> {
+  try {
+    const url = `${hostUrl.replace(/\/$/, '')}/api/measures/component?component=${encodeURIComponent(projectKey)}&metricKeys=ncloc`;
+    const response = await fetch(url, {
+      headers: { Authorization: authHeader },
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as SonarQubeMeasuresResponse;
+    const measure = data.component.measures?.find((m) => m.metric === 'ncloc');
+    if (!measure?.value) return null;
+    const n = parseInt(measure.value, 10);
+    return isNaN(n) ? null : n;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Compute effective scanner and CE timeouts.
+ *
+ * When ncloc is available and dynamic_timeout is not false, applies:
+ *   scanner = max(floor, ceil(60 + kloc * scanner_seconds_per_kloc) * 1000)
+ *   ce      = max(floor, ceil(30 + kloc * ce_seconds_per_kloc) * 1000)
+ *
+ * Static configured values (scanner_timeout_seconds, ce_task_timeout_seconds)
+ * always serve as the floor — dynamic scaling never reduces them.
+ */
+function computeEffectiveTimeouts(
+  sonarConfig: { scanner_timeout_seconds?: number; ce_task_timeout_seconds?: number; dynamic_timeout?: boolean; timeout_scale?: { scanner_seconds_per_kloc?: number; ce_seconds_per_kloc?: number } },
+  ncloc: number | null,
+): { scannerTimeoutMs: number; ceTimeoutMs: number } {
+  const floorScannerMs = (sonarConfig.scanner_timeout_seconds ?? 300) * 1_000;
+  const floorCeMs = (sonarConfig.ce_task_timeout_seconds ?? 120) * 1_000;
+
+  if (sonarConfig.dynamic_timeout === false || ncloc === null) {
+    return { scannerTimeoutMs: floorScannerMs, ceTimeoutMs: floorCeMs };
+  }
+
+  const scale = sonarConfig.timeout_scale ?? {};
+  const scannerPerKloc = scale.scanner_seconds_per_kloc ?? 3;
+  const cePerKloc = scale.ce_seconds_per_kloc ?? 1.5;
+  const kloc = ncloc / 1_000;
+
+  const dynamicScannerMs = Math.ceil(60 + kloc * scannerPerKloc) * 1_000;
+  const dynamicCeMs = Math.ceil(30 + kloc * cePerKloc) * 1_000;
+
+  const scannerTimeoutMs = Math.max(floorScannerMs, dynamicScannerMs);
+  const ceTimeoutMs = Math.max(floorCeMs, dynamicCeMs);
+
+  logger.info(
+    `SonarQube: dynamic timeout — ncloc=${ncloc} (${kloc.toFixed(1)}k lines) → ` +
+    `scanner=${Math.round(scannerTimeoutMs / 1000)}s, ce=${Math.round(ceTimeoutMs / 1000)}s`,
+  );
+
+  return { scannerTimeoutMs, ceTimeoutMs };
+}
+
 // ─── Ephemeral token generation ────────────────────────────────────────────────
 
 /**
@@ -663,11 +731,13 @@ export class SonarQubeEngine implements ScannerEngine {
       );
     }
 
-    const ceTimeoutMs = (sonarConfig.ce_task_timeout_seconds ?? 120) * 1_000;
-    const scannerTimeoutMs = (sonarConfig.scanner_timeout_seconds ?? 300) * 1_000;
     const mode = sonarConfig.mode ?? 'external';
 
+    // Compute static floor timeouts first (used for managed mode and as floor for external)
+    let ncloc: number | null = null;
+
     if (mode === 'managed') {
+      const { scannerTimeoutMs, ceTimeoutMs } = computeEffectiveTimeouts(sonarConfig, null);
       return this._scanManaged(ctx, projectKey, sonarConfig.scanner_image, (sonarConfig as any).server_image as string | undefined, base, sonarConfig.send_branch_name ?? false, ceTimeoutMs, scannerTimeoutMs);
     }
 
@@ -689,6 +759,14 @@ export class SonarQubeEngine implements ScannerEngine {
         `Add a line like: sonar.host.url=http://your-sonarqube-server:9000`,
       );
     }
+
+    // Fetch ncloc for dynamic timeout scaling (external + non-dryRun only)
+    // Both token and hostUrl are guaranteed available at this point.
+    if (!runner.dryRun && sonarConfig.dynamic_timeout !== false) {
+      ncloc = await fetchNcloc(hostUrl, projectKey, `Bearer ${token}`);
+    }
+
+    const { scannerTimeoutMs, ceTimeoutMs } = computeEffectiveTimeouts(sonarConfig, ncloc);
 
     logger.info('SonarQube: running sonar-scanner (external mode)...');
     await this.assertAvailable(ctx);
@@ -819,3 +897,6 @@ export class SonarQubeEngine implements ScannerEngine {
     }
   }
 }
+
+// Export for testing — not part of the public scanner engine API
+export { computeEffectiveTimeouts, fetchNcloc };

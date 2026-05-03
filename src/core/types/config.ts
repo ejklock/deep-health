@@ -294,6 +294,23 @@ export interface SonarQubeConfig {
    * Increase for large codebases. Defaults to 300 (5 minutes).
    */
   scanner_timeout_seconds?: number;
+  /**
+   * When true (default), scanner and CE timeouts are dynamically scaled based on
+   * ncloc from the previous analysis. Falls back to static values when ncloc is
+   * unavailable (first run, API error, managed mode).
+   * Set to false to use only static scanner_timeout_seconds / ce_task_timeout_seconds.
+   */
+  dynamic_timeout?: boolean;
+  /**
+   * Multipliers for dynamic timeout calculation.
+   * Only used when dynamic_timeout is true (or not set).
+   * scanner_seconds_per_kloc: seconds of scanner budget per 1000 lines (default: 3)
+   * ce_seconds_per_kloc: seconds of CE budget per 1000 lines (default: 1.5)
+   */
+  timeout_scale?: {
+    scanner_seconds_per_kloc?: number;
+    ce_seconds_per_kloc?: number;
+  };
 }
 
 /** Runner selection for composer commands */

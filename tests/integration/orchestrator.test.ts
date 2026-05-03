@@ -806,9 +806,12 @@ describe('runOrchestrator — SonarQube integration', () => {
     });
 
     // Mock SonarQube API responses
+    // NOTE: fetch call order — (1) fetchNcloc pre-scan, (2) quality gate, (3) measures
+    // fetchNcloc is called first for external mode with dynamic_timeout:true (default)
     vi.stubGlobal(
       'fetch',
       vi.fn()
+        .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }) // ncloc (no prior analysis)
         .mockResolvedValueOnce({
           ok: true,
           status: 200,
