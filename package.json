@@ -4,7 +4,7 @@
   "description": "CLI tool for automated vulnerability scanning and safe dependency updates",
   "type": "module",
   "bin": {
-    "deep-health": "./dist/bin/deep-health.js"
+    "deep-health": "./dist/deep-health.js"
   },
   "exports": {
     ".": "./dist/index.js"
