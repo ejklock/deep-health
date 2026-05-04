@@ -16,22 +16,18 @@ jobs:
         with:
           node-version: "24"
           cache: "npm"
-          cache-dependency-path: osv-security-cli/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        working-directory: osv-security-cli
         run: npm ci
 
       - name: Type check
-        working-directory: osv-security-cli
         run: npm run typecheck
 
       - name: Unit tests
-        working-directory: osv-security-cli
         run: npm run test:unit
 
       - name: Integration tests
-        working-directory: osv-security-cli
         run: npm run test:integration
 
   build:
@@ -45,21 +41,19 @@ jobs:
         with:
           node-version: "24"
           cache: "npm"
-          cache-dependency-path: osv-security-cli/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        working-directory: osv-security-cli
         run: npm ci
 
       - name: Build
-        working-directory: osv-security-cli
         run: npm run build
 
       - name: Upload dist
         uses: actions/upload-artifact@v4
         with:
           name: dist
-          path: osv-security-cli/dist/
+          path: dist/
 
   # -----------------------------------------------------------------------
   # PUBLISH — read-only, not active yet.
@@ -79,20 +73,18 @@ jobs:
   #         node-version: '24'
   #         registry-url: 'https://registry.npmjs.org'
   #         cache: 'npm'
-  #         cache-dependency-path: osv-security-cli/package-lock.json
+  #         cache-dependency-path: package-lock.json
   #
   #     - name: Download dist
   #       uses: actions/download-artifact@v4
   #       with:
   #         name: dist
-  #         path: osv-security-cli/dist/
+  #         path: dist/
   #
   #     - name: Install dependencies (prod only)
-  #       working-directory: osv-security-cli
   #       run: npm ci --omit=dev
   #
   #     - name: Publish
-  #       working-directory: osv-security-cli
   #       run: npm publish --access public
   #       env:
   #         NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -123,38 +115,31 @@ jobs:
           bun-version: latest
 
       - name: Install dependencies
-        working-directory: osv-security-cli
         run: bun install
 
       - name: Compile linux-x64
-        working-directory: osv-security-cli
         run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-linux-x64 --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-linux-x64
 
       - name: Compile linux-arm64
-        working-directory: osv-security-cli
         run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-linux-arm64 --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-linux-arm64
 
       - name: Compile linux-x64-musl
-        working-directory: osv-security-cli
         run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-linux-x64-musl --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-linux-x64-musl
 
       - name: Compile macos-arm64
-        working-directory: osv-security-cli
         run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-darwin-arm64 --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-macos-arm64
 
       - name: Compile macos-x64
-        working-directory: osv-security-cli
         run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-darwin-x64 --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-macos-x64
 
       - name: Compile win-x64
-        working-directory: osv-security-cli
         run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-windows-x64 --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-win-x64
 
       - name: Upload binaries
         uses: actions/upload-artifact@v4
         with:
           name: binaries-${{ matrix.brand.cli_name }}
-          path: osv-security-cli/dist-bin/
+          path: dist-bin/
 
   release:
     name: Release
