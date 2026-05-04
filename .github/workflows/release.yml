@@ -120,22 +120,22 @@ jobs:
         run: bun install
 
       - name: Compile linux-x64
-        run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-linux-x64 --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-linux-x64
+        run: bun build --compile --minify --external googleapis --external google-auth-library --target=bun-linux-x64 --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-linux-x64
 
       - name: Compile linux-arm64
-        run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-linux-arm64 --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-linux-arm64
+        run: bun build --compile --minify --external googleapis --external google-auth-library --target=bun-linux-arm64 --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-linux-arm64
 
       - name: Compile linux-x64-musl
-        run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-linux-x64-musl --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-linux-x64-musl
+        run: bun build --compile --minify --external googleapis --external google-auth-library --target=bun-linux-x64-musl --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-linux-x64-musl
 
       - name: Compile macos-arm64
-        run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-darwin-arm64 --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-macos-arm64
+        run: bun build --compile --minify --external googleapis --external google-auth-library --target=bun-darwin-arm64 --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-macos-arm64
 
       - name: Compile macos-x64
-        run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-darwin-x64 --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-macos-x64
+        run: bun build --compile --minify --external googleapis --external google-auth-library --target=bun-darwin-x64 --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-macos-x64
 
       - name: Compile win-x64
-        run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-windows-x64 --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-win-x64
+        run: bun build --compile --minify --external googleapis --external google-auth-library --target=bun-windows-x64 --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-win-x64
 
       - name: Upload binaries
         uses: actions/upload-artifact@v4
