@@ -8,6 +8,7 @@ import {
   runOAuthFlow,
   saveTokens,
 } from '@infra/storage/google-drive-auth';
+import { CLI_NAME } from '@infra/brand';
 
 interface CloudSetupOptions {
   configPath: string;
@@ -90,7 +91,7 @@ export async function runCloudSetup(opts: CloudSetupOptions): Promise<number> {
   try {
     rawConfig = await readFile(configPath, 'utf-8');
   } catch {
-    process.stderr.write(`Config file not found: ${configPath}\nRun "deep-health init" first.\n`);
+    process.stderr.write(`Config file not found: ${configPath}\nRun "${CLI_NAME} init" first.\n`);
     return 1;
   }
 

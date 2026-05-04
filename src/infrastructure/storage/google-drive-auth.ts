@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { DEFAULT_GDRIVE_CONFIG_DIR } from '@infra/brand';
 
 export const OAUTH_SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
@@ -19,7 +20,7 @@ export interface StoredTokens {
 
 export function getTokensPath(): string {
   const configHome = process.env['XDG_CONFIG_HOME'] ?? join(homedir(), '.config');
-  return join(configHome, 'deep-health', 'tokens.json');
+  return join(configHome, DEFAULT_GDRIVE_CONFIG_DIR, 'tokens.json');
 }
 
 export async function loadStoredTokens(): Promise<StoredTokens | null> {

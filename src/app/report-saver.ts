@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { DEFAULT_REPORTS_SUBDIR } from "@infra/brand";
 import { LocalStorageProvider } from "@infra/storage/local";
 import { createStorageProvider } from "@infra/storage/factory";
 import {
@@ -130,7 +131,7 @@ export function resolveReportsDir(
   cwd: string,
   configReportsDir: string | undefined,
 ): string {
-  return resolve(cwd, configReportsDir ?? ".deep-health/reports");
+  return resolve(cwd, configReportsDir ?? DEFAULT_REPORTS_SUBDIR);
 }
 
 /**

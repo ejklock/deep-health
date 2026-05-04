@@ -6,6 +6,7 @@ import { ProjectConfigSchema } from './schema';
 import type { ProjectConfig } from '@core/types/config';
 import { ConfigLoadError } from '@core/errors';
 import type { EcosystemRegistry } from '@modules/ecosystem/registry';
+import { CLI_NAME } from '@infra/brand';
 
 export const DEFAULT_CONFIG_PATH = 'project-config.yml';
 
@@ -161,7 +162,7 @@ export async function loadConfig(
   } catch (_err) {
     throw new ConfigLoadError(
       `Cannot read config file: ${absolutePath}\n` +
-      `  Hint: Run "deep-health init" to generate a starter config, ` +
+      `  Hint: Run "${CLI_NAME} init" to generate a starter config, ` +
       `or check the --config / --cwd flags.`,
       absolutePath,
     );

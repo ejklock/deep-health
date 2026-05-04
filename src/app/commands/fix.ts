@@ -11,6 +11,7 @@ import { writeAuditTrail, resolveCliVersion } from "@app/audit-trail";
 import { createBranchAndCommit, buildBranchName } from "@infra/utils/git-commit";
 import { detectGitBranch } from "@infra/utils/git-branch";
 import type { CommandRunner } from "@core/types/common";
+import { CLI_NAME, DEFAULT_BRANCH_PREFIX } from "@infra/brand";
 
 export interface FixCommandOptions {
   config: string;
@@ -84,8 +85,8 @@ async function runFixPipeline(
           result.scan.ecosystems[plugin.id]?.breaking_packages ?? []
         ).join(", ");
         process.stderr.write(
-          `[deep-health] Breaking-change updates skipped for ${plugin.name} (${breaking} package(s): ${pkgs || "unknown"}).\n` +
-          `  To authorize: deep-health fix --authorize-breaking ${plugin.id}\n`,
+          `[${CLI_NAME}] Breaking-change updates skipped for ${plugin.name} (${breaking} package(s): ${pkgs || "unknown"}).\n` +
+          `  To authorize: ${CLI_NAME} fix --authorize-breaking ${plugin.id}\n`,
         );
       }
     }
@@ -170,7 +171,7 @@ export async function runFixCommand(
   const effectiveCreateBranch = opts.createBranch ?? wf?.create_branch ?? false;
   const effectiveOpenPr = opts.openPr ?? wf?.open_pr ?? false;
   const useBranch = (effectiveOpenPr || effectiveCreateBranch) && !opts.dryRun;
-  const branchPrefix = opts.branchPrefix ?? wf?.branch_prefix ?? 'fix/deep-health-';
+  const branchPrefix = opts.branchPrefix ?? wf?.branch_prefix ?? DEFAULT_BRANCH_PREFIX;
 
   if (useBranch) {
     const originalBranch = await detectGitBranch(opts.cwd, runner);
@@ -181,7 +182,7 @@ export async function runFixCommand(
       opts.cwd,
       originalBranch,
       branchName,
-      'fix: apply safe dependency updates [deep-health]',
+      'fix: apply safe dependency updates [' + CLI_NAME + ']',
       async () => runFixPipeline(ctx, opts),
     );
 
@@ -215,7 +216,7 @@ async function openPullRequest(
   const ghCheck = await runner.runArgs('gh', ['--version'], { cwd });
   if (ghCheck.exitCode !== 0) {
     process.stderr.write(
-      '[deep-health] --open-pr requires the GitHub CLI (gh). ' +
+      `[${CLI_NAME}] --open-pr requires the GitHub CLI (gh). ` +
       'Install it from https://cli.github.com and run: gh auth login\n',
     );
     process.exit(3);
@@ -232,12 +233,12 @@ async function openPullRequest(
   const body = [
     `## Summary`,
     ``,
-    `Automated dependency update by deep-health v${cliVersion}.`,
+    `Automated dependency update by ${CLI_NAME} v${cliVersion}.`,
     ``,
     `**Project:** ${config.project.client} / ${config.project.name}`,
     `**Ecosystems:** ${config.ecosystems.map((e) => e.id).join(', ')}`,
     ``,
-    `🤖 Co-authored with deep-health v${cliVersion}`,
+    `🤖 Co-authored with ${CLI_NAME} v${cliVersion}`,
   ].join('\n');
 
   const prResult = await runner.runArgs(
@@ -251,5 +252,5 @@ async function openPullRequest(
   }
 
   const prUrl = prResult.stdout.trim();
-  process.stdout.write(`[deep-health] Pull request created: ${prUrl}\n`);
+  process.stdout.write(`[${CLI_NAME}] Pull request created: ${prUrl}\n`);
 }

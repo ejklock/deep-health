@@ -1,56 +1,57 @@
 #!/usr/bin/env node
 
 // Runtime Node.js version guard — must run before any other imports.
-const [nodeMajor] = process.versions.node.split(".").map(Number);
+const [nodeMajor] = process.versions.node.split('.').map(Number);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 if (!(process as any).isBun && nodeMajor < 24) {
   process.stderr.write(
-    `deep-health requires Node.js >=24. Detected: v${process.versions.node}\n` +
+    `${process.env['CLI_NAME'] ?? 'deep-health'} requires Node.js >=24. Detected: v${process.versions.node}\n` +
       `Please upgrade Node.js and try again.\n`,
   );
   process.exit(1);
 }
 
-import { Command } from "commander";
-import { DEFAULT_CONFIG_PATH } from "@infra/config/loader";
-import { formatCliError } from "@app/diagnostics";
-import { runCloudSetup } from "@app/commands/cloud-setup";
-import { runInitCommand } from "@app/commands/init";
-import { createRunContext } from "@app/run-context";
-import { runScanCommand, type ScanCommandOptions } from "@app/commands/scan";
-import { runFixCommand, type FixCommandOptions } from "@app/commands/fix";
+import { Command } from 'commander';
+import { DEFAULT_CONFIG_PATH } from '@infra/config/loader';
+import { formatCliError } from '@app/diagnostics';
+import { runCloudSetup } from '@app/commands/cloud-setup';
+import { runInitCommand } from '@app/commands/init';
+import { createRunContext } from '@app/run-context';
+import { runScanCommand, type ScanCommandOptions } from '@app/commands/scan';
+import { runFixCommand, type FixCommandOptions } from '@app/commands/fix';
 import {
   runExecutiveReportCommand,
   type ExecutiveReportCommandOptions,
-} from "@app/commands/executive-report";
-import pkg from "../package.json" with { type: "json" };
+} from '@app/commands/executive-report';
+import pkg from '../package.json' with { type: 'json' };
+import { CLI_NAME, DEFAULT_BRANCH_PREFIX } from '@infra/brand';
 
 const pkgVersion: string = pkg.version;
 
 const program = new Command();
 
 program
-  .name("deep-health")
-  .description("OSV vulnerability scanning and safe dependency update CLI")
+  .name(CLI_NAME)
+  .description('Vulnerability scanning and safe dependency update CLI')
   .version(pkgVersion);
 
 const commonOptions = (cmd: Command) =>
   cmd
     .option(
-      "-c, --config <path>",
-      "Path to project-config.yml",
+      '-c, --config <path>',
+      'Path to project-config.yml',
       DEFAULT_CONFIG_PATH,
     )
-    .option("--cwd <path>", "Working directory", process.cwd())
-    .option("--dry-run", "Show commands without executing", false)
-    .option("-v, --verbose", "Verbose output", false)
+    .option('--cwd <path>', 'Working directory', process.cwd())
+    .option('--dry-run', 'Show commands without executing', false)
+    .option('-v, --verbose', 'Verbose output', false)
     .option(
-      "-q, --quiet",
-      "Suppress all output except errors and final report",
+      '-q, --quiet',
+      'Suppress all output except errors and final report',
       false,
     )
-    .option("--json", "Output results as JSON", false)
-    .option("-o, --output <path>", "Write report to file");
+    .option('--json', 'Output results as JSON', false)
+    .option('-o, --output <path>', 'Write report to file');
 
 // init command
 // NOTE: init/config scaffolding is registry-driven via EcosystemPlugin.
@@ -58,13 +59,13 @@ const commonOptions = (cmd: Command) =>
 // without touching this command or the orchestrator.
 // Update this command only when new ecosystems need first-class `init` UX.
 program
-  .command("init")
-  .description("Generate a project-config.yml template in the current project")
-  .option("--project-name <name>", "Project name")
-  .option("--client <name>", "Client name")
-  .option("--cwd <path>", "Working directory", process.cwd())
-  .option("--output <path>", "Output path (default: ./project-config.yml)")
-  .option("--force", "Overwrite existing file", false)
+  .command('init')
+  .description('Generate a project-config.yml template in the current project')
+  .option('--project-name <name>', 'Project name')
+  .option('--client <name>', 'Client name')
+  .option('--cwd <path>', 'Working directory', process.cwd())
+  .option('--output <path>', 'Output path (default: ./project-config.yml)')
+  .option('--force', 'Overwrite existing file', false)
   .action(async (opts) => {
     try {
       await runInitCommand(opts);
@@ -77,66 +78,87 @@ program
 
 // scan command
 commonOptions(
-  program.command("scan").description("Run vulnerability scan only (Phase 1)"),
+  program.command('scan').description('Run vulnerability scan only (Phase 1)'),
 ).action(async (opts: ScanCommandOptions) => {
-  await runCliAction(() => createRunContext(opts).then((ctx) => runScanCommand(ctx, opts)));
+  await runCliAction(() =>
+    createRunContext(opts).then((ctx) => runScanCommand(ctx, opts)),
+  );
 });
 
 // fix command
 commonOptions(
   program
-    .command("fix")
+    .command('fix')
     .description(
-      "Run full workflow: scan + ecosystem updates + executive report",
+      'Run full workflow: scan + ecosystem updates + executive report',
     )
     .option(
-      "--phases <phases>",
-      "Comma-separated phases to run (e.g. scan,npm,composer,pip,report). When absent, all configured ecosystems run.",
+      '--phases <phases>',
+      'Comma-separated phases to run (e.g. scan,npm,composer,pip,report). When absent, all configured ecosystems run.',
     )
-    .option("--no-report", "Skip executive report generation", false)
+    .option('--no-report', 'Skip executive report generation', false)
     // Generic: --authorize-breaking can be passed multiple times, once per ecosystem id
     .option(
-      "--authorize-breaking <ecosystemId...>",
-      "Authorize breaking-change updates for the given ecosystem id(s). Example: --authorize-breaking composer npm",
+      '--authorize-breaking <ecosystemId...>',
+      'Authorize breaking-change updates for the given ecosystem id(s). Example: --authorize-breaking composer npm',
     )
-    .option("--create-branch", "Create a git branch before applying fixes and commit changes on success")
-    .option("--branch-prefix <prefix>", "Branch name prefix (default: fix/deep-health-)", "fix/deep-health-")
-    .option("--open-pr", "Create a GitHub pull request after fix (implies --create-branch; requires gh CLI)")
-    .option("--pr-title <title>", "Pull request title (default: auto-generated)"),
+    .option(
+      '--create-branch',
+      'Create a git branch before applying fixes and commit changes on success',
+    )
+    .option(
+      '--branch-prefix <prefix>',
+      'Branch name prefix',
+      DEFAULT_BRANCH_PREFIX,
+    )
+    .option(
+      '--open-pr',
+      'Create a GitHub pull request after fix (implies --create-branch; requires gh CLI)',
+    )
+    .option(
+      '--pr-title <title>',
+      'Pull request title (default: auto-generated)',
+    ),
 ).action(async (opts: FixCommandOptions) => {
-  await runCliAction(() => createRunContext(opts).then((ctx) => runFixCommand(ctx, opts)));
+  await runCliAction(() =>
+    createRunContext(opts).then((ctx) => runFixCommand(ctx, opts)),
+  );
 });
 
 // executive-report command
 commonOptions(
   program
-    .command("executive-report")
+    .command('executive-report')
     .description(
-      "Generate executive report (reads client/project from config by default)",
+      'Generate executive report (reads client/project from config by default)',
     )
-    .option("--client <name>", "Client name (default: from project-config.yml)")
+    .option('--client <name>', 'Client name (default: from project-config.yml)')
     .option(
-      "--project <name>",
-      "Project name (default: from project-config.yml)",
+      '--project <name>',
+      'Project name (default: from project-config.yml)',
     ),
 ).action(async (opts: ExecutiveReportCommandOptions) => {
-  await runCliAction(() => createRunContext(opts).then((ctx) => runExecutiveReportCommand(ctx, opts)));
+  await runCliAction(() =>
+    createRunContext(opts).then((ctx) => runExecutiveReportCommand(ctx, opts)),
+  );
 });
 
 // cloud-setup command
 program
-  .command("cloud-setup")
+  .command('cloud-setup')
   .description(
-    "Interactive Google Drive folder picker — saves folder_id to project-config.yml",
+    'Interactive Google Drive folder picker — saves folder_id to project-config.yml',
   )
   .option(
-    "-c, --config <path>",
-    "Path to project-config.yml",
+    '-c, --config <path>',
+    'Path to project-config.yml',
     DEFAULT_CONFIG_PATH,
   )
-  .option("--cwd <path>", "Working directory", process.cwd())
+  .option('--cwd <path>', 'Working directory', process.cwd())
   .action(async (opts: { config: string; cwd: string }) => {
-    await runCliAction(() => runCloudSetup({ configPath: opts.config, cwd: opts.cwd }));
+    await runCliAction(() =>
+      runCloudSetup({ configPath: opts.config, cwd: opts.cwd }),
+    );
   });
 
 /**

@@ -11,6 +11,7 @@ import { collectRootNpmLockfileVersions } from '@modules/ecosystem/utils/lockfil
 import { readNpmLockfileVersion } from '@modules/ecosystem/utils/lockfile-utils';
 import { runNpmUpdater } from './npm-updater';
 import { resolveNpmDockerImage } from '@infra/provisioner/npm-runner';
+import { NPM_DEFAULT_FIXER } from '@infra/brand';
 
 // ─── Version inference helpers ────────────────────────────────────────────────
 
@@ -111,7 +112,7 @@ export const npmPlugin: EcosystemPlugin = {
 
   postUpdateOsvVerify: 'osv-strategy-only',
 
-  supportedFixers: ['osv', 'npm-audit', 'osv-then-audit'],
+  supportedFixers: ['osv', 'osv-then-audit', 'npm-audit'],
 
   defaultValidationCommands: [
     { name: 'build', command: 'npm run build' },
@@ -142,7 +143,7 @@ export const npmPlugin: EcosystemPlugin = {
    */
   async resolveEffectiveFixer(config: ProjectConfig, cwd: string): Promise<FixerStrategyId> {
     const ecoConfigEntry = config.ecosystems.find((e) => e.id === 'npm');
-    const strategy: FixerStrategyId = (ecoConfigEntry?.fixer ?? this.supportedFixers[0]) as FixerStrategyId;
+    const strategy: FixerStrategyId = (ecoConfigEntry?.fixer ?? NPM_DEFAULT_FIXER) as FixerStrategyId;
 
     if (strategy === 'osv' || strategy === 'osv-then-audit') {
       const lockVer = await readNpmLockfileVersion(cwd);

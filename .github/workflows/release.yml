@@ -103,9 +103,18 @@ jobs:
   #         generate_release_notes: true
 
   build-binaries:
-    name: Build Binaries
+    # vars.BRANDS: JSON array of brand objects. Example:
+    # [{"cli_name":"deep-health","npm_default_fixer":"osv-then-audit"},{"cli_name":"security-scan","npm_default_fixer":"osv"}]
+    # If not set, defaults to deep-health only.
+    name: Build Binaries (${{ matrix.brand.cli_name }})
     runs-on: ubuntu-latest
     needs: test
+    strategy:
+      matrix:
+        brand: ${{ fromJson(vars.BRANDS || '[{"cli_name":"deep-health","npm_default_fixer":"osv-then-audit"}]') }}
+    env:
+      CLI_NAME: ${{ matrix.brand.cli_name }}
+      NPM_DEFAULT_FIXER: ${{ matrix.brand.npm_default_fixer }}
     steps:
       - uses: actions/checkout@v4
 
@@ -119,44 +128,32 @@ jobs:
 
       - name: Compile linux-x64
         working-directory: osv-security-cli
-        run: bun build --compile --minify --bytecode --external googleapis --external
-          google-auth-library --target=bun-linux-x64 bin/deep-health.ts
-          --outfile dist-bin/deep-health-linux-x64
+        run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-linux-x64 --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-linux-x64
 
       - name: Compile linux-arm64
         working-directory: osv-security-cli
-        run: bun build --compile --minify --bytecode --external googleapis --external
-          google-auth-library --target=bun-linux-arm64 bin/deep-health.ts
-          --outfile dist-bin/deep-health-linux-arm64
+        run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-linux-arm64 --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-linux-arm64
 
       - name: Compile linux-x64-musl
         working-directory: osv-security-cli
-        run: bun build --compile --minify --bytecode --external googleapis --external
-          google-auth-library --target=bun-linux-x64-musl bin/deep-health.ts
-          --outfile dist-bin/deep-health-linux-x64-musl
+        run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-linux-x64-musl --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-linux-x64-musl
 
       - name: Compile macos-arm64
         working-directory: osv-security-cli
-        run: bun build --compile --minify --bytecode --external googleapis --external
-          google-auth-library --target=bun-darwin-arm64 bin/deep-health.ts
-          --outfile dist-bin/deep-health-macos-arm64
+        run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-darwin-arm64 --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-macos-arm64
 
       - name: Compile macos-x64
         working-directory: osv-security-cli
-        run: bun build --compile --minify --bytecode --external googleapis --external
-          google-auth-library --target=bun-darwin-x64 bin/deep-health.ts
-          --outfile dist-bin/deep-health-macos-x64
+        run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-darwin-x64 --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-macos-x64
 
       - name: Compile win-x64
         working-directory: osv-security-cli
-        run: bun build --compile --minify --bytecode --external googleapis --external
-          google-auth-library --target=bun-windows-x64 bin/deep-health.ts
-          --outfile dist-bin/deep-health-win-x64
+        run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-windows-x64 --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-win-x64
 
       - name: Upload binaries
         uses: actions/upload-artifact@v4
         with:
-          name: binaries
+          name: binaries-${{ matrix.brand.cli_name }}
           path: osv-security-cli/dist-bin/
 
   release:
@@ -171,7 +168,8 @@ jobs:
       - name: Download binaries
         uses: actions/download-artifact@v4
         with:
-          name: binaries
+          pattern: binaries-*
+          merge-multiple: true
           path: binaries/
 
       - name: Create GitHub Release

@@ -6,6 +6,7 @@ import { logger } from '../utils/logger';
 import { EcosystemContainerCommandRunner } from './command-runner';
 import { EphemeralEcosystemContainer } from './ephemeral-container';
 import { buildProjectImage } from './build-project-image';
+import { CLI_NAME } from '@infra/brand';
 
 /**
  * Resolve a containerized CommandRunner for the given ecosystem plugin.
@@ -112,7 +113,7 @@ export async function resolveEcosystemRuntime(
           logger.warn(
             '[ecosystem-runtime/pip] No language_version configured and no Python version file detected. ' +
             `Falling back to ${spec.defaultImage} (may resolve to Python 3.14+). ` +
-            "Run 'deep-health init' or set runners.pip.language_version in your config to pin the version.",
+            `Run '${CLI_NAME} init' or set runners.pip.language_version in your config to pin the version.`,
           );
         }
       }

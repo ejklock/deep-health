@@ -27,6 +27,7 @@ import {
 } from "@modules/scanner/index";
 import type { AggregatedScanResult } from "@modules/scanner/index";
 import { runAdvisors } from "@modules/advisor/index";
+import { CLI_NAME, KILL_SWITCH_VAR } from "@infra/brand";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { runEcosystemFix } from "./run-ecosystem-fix";
@@ -286,12 +287,12 @@ export async function runOrchestrator(
     .getAll()
     .filter((p) => config.ecosystems.some((e) => e.id === p.id));
 
-  // Kill-switch: skip all automated fixes when DEEP_HEALTH_NO_AUTO_FIX is set
-  if (process.env['DEEP_HEALTH_NO_AUTO_FIX']) {
+  // Kill-switch: skip all automated fixes when KILL_SWITCH_VAR is set
+  if (process.env[KILL_SWITCH_VAR]) {
     logger.warn(
-      '[deep-health] DEEP_HEALTH_NO_AUTO_FIX is set — skipping all automated fixes. ' +
+      `[${CLI_NAME}] ${KILL_SWITCH_VAR} is set — skipping all automated fixes. ` +
       'Scan results are available but no files have been modified. ' +
-      'Unset DEEP_HEALTH_NO_AUTO_FIX to re-enable automated remediation.',
+      `Unset ${KILL_SWITCH_VAR} to re-enable automated remediation.`,
     );
     result.hasPendingVulns = Object.values(scanResult.ecosystems).some(
       (e) => e.breaking > 0 || e.manual > 0,

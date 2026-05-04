@@ -86,17 +86,17 @@ describe('npmPlugin.resolveEffectiveFixer', () => {
     expect(result).toBe('osv');
   });
 
-  it('no configured fixer → uses first supportedFixer (osv) as default', async () => {
+  it('no configured fixer → uses NPM_DEFAULT_FIXER (osv-then-audit) as default', async () => {
     vi.mocked(readNpmLockfileVersion).mockResolvedValue(2);
 
     // Config has no fixer set for npm
     const result = await npmPlugin.resolveEffectiveFixer!(makeConfig(), '/project');
 
-    // Default is supportedFixers[0] = 'osv'; v2 lockfile so no demotion
-    expect(result).toBe('osv');
+    // Default is NPM_DEFAULT_FIXER = 'osv-then-audit'; v2 lockfile so no demotion
+    expect(result).toBe('osv-then-audit');
   });
 
-  it('no configured fixer + lockfileVersion=1 → demotes default osv to npm-audit', async () => {
+  it('no configured fixer + lockfileVersion=1 → demotes default osv-then-audit to npm-audit', async () => {
     vi.mocked(readNpmLockfileVersion).mockResolvedValue(1);
 
     const result = await npmPlugin.resolveEffectiveFixer!(makeConfig(), '/project');
