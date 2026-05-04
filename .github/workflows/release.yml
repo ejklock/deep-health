@@ -119,27 +119,27 @@ jobs:
 
       - name: Compile linux-x64
         working-directory: osv-security-cli
-        run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-linux-x64 bin/deep-health.ts --outfile dist-bin/deep-health-linux-x64
+        run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-linux-x64 bin/security-scan.ts --outfile dist-bin/security-scan-linux-x64
 
       - name: Compile linux-arm64
         working-directory: osv-security-cli
-        run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-linux-arm64 bin/deep-health.ts --outfile dist-bin/deep-health-linux-arm64
+        run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-linux-arm64 bin/security-scan.ts --outfile dist-bin/security-scan-linux-arm64
 
       - name: Compile linux-x64-musl
         working-directory: osv-security-cli
-        run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-linux-x64-musl bin/deep-health.ts --outfile dist-bin/deep-health-linux-x64-musl
+        run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-linux-x64-musl bin/security-scan.ts --outfile dist-bin/security-scan-linux-x64-musl
 
       - name: Compile macos-arm64
         working-directory: osv-security-cli
-        run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-darwin-arm64 bin/deep-health.ts --outfile dist-bin/deep-health-macos-arm64
+        run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-darwin-arm64 bin/security-scan.ts --outfile dist-bin/security-scan-macos-arm64
 
       - name: Compile macos-x64
         working-directory: osv-security-cli
-        run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-darwin-x64 bin/deep-health.ts --outfile dist-bin/deep-health-macos-x64
+        run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-darwin-x64 bin/security-scan.ts --outfile dist-bin/security-scan-macos-x64
 
       - name: Compile win-x64
         working-directory: osv-security-cli
-        run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-windows-x64 bin/deep-health.ts --outfile dist-bin/deep-health-win-x64
+        run: bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-windows-x64 bin/security-scan.ts --outfile dist-bin/security-scan-win-x64
 
       - name: Upload binaries
         uses: actions/upload-artifact@v4

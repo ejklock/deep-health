@@ -22,8 +22,8 @@ export class GoogleDriveProvider implements StorageProvider {
     const { google } = googleModule;
 
     const oauth2Client = new google.auth.OAuth2(
-      process.env['DEEP_HEALTH_GOOGLE_CLIENT_ID'],
-      process.env['DEEP_HEALTH_GOOGLE_CLIENT_SECRET'],
+      process.env['SECURITY_SCAN_GOOGLE_CLIENT_ID'],
+      process.env['SECURITY_SCAN_GOOGLE_CLIENT_SECRET'],
     );
 
     oauth2Client.setCredentials({
@@ -76,7 +76,7 @@ export async function createGoogleDriveProvider(
 
   if (!tokens) {
     throw new Error(
-      "Google Drive tokens not found. Run 'deep-health cloud-setup' first to connect Google Drive.",
+      "Google Drive tokens not found. Run 'security-scan cloud-setup' first to connect Google Drive.",
     );
   }
 

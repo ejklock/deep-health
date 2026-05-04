@@ -281,10 +281,10 @@ describe('runInitCommand — fixer strategy via selectPrompt', () => {
     );
     expect(fixerCall).toBeDefined();
 
-    // Choices must include npm's supported fixers: ['osv', 'npm-audit', 'osv-then-audit']
+    // Choices must include npm's supported fixers: ['osv', 'npm-audit']
     const choices = fixerCall![1] as Array<{ name: string; value: string }>;
     expect(choices.map((c) => c.value)).toEqual(
-      expect.arrayContaining(['osv', 'npm-audit', 'osv-then-audit']),
+      expect.arrayContaining(['osv', 'npm-audit']),
     );
     expect(vi.mocked(generateConfigYaml)).toHaveBeenCalled();
   });
@@ -460,6 +460,6 @@ describe('runInitCommand() — branch coverage top-up', () => {
     });
 
     stdoutSpy.mockRestore();
-    // If no error thrown, fallback '.deep-health/reports' was used
+    // If no error thrown, fallback '.security-scan/reports' was used
   });
 });

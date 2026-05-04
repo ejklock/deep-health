@@ -1,0 +1,73 @@
+# bitbucket-pipelines.yml
+# IMPORTANT: This file must be placed at the root of the git repository
+# (not inside a subdirectory) for Bitbucket to detect and run the pipeline.
+#
+# Pipeline mirrors the GitHub Actions release workflow.
+# Triggered on tags matching v*.*.* — runs Test, Build, Build Binaries, and Publish Release.
+
+image: node:24
+
+pipelines:
+  tags:
+    'v*.*.*':
+      - stage:
+          name: Test
+          steps:
+            - step:
+                name: Run tests
+                caches:
+                  - node
+                script:
+                  - cd osv-security-cli
+                  - npm ci
+                  - npm run typecheck
+                  - npm run test:unit
+                  - npm run test:integration
+
+      - stage:
+          name: Build
+          steps:
+            - step:
+                name: Build dist
+                caches:
+                  - node
+                script:
+                  - cd osv-security-cli
+                  - npm ci
+                  - npm run build
+                artifacts:
+                  - osv-security-cli/dist/**
+
+      - stage:
+          name: Build Binaries
+          steps:
+            - step:
+                name: Compile all targets
+                image: oven/bun:latest
+                script:
+                  - cd osv-security-cli
+                  - bun install
+                  - bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-linux-x64 bin/security-scan.ts --outfile dist-bin/security-scan-linux-x64
+                  - bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-linux-arm64 bin/security-scan.ts --outfile dist-bin/security-scan-linux-arm64
+                  - bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-linux-x64-musl bin/security-scan.ts --outfile dist-bin/security-scan-linux-x64-musl
+                  - bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-darwin-arm64 bin/security-scan.ts --outfile dist-bin/security-scan-macos-arm64
+                  - bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-darwin-x64 bin/security-scan.ts --outfile dist-bin/security-scan-macos-x64
+                  - bun build --compile --minify --bytecode --external googleapis --external google-auth-library --target=bun-windows-x64 bin/security-scan.ts --outfile dist-bin/security-scan-win-x64
+                artifacts:
+                  - osv-security-cli/dist-bin/**
+
+      - stage:
+          name: Publish Release
+          steps:
+            - step:
+                name: Upload binaries to Bitbucket Downloads
+                script:
+                  - cd osv-security-cli
+                  - |
+                    for binary in dist-bin/security-scan-*; do
+                      echo "Uploading $binary..."
+                      curl -s -u "$BITBUCKET_USERNAME:$BITBUCKET_APP_PASSWORD" \
+                        -X POST \
+                        "https://api.bitbucket.org/2.0/repositories/$BITBUCKET_REPO_FULL_NAME/downloads" \
+                        --form "files=@$binary"
+                    done

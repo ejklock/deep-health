@@ -88,7 +88,7 @@ describe('resolveEcosystemRuntime — dockerfile image-source', () => {
 
   it('calls buildProjectImage with projectDir, dockerfilePath, logPrefix, and containerBinaries', async () => {
     mockBuildProjectImage.mockResolvedValue({
-      image: 'deep-health-project/npm:abc123',
+      image: 'security-scan-project/npm:abc123',
       entrypointOverride: '',
     });
 
@@ -110,7 +110,7 @@ describe('resolveEcosystemRuntime — dockerfile image-source', () => {
 
   it('forwards entrypointOverride from buildProjectImage result to EphemeralEcosystemContainer', async () => {
     mockBuildProjectImage.mockResolvedValue({
-      image: 'deep-health-project/npm:abc123',
+      image: 'security-scan-project/npm:abc123',
       entrypointOverride: '',
     });
 
@@ -123,7 +123,7 @@ describe('resolveEcosystemRuntime — dockerfile image-source', () => {
 
     const containerOptions = (MockContainer as Mock).mock.calls[0][0] as Record<string, unknown>;
     expect(containerOptions.entrypointOverride).toBe('');
-    expect(containerOptions.image).toBe('deep-health-project/npm:abc123');
+    expect(containerOptions.image).toBe('security-scan-project/npm:abc123');
   });
 
   it('throws when image_source="dockerfile" but dockerfile_path is missing', async () => {
@@ -156,7 +156,7 @@ describe('resolveEcosystemRuntime — dockerfile image-source', () => {
   });
 
   it('uses the image returned by buildProjectImage (not the spec default image)', async () => {
-    const projectBuiltImage = 'deep-health-project/npm:deadbeef1234';
+    const projectBuiltImage = 'security-scan-project/npm:deadbeef1234';
     mockBuildProjectImage.mockResolvedValue({
       image: projectBuiltImage,
       entrypointOverride: '',
@@ -177,7 +177,7 @@ describe('resolveEcosystemRuntime — dockerfile image-source', () => {
 
   it('forwards build_context and build_args from scanner config to buildProjectImage', async () => {
     mockBuildProjectImage.mockResolvedValue({
-      image: 'deep-health-project/npm:abc123',
+      image: 'security-scan-project/npm:abc123',
       entrypointOverride: '',
     });
 
@@ -203,7 +203,7 @@ describe('resolveEcosystemRuntime — dockerfile image-source', () => {
 
   it('passes requiredBinaries derived from spec.containerBinaries (composer plugin)', async () => {
     mockBuildProjectImage.mockResolvedValue({
-      image: 'deep-health-project/composer:abc',
+      image: 'security-scan-project/composer:abc',
       entrypointOverride: '',
     });
 

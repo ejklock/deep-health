@@ -116,6 +116,6 @@ When a new domain concept stabilizes during design work, add it here. When a ter
 
 **Language Version** — field `runners.<id>.language_version` (renamed from `runtime_version`). Version hint used by the ephemeral image resolver to select the appropriate Node/Python/PHP base image (e.g. `"20"`, `"3.11"`, `"8.2"`). Canonical runtime hint for npm container execution; also used by pip and composer resolvers.
 
-**Kill Switch** — `DEEP_HEALTH_NO_AUTO_FIX` env var. When set, the orchestrator runs the scan but skips all automated fixes and writes no files.
+**Kill Switch** — `SECURITY_SCAN_NO_AUTO_FIX` env var. When set, the orchestrator runs the scan but skips all automated fixes and writes no files.
 
 **Git/PR Workflow** — `--create-branch` + optional `--open-pr` orchestrate a branch creation, fix run, commit, push, and `gh pr create`. Lives in `src/infrastructure/utils/git-commit.ts`.

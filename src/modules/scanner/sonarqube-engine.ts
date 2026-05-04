@@ -804,12 +804,12 @@ export class SonarQubeEngine implements ScannerEngine {
 
     // Read sonar.projectKey from the project's sonar-project.properties — the
     // SonarQube-convention source of truth. Missing file is a hard error:
-    // run `deep-health init` to generate a template.
+    // run `security-scan init` to generate a template.
     const userProps = await readSonarProperties(cwd);
     if (!userProps) {
       throw new EnvironmentError(
         `SonarQube: sonar-project.properties not found at ${cwd}. ` +
-        `Run \`deep-health init\` (with SonarQube enabled) to generate a template, ` +
+        `Run \`security-scan init\` (with SonarQube enabled) to generate a template, ` +
         `or create the file manually at your project root.`,
       );
     }
@@ -947,7 +947,7 @@ export class SonarQubeEngine implements ScannerEngine {
       logger.info('SonarQube: container ready');
 
       logger.info('SonarQube: generating ephemeral scan token...');
-      const ephemeralToken = await generateEphemeralToken(hostUrl, 'deep-health-scan');
+      const ephemeralToken = await generateEphemeralToken(hostUrl, 'security-scan-scan');
 
       if (!ephemeralToken) {
         logger.warn('SonarQube: ephemeral token generation failed — managed scan cannot proceed safely');

@@ -130,7 +130,7 @@ export function resolveReportsDir(
   cwd: string,
   configReportsDir: string | undefined,
 ): string {
-  return resolve(cwd, configReportsDir ?? ".deep-health/reports");
+  return resolve(cwd, configReportsDir ?? ".security-scan/reports");
 }
 
 /**

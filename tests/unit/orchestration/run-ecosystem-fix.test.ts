@@ -63,7 +63,7 @@ function makeUpdateResult(
 ): UpdateResultJson {
   return {
     $schema: 'osv-update-result/v1',
-    agent: 'deep-health/test',
+    agent: 'security-scan/test',
     status: 'success',
     packages_updated: [],
     packages_skipped: [],

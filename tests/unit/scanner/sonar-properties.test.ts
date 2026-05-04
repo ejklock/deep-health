@@ -107,7 +107,7 @@ describe('readSonarProperties + sanitizeAndWriteProperties', () => {
   let workDir: string;
 
   beforeEach(async () => {
-    workDir = await mkdtemp(join(tmpdir(), 'deep-health-sonar-test-'));
+    workDir = await mkdtemp(join(tmpdir(), 'security-scan-sonar-test-'));
   });
 
   afterEach(async () => {
@@ -222,7 +222,7 @@ describe('readSonarProperties + sanitizeAndWriteProperties', () => {
     const sanitized = await sanitizeAndWriteProperties({ cwd: workDir, location: 'cwd-hidden' });
     try {
       expect(sanitized.path).toContain(workDir);
-      expect(sanitized.path).toContain('.deep-health-sonar-project.properties');
+      expect(sanitized.path).toContain('.security-scan-sonar-project.properties');
       // File exists
       const content = await readFile(sanitized.path, 'utf-8');
       expect(content).toContain('sonar.projectKey=k');

@@ -35,7 +35,7 @@ const execFileAsync = promisify(execFile);
 const LARGE_CONTEXT_THRESHOLD_BYTES = 50 * 1024 * 1024; // 50 MB
 
 /** Namespace prefix for all project-built image tags. */
-const IMAGE_TAG_NAMESPACE = 'deep-health-project';
+const IMAGE_TAG_NAMESPACE = 'security-scan-project';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -81,8 +81,8 @@ export interface BuildProjectImageOptions {
 export interface BuildProjectImageResult {
   /**
    * The stable local image tag that was built.
-   * Format: `deep-health-project/<logPrefix>:<sha256-prefix>`
-   * Example: `deep-health-project/npm:a3f1b2c4`
+   * Format: `security-scan-project/<logPrefix>:<sha256-prefix>`
+   * Example: `security-scan-project/npm:a3f1b2c4`
    */
   image: string;
   /**

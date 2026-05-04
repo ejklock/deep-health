@@ -136,7 +136,7 @@ describe('orchestrator — updateResult.status=error sets overallStatus (lines 8
   it('sets result.overallStatus to "error" and breaks the loop (lines 895-899)', async () => {
     const errorUpdaterResult = {
       $schema: 'osv-update-result/v1',
-      agent: 'deep-health/test',
+      agent: 'security-scan/test',
       status: 'error' as const,
       packages_updated: [],
       packages_skipped: [],

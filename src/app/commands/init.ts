@@ -315,11 +315,11 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     enableMarkdown = await confirmPrompt('Generate markdown reports?', true);
 
     if (enableMarkdown) {
-      const dirAnswer = await prompt('Reports output directory', '.deep-health/reports');
-      outputsDir = dirAnswer.trim() || '.deep-health/reports';
+      const dirAnswer = await prompt('Reports output directory', '.security-scan/reports');
+      outputsDir = dirAnswer.trim() || '.security-scan/reports';
     }
   } else {
-    outputsDir = '.deep-health/reports';
+    outputsDir = '.security-scan/reports';
   }
 
   // Determine output formats: markdown when enabled
@@ -383,11 +383,11 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
       `  3. Review sonar-project.properties — adjust sonar.sources and sonar.exclusions for your layout\n`,
     );
     process.stdout.write(
-      `  4. Run: deep-health scan --cwd <your-project-dir>\n`,
+      `  4. Run: security-scan scan --cwd <your-project-dir>\n`,
     );
   } else {
     process.stdout.write(
-      `  3. Run: deep-health scan --cwd <your-project-dir>\n`,
+      `  3. Run: security-scan scan --cwd <your-project-dir>\n`,
     );
   }
   process.stdout.write(

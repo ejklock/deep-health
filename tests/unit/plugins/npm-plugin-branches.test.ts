@@ -97,7 +97,7 @@ describe('npmPlugin.supportedFixers', () => {
   it('exposes supportedFixers array (line 106)', () => {
     expect(npmPlugin.supportedFixers).toContain('osv');
     expect(npmPlugin.supportedFixers).toContain('npm-audit');
-    expect(npmPlugin.supportedFixers).toContain('osv-then-audit');
+    expect(npmPlugin.supportedFixers).not.toContain('osv-then-audit');
   });
 });
 

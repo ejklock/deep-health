@@ -65,11 +65,11 @@ describe('EphemeralEcosystemContainer — _buildDockerArgs', () => {
   // ─── --entrypoint appears BEFORE the image name ───────────────────────────
 
   it('places --entrypoint before the image name in the arg list', () => {
-    const container = makeContainer({ image: 'deep-health-project/npm:abc123', entrypointOverride: '' });
+    const container = makeContainer({ image: 'security-scan-project/npm:abc123', entrypointOverride: '' });
     const args = container._buildDockerArgs(['ci']);
 
     const entrypointIdx = args.indexOf('--entrypoint');
-    const imageIdx = args.indexOf('deep-health-project/npm:abc123');
+    const imageIdx = args.indexOf('security-scan-project/npm:abc123');
     expect(entrypointIdx).toBeGreaterThan(-1);
     expect(imageIdx).toBeGreaterThan(-1);
     expect(entrypointIdx).toBeLessThan(imageIdx);

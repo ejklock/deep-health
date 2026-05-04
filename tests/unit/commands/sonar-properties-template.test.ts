@@ -1,6 +1,6 @@
 /**
  * Unit tests for the sonar-project.properties template generator used by
- * `deep-health init` when the user enables SonarQube and the project has no
+ * `security-scan init` when the user enables SonarQube and the project has no
  * pre-existing file.
  *
  * The generator must:
@@ -164,7 +164,7 @@ describe('writeSonarPropertiesTemplateIfMissing', () => {
   let workDir: string;
 
   beforeEach(async () => {
-    workDir = await mkdtemp(join(tmpdir(), 'deep-health-init-test-'));
+    workDir = await mkdtemp(join(tmpdir(), 'security-scan-init-test-'));
   });
   afterEach(async () => {
     await rm(workDir, { recursive: true, force: true });

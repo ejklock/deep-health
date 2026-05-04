@@ -52,7 +52,7 @@ const configWithOutputs: ProjectConfig = {
     require_authorization_for_constraint_change: true,
   },
   conflict_resolution: 'stop_and_ask',
-  outputs: { formats: ['markdown'], dir: '.deep-health/reports' },
+  outputs: { formats: ['markdown'], dir: '.security-scan/reports' },
 };
 
 const scanResult = {
@@ -164,7 +164,7 @@ describe('runFixCommand', () => {
     const ctx: RunContext = {
       config: {
         ...configWithOutputs,
-        outputs: { formats: [], dir: '.deep-health/reports' },
+        outputs: { formats: [], dir: '.security-scan/reports' },
       },
       runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
     };

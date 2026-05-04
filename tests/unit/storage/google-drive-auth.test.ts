@@ -143,19 +143,19 @@ describe('saveTokens', () => {
 
 describe('createOAuth2Client', () => {
   it('throws when env vars are missing', () => {
-    delete process.env['DEEP_HEALTH_GOOGLE_CLIENT_ID'];
-    delete process.env['DEEP_HEALTH_GOOGLE_CLIENT_SECRET'];
+    delete process.env['SECURITY_SCAN_GOOGLE_CLIENT_ID'];
+    delete process.env['SECURITY_SCAN_GOOGLE_CLIENT_SECRET'];
     expect(() => createOAuth2Client()).toThrow('Google OAuth credentials are not configured');
   });
 
   it('returns clientId and clientSecret when env vars are set', () => {
-    process.env['DEEP_HEALTH_GOOGLE_CLIENT_ID'] = 'test-client-id';
-    process.env['DEEP_HEALTH_GOOGLE_CLIENT_SECRET'] = 'test-client-secret';
+    process.env['SECURITY_SCAN_GOOGLE_CLIENT_ID'] = 'test-client-id';
+    process.env['SECURITY_SCAN_GOOGLE_CLIENT_SECRET'] = 'test-client-secret';
     const result = createOAuth2Client();
     expect(result.clientId).toBe('test-client-id');
     expect(result.clientSecret).toBe('test-client-secret');
-    delete process.env['DEEP_HEALTH_GOOGLE_CLIENT_ID'];
-    delete process.env['DEEP_HEALTH_GOOGLE_CLIENT_SECRET'];
+    delete process.env['SECURITY_SCAN_GOOGLE_CLIENT_ID'];
+    delete process.env['SECURITY_SCAN_GOOGLE_CLIENT_SECRET'];
   });
 });
 
@@ -180,8 +180,8 @@ describe('openBrowser', () => {
 
 describe('runOAuthFlow', () => {
   beforeEach(() => {
-    process.env['DEEP_HEALTH_GOOGLE_CLIENT_ID'] = 'test-client-id';
-    process.env['DEEP_HEALTH_GOOGLE_CLIENT_SECRET'] = 'test-client-secret';
+    process.env['SECURITY_SCAN_GOOGLE_CLIENT_ID'] = 'test-client-id';
+    process.env['SECURITY_SCAN_GOOGLE_CLIENT_SECRET'] = 'test-client-secret';
     mocks.execFile.mockReset();
     mocks.getToken.mockReset();
     mocks.generateAuthUrl.mockReset().mockReturnValue('https://accounts.google.com/auth?test=1');
@@ -193,8 +193,8 @@ describe('runOAuthFlow', () => {
   });
 
   afterEach(() => {
-    delete process.env['DEEP_HEALTH_GOOGLE_CLIENT_ID'];
-    delete process.env['DEEP_HEALTH_GOOGLE_CLIENT_SECRET'];
+    delete process.env['SECURITY_SCAN_GOOGLE_CLIENT_ID'];
+    delete process.env['SECURITY_SCAN_GOOGLE_CLIENT_SECRET'];
   });
 
   /** Poll until generateAuthUrl has been called, then return its captured state param. */

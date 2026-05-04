@@ -64,8 +64,8 @@ describe('ProjectConfigSchema — config_version field', () => {
     if (!result.success) {
       const message = result.error.issues[0].message;
       expect(message).toContain('Unsupported config_version "2"');
-      expect(message).toContain('deep-health supports config_version "1"');
-      expect(message).toContain('deep-health init --force');
+      expect(message).toContain('security-scan supports config_version "1"');
+      expect(message).toContain('security-scan init --force');
     }
   });
 
@@ -78,8 +78,8 @@ describe('ProjectConfigSchema — config_version field', () => {
     if (!result.success) {
       const message = result.error.issues[0].message;
       expect(message).toContain('Unsupported config_version "any-other-string"');
-      expect(message).toContain('deep-health supports config_version "1"');
-      expect(message).toContain('deep-health init --force');
+      expect(message).toContain('security-scan supports config_version "1"');
+      expect(message).toContain('security-scan init --force');
     }
   });
 });

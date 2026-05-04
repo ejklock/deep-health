@@ -146,7 +146,7 @@ export async function applyOsvFixViaStaging(
   const backups = await backupFiles(Array.from(osvFixSpec.backupFiles), cwd);
 
   // Create isolated staging temp dir
-  const stagingDir = await mkdtemp(join(os.tmpdir(), 'deep-health-osv-fix-'));
+  const stagingDir = await mkdtemp(join(os.tmpdir(), 'security-scan-osv-fix-'));
 
   try {
     // Copy files into staging dir

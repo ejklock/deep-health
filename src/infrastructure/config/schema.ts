@@ -106,7 +106,7 @@ const NpmRunnerConfigSchema = z
      * Node.js language version hint used to resolve the Docker image when `image` is not set.
      * Example: '20', '20.11', '20.11.1'.
      * Overrides the version inferred from project files.
-     * Set by `deep-health init` when a Node version can be inferred automatically.
+     * Set by `security-scan init` when a Node version can be inferred automatically.
      */
     language_version: z.string().optional(),
     /**
@@ -357,7 +357,7 @@ const ComposerRunnerConfigSchema = z
      * PHP language version hint used to resolve the Docker image when `image` is not set.
      * Example: '8.2', '8.2.1'.
      * Overrides the version inferred from project files (.php-version / composer.json#require.php).
-     * Set by `deep-health init` when a PHP version can be inferred automatically.
+     * Set by `security-scan init` when a PHP version can be inferred automatically.
      */
     language_version: z.string().optional(),
     /**
@@ -491,7 +491,7 @@ const WorkflowConfigSchema = z
     /**
      * Prefix for the generated branch name.
      * Full name: <branch_prefix><ISO-timestamp>.
-     * Default: 'fix/deep-health-'.
+     * Default: 'fix/security-scan-'.
      */
     branch_prefix: z.string().regex(/^[a-zA-Z0-9]/, 'branch_prefix must not start with a dash or special character').optional(),
     /** Pull request title override. Auto-generated when absent. */
@@ -524,7 +524,7 @@ export const ProjectConfigSchema = z
      * Schema version for forward-compatibility detection.
      * - Absent: treated as version "1" (backward compatible with pre-versioning configs).
      * - "1": current supported version.
-     * - Any other value: rejected with a user-friendly message suggesting `deep-health init --force`.
+     * - Any other value: rejected with a user-friendly message suggesting `security-scan init --force`.
      */
     config_version: z.string().optional(),
     project: z
@@ -559,8 +559,8 @@ export const ProjectConfigSchema = z
         code: z.ZodIssueCode.custom,
         message:
           `Unsupported config_version "${data.config_version}". ` +
-          `This version of deep-health supports config_version "1". ` +
-          `Run "deep-health init --force" to regenerate a compatible config.`,
+          `This version of security-scan supports config_version "1". ` +
+          `Run "security-scan init --force" to regenerate a compatible config.`,
       });
     }
   });

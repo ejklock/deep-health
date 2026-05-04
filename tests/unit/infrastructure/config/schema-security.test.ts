@@ -353,7 +353,7 @@ describe('build_args — invalid values', () => {
 
 describe('branch_prefix validation', () => {
   it.each([
-    'fix/deep-health-',
+    'fix/security-scan-',
     'feat/',
     'my-prefix/',
   ])('accepts valid branch_prefix: %s', (branch_prefix) => {

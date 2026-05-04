@@ -161,7 +161,7 @@ export async function loadConfig(
   } catch (_err) {
     throw new ConfigLoadError(
       `Cannot read config file: ${absolutePath}\n` +
-      `  Hint: Run "deep-health init" to generate a starter config, ` +
+      `  Hint: Run "security-scan init" to generate a starter config, ` +
       `or check the --config / --cwd flags.`,
       absolutePath,
     );

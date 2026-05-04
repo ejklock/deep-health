@@ -78,7 +78,7 @@ const mockAssertBoundary = vi.mocked(assertBuildContextWithinBoundary);
 async function stableTag(contents: string, logPrefix: string): Promise<string> {
   const { createHash } = await import('node:crypto');
   const sha256 = createHash('sha256').update(contents).digest('hex');
-  return `deep-health-project/${logPrefix}:${sha256.slice(0, 12)}`;
+  return `security-scan-project/${logPrefix}:${sha256.slice(0, 12)}`;
 }
 
 describe('buildProjectImage', () => {

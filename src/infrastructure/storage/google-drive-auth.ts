@@ -19,7 +19,7 @@ export interface StoredTokens {
 
 export function getTokensPath(): string {
   const configHome = process.env['XDG_CONFIG_HOME'] ?? join(homedir(), '.config');
-  return join(configHome, 'deep-health', 'tokens.json');
+  return join(configHome, 'security-scan', 'tokens.json');
 }
 
 export async function loadStoredTokens(): Promise<StoredTokens | null> {
@@ -40,15 +40,15 @@ export async function saveTokens(tokens: StoredTokens): Promise<void> {
 }
 
 export function createOAuth2Client() {
-  const clientId = process.env['DEEP_HEALTH_GOOGLE_CLIENT_ID'];
-  const clientSecret = process.env['DEEP_HEALTH_GOOGLE_CLIENT_SECRET'];
+  const clientId = process.env['SECURITY_SCAN_GOOGLE_CLIENT_ID'];
+  const clientSecret = process.env['SECURITY_SCAN_GOOGLE_CLIENT_SECRET'];
 
   if (!clientId || !clientSecret) {
     throw new Error(
       'Google OAuth credentials are not configured.\n' +
         'Set the following environment variables before running cloud-setup:\n' +
-        '  DEEP_HEALTH_GOOGLE_CLIENT_ID=<your-client-id>\n' +
-        '  DEEP_HEALTH_GOOGLE_CLIENT_SECRET=<your-client-secret>\n' +
+        '  SECURITY_SCAN_GOOGLE_CLIENT_ID=<your-client-id>\n' +
+        '  SECURITY_SCAN_GOOGLE_CLIENT_SECRET=<your-client-secret>\n' +
         'Create OAuth 2.0 credentials (Desktop app) at:\n' +
         '  https://console.cloud.google.com/apis/credentials',
     );

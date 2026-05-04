@@ -33,12 +33,12 @@ describe('writeAuditTrail', () => {
     await writeAuditTrail('/proj', baseRecord);
 
     expect(mkdir).toHaveBeenCalledWith(
-      expect.stringContaining('.deep-health/runs'),
+      expect.stringContaining('.security-scan/runs'),
       { recursive: true },
     );
     expect(writeFile).toHaveBeenCalledTimes(1);
     const [filePath] = vi.mocked(writeFile).mock.calls[0];
-    expect(filePath).toContain('.deep-health/runs');
+    expect(filePath).toContain('.security-scan/runs');
     expect(filePath).toContain('.json');
   });
 
@@ -88,7 +88,7 @@ describe('writeAuditTrail', () => {
     await writeAuditTrail('/proj', baseRecord);
 
     expect(logger.info).toHaveBeenCalledWith(
-      expect.stringContaining('.deep-health/runs'),
+      expect.stringContaining('.security-scan/runs'),
     );
   });
 
@@ -103,11 +103,11 @@ describe('writeAuditTrail', () => {
     expect(filePath).toContain('.security-scan/reports/runs');
   });
 
-  it('falls back to <cwd>/.deep-health/runs when reportsDir is omitted', async () => {
+  it('falls back to <cwd>/.security-scan/runs when reportsDir is omitted', async () => {
     await writeAuditTrail('/proj', baseRecord);
 
     expect(mkdir).toHaveBeenCalledWith(
-      expect.stringContaining('.deep-health/runs'),
+      expect.stringContaining('.security-scan/runs'),
       { recursive: true },
     );
   });

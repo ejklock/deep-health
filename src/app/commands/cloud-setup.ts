@@ -90,7 +90,7 @@ export async function runCloudSetup(opts: CloudSetupOptions): Promise<number> {
   try {
     rawConfig = await readFile(configPath, 'utf-8');
   } catch {
-    process.stderr.write(`Config file not found: ${configPath}\nRun "deep-health init" first.\n`);
+    process.stderr.write(`Config file not found: ${configPath}\nRun "security-scan init" first.\n`);
     return 1;
   }
 

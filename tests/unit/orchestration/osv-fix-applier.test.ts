@@ -117,7 +117,7 @@ describe('applyOsvFixViaStaging — happy path with verification', () => {
         ['package-lock.json', originalLockfile],
       ]),
     );
-    mockMkdtemp.mockResolvedValue('/tmp/deep-health-osv-fix-abc123');
+    mockMkdtemp.mockResolvedValue('/tmp/security-scan-osv-fix-abc123');
     mockWriteFile.mockResolvedValue(undefined);
     mockRm.mockResolvedValue(undefined);
   });
@@ -205,7 +205,7 @@ describe('applyOsvFixViaStaging — container failure modes', () => {
         ['package-lock.json', buildLockfile([{ name: 'lodash', version: '4.17.20' }])],
       ]),
     );
-    mockMkdtemp.mockResolvedValue('/tmp/deep-health-osv-fix-abc123');
+    mockMkdtemp.mockResolvedValue('/tmp/security-scan-osv-fix-abc123');
     mockWriteFile.mockResolvedValue(undefined);
     mockRm.mockResolvedValue(undefined);
   });
@@ -262,7 +262,7 @@ describe('applyOsvFixViaStaging — regression: unverifiable JSON claims must ne
         ['package-lock.json', originalLockfile],
       ]),
     );
-    mockMkdtemp.mockResolvedValue('/tmp/deep-health-osv-fix-abc123');
+    mockMkdtemp.mockResolvedValue('/tmp/security-scan-osv-fix-abc123');
     mockWriteFile.mockResolvedValue(undefined);
     mockRm.mockResolvedValue(undefined);
   });
@@ -418,7 +418,7 @@ describe('applyOsvFixViaStaging — staging dir cleanup', () => {
     (gitUtils.backupFiles as ReturnType<typeof vi.fn>).mockResolvedValue(
       new Map([['package-lock.json', buildLockfile([{ name: 'x', version: '1.0.0' }])]]),
     );
-    mockMkdtemp.mockResolvedValue('/tmp/deep-health-osv-fix-cleanup-test');
+    mockMkdtemp.mockResolvedValue('/tmp/security-scan-osv-fix-cleanup-test');
     mockWriteFile.mockResolvedValue(undefined);
     mockRm.mockResolvedValue(undefined);
   });
@@ -433,7 +433,7 @@ describe('applyOsvFixViaStaging — staging dir cleanup', () => {
 
     await applyOsvFixViaStaging(makeInput());
 
-    expect(mockRm).toHaveBeenCalledWith('/tmp/deep-health-osv-fix-cleanup-test', {
+    expect(mockRm).toHaveBeenCalledWith('/tmp/security-scan-osv-fix-cleanup-test', {
       recursive: true,
       force: true,
     });
@@ -444,7 +444,7 @@ describe('applyOsvFixViaStaging — staging dir cleanup', () => {
 
     await expect(applyOsvFixViaStaging(makeInput())).rejects.toThrow('Docker not available');
 
-    expect(mockRm).toHaveBeenCalledWith('/tmp/deep-health-osv-fix-cleanup-test', {
+    expect(mockRm).toHaveBeenCalledWith('/tmp/security-scan-osv-fix-cleanup-test', {
       recursive: true,
       force: true,
     });
@@ -464,7 +464,7 @@ describe('applyOsvFixViaStaging — package.json propagation branches (lines 257
         ['package-lock.json', originalLockfile],
       ]),
     );
-    mockMkdtemp.mockResolvedValue('/tmp/deep-health-osv-fix-pjson');
+    mockMkdtemp.mockResolvedValue('/tmp/security-scan-osv-fix-pjson');
     mockWriteFile.mockResolvedValue(undefined);
     mockRm.mockResolvedValue(undefined);
     mockOsvDockerRunnerRun.mockResolvedValue({
@@ -505,7 +505,7 @@ describe('applyOsvFixViaStaging — rm throws in finally (lines 289-290)', () =>
     (gitUtils.backupFiles as ReturnType<typeof vi.fn>).mockResolvedValue(
       new Map([['package-lock.json', buildLockfile([{ name: 'x', version: '1.0.0' }])]]),
     );
-    mockMkdtemp.mockResolvedValue('/tmp/deep-health-osv-fix-rm-fail');
+    mockMkdtemp.mockResolvedValue('/tmp/security-scan-osv-fix-rm-fail');
     mockWriteFile.mockResolvedValue(undefined);
   });
 
@@ -537,7 +537,7 @@ describe('applyOsvFixViaStaging — parseOsvFixJson branch coverage', () => {
     (gitUtils.backupFiles as ReturnType<typeof vi.fn>).mockResolvedValue(
       new Map([['package-lock.json', originalLockfile]]),
     );
-    mockMkdtemp.mockResolvedValue('/tmp/deep-health-osv-fix-parse');
+    mockMkdtemp.mockResolvedValue('/tmp/security-scan-osv-fix-parse');
     mockWriteFile.mockResolvedValue(undefined);
     mockRm.mockResolvedValue(undefined);
   });

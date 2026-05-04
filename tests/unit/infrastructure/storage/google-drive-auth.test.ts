@@ -40,10 +40,10 @@ describe('OAUTH_SCOPES', () => {
 describe('getTokensPath()', () => {
   afterEach(() => { delete process.env['XDG_CONFIG_HOME']; });
 
-  it('returns path under ~/.config/deep-health when XDG_CONFIG_HOME is not set', () => {
+  it('returns path under ~/.config/security-scan when XDG_CONFIG_HOME is not set', () => {
     delete process.env['XDG_CONFIG_HOME'];
     const p = getTokensPath();
-    expect(p).toContain('deep-health');
+    expect(p).toContain('security-scan');
     expect(p).toContain('tokens.json');
   });
 
@@ -87,19 +87,19 @@ describe('saveTokens()', () => {
 
 describe('createOAuth2Client()', () => {
   afterEach(() => {
-    delete process.env['DEEP_HEALTH_GOOGLE_CLIENT_ID'];
-    delete process.env['DEEP_HEALTH_GOOGLE_CLIENT_SECRET'];
+    delete process.env['SECURITY_SCAN_GOOGLE_CLIENT_ID'];
+    delete process.env['SECURITY_SCAN_GOOGLE_CLIENT_SECRET'];
   });
 
   it('throws when env vars are not set', () => {
-    delete process.env['DEEP_HEALTH_GOOGLE_CLIENT_ID'];
-    delete process.env['DEEP_HEALTH_GOOGLE_CLIENT_SECRET'];
+    delete process.env['SECURITY_SCAN_GOOGLE_CLIENT_ID'];
+    delete process.env['SECURITY_SCAN_GOOGLE_CLIENT_SECRET'];
     expect(() => createOAuth2Client()).toThrow('Google OAuth credentials are not configured');
   });
 
   it('returns clientId and clientSecret when env vars are set', () => {
-    process.env['DEEP_HEALTH_GOOGLE_CLIENT_ID'] = 'my-client-id';
-    process.env['DEEP_HEALTH_GOOGLE_CLIENT_SECRET'] = 'my-secret';
+    process.env['SECURITY_SCAN_GOOGLE_CLIENT_ID'] = 'my-client-id';
+    process.env['SECURITY_SCAN_GOOGLE_CLIENT_SECRET'] = 'my-secret';
     const result = createOAuth2Client();
     expect(result.clientId).toBe('my-client-id');
     expect(result.clientSecret).toBe('my-secret');
