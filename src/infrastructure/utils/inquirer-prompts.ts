@@ -1,4 +1,4 @@
-import { confirm, select, checkbox } from '@inquirer/prompts';
+import { confirm, select, checkbox, input } from '@inquirer/prompts';
 
 /**
  * Thin wrappers around @inquirer/prompts. Exported as a dedicated module so
@@ -23,4 +23,8 @@ export async function checkboxPrompt<T extends string>(
   choices: Array<{ name: string; value: T; checked?: boolean }>,
 ): Promise<T[]> {
   return checkbox<T>({ message, choices });
+}
+
+export async function inputPrompt(message: string, defaultValue?: string): Promise<string> {
+  return input({ message, default: defaultValue });
 }

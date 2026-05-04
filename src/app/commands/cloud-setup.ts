@@ -9,6 +9,7 @@ import {
   saveTokens,
 } from '@infra/storage/google-drive-auth';
 import { CLI_NAME } from '@infra/brand';
+import { confirmPrompt, selectPrompt, inputPrompt } from '@infra/utils/inquirer-prompts';
 
 interface CloudSetupOptions {
   configPath: string;
@@ -83,8 +84,6 @@ async function updateConfigFile(configPath: string, folderId: string): Promise<v
 }
 
 export async function runCloudSetup(opts: CloudSetupOptions): Promise<number> {
-  const { default: prompts } = await import('prompts');
-
   const configPath = resolve(opts.cwd, opts.configPath);
 
   let rawConfig: string;
@@ -113,13 +112,7 @@ export async function runCloudSetup(opts: CloudSetupOptions): Promise<number> {
     const email = await getAuthenticatedEmail(existingTokens);
     const display = email ? `Already connected as ${email}` : 'Already connected to Google Drive';
 
-    const { reconnect } = await prompts({
-      type: 'confirm',
-      name: 'reconnect',
-      message: `${display}. Reconnect?`,
-      initial: false,
-    });
-
+    const reconnect = await confirmPrompt(`${display}. Reconnect?`, false);
     if (reconnect) {
       tokens = null;
     }
@@ -170,23 +163,12 @@ export async function runCloudSetup(opts: CloudSetupOptions): Promise<number> {
     );
   }
 
-  const choices = [
-    ...folders.map((f) => ({ title: `${f.name}  (${f.id})`, value: f.id })),
-    { title: '[Enter folder ID manually]', value: '__manual__' },
+  const choices: Array<{ name: string; value: string }> = [
+    ...folders.map((f) => ({ name: `${f.name}  (${f.id})`, value: f.id })),
+    { name: '[Enter folder ID manually]', value: '__manual__' },
   ];
 
-  const { folderId: selectedId } = await prompts({
-    type: 'select',
-    name: 'folderId',
-    message: 'Select the destination folder:',
-    choices,
-    initial: existingFolderId
-      ? Math.max(
-          0,
-          folders.findIndex((f) => f.id === existingFolderId),
-        )
-      : 0,
-  });
+  const selectedId = await selectPrompt('Select the destination folder:', choices, existingFolderId ?? undefined);
 
   if (!selectedId) {
     process.stdout.write('Setup cancelled.\n');
@@ -196,17 +178,12 @@ export async function runCloudSetup(opts: CloudSetupOptions): Promise<number> {
   let folderId: string = selectedId as string;
 
   if (folderId === '__manual__') {
-    const { manualId } = await prompts({
-      type: 'text',
-      name: 'manualId',
-      message: 'Enter Google Drive folder ID:',
-      initial: existingFolderId ?? '',
-    });
+    const manualId = await inputPrompt('Enter Google Drive folder ID:', existingFolderId ?? undefined);
     if (!manualId) {
       process.stdout.write('Setup cancelled.\n');
       return 0;
     }
-    folderId = manualId as string;
+    folderId = manualId;
   }
 
   await updateConfigFile(configPath, folderId);

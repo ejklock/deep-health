@@ -8,7 +8,10 @@ import composerRunnerBlockTemplate from './templates/composer-runner-block.hbs';
 
 Handlebars.registerPartial('npm-runner-block', npmRunnerBlockTemplate);
 Handlebars.registerPartial('pip-runner-block', pipRunnerBlockTemplate);
-Handlebars.registerPartial('composer-runner-block', composerRunnerBlockTemplate);
+Handlebars.registerPartial(
+  'composer-runner-block',
+  composerRunnerBlockTemplate,
+);
 
 /**
  * Config / init scaffolding generates a declarative project-config.yml.
@@ -213,7 +216,9 @@ const ECOSYSTEM_EXAMPLES: Record<
 const DEFAULT_ECOSYSTEM_CONFIGS: EcosystemConfigEntry[] = [
   {
     id: 'composer',
-    validationCommands: [{ name: 'tests', command: 'php artisan test --compact' }],
+    validationCommands: [
+      { name: 'tests', command: 'php artisan test --compact' },
+    ],
     advisors: [{ name: 'audit', command: 'composer audit' }],
   },
   {
@@ -231,13 +236,14 @@ const DEFAULT_ECOSYSTEM_CONFIGS: EcosystemConfigEntry[] = [
 
 export function generateConfigYaml(opts: GenerateConfigOptions = {}): string {
   // Resolve ecosystem entries — default to composer+npm when not provided
-  const configEntries = (opts.ecosystemConfigs && opts.ecosystemConfigs.length > 0)
-    ? opts.ecosystemConfigs
-    : DEFAULT_ECOSYSTEM_CONFIGS;
+  const configEntries =
+    opts.ecosystemConfigs && opts.ecosystemConfigs.length > 0
+      ? opts.ecosystemConfigs
+      : DEFAULT_ECOSYSTEM_CONFIGS;
 
   const ecosystems = configEntries.map((entry) => ({
     id: entry.id,
-    hasFixer: !!(entry.fixerStrategy),
+    hasFixer: !!entry.fixerStrategy,
     fixer: entry.fixerStrategy,
     hasValidationCommands: (entry.validationCommands?.length ?? 0) > 0,
     validationCommands: entry.validationCommands ?? [],
@@ -286,30 +292,75 @@ export function generateConfigYaml(opts: GenerateConfigOptions = {}): string {
     npmLanguageVersion: opts.npmLanguageVersion,
     pipLanguageVersion: opts.pipLanguageVersion,
     composerLanguageVersion: opts.composerLanguageVersion,
-    hasAnyRunnerConfig: !!(opts.npmLanguageVersion || opts.pipLanguageVersion || opts.composerLanguageVersion
-      || opts.npmImageSource === 'dockerfile' || opts.pipImageSource === 'dockerfile' || opts.composerImageSource === 'dockerfile'),
+    hasAnyRunnerConfig: !!(
+      opts.npmLanguageVersion ||
+      opts.pipLanguageVersion ||
+      opts.composerLanguageVersion ||
+      opts.npmImageSource === 'dockerfile' ||
+      opts.pipImageSource === 'dockerfile' ||
+      opts.composerImageSource === 'dockerfile'
+    ),
     // Dockerfile image-source options
-    npmImageSource: opts.npmImageSource === 'dockerfile' ? 'dockerfile' : undefined,
-    npmDockerfilePath: opts.npmImageSource === 'dockerfile' ? opts.npmDockerfilePath : undefined,
-    npmBuildContext: opts.npmImageSource === 'dockerfile' ? opts.npmBuildContext : undefined,
-    npmBuildArgs: opts.npmImageSource === 'dockerfile' && opts.npmBuildArgs && Object.keys(opts.npmBuildArgs).length > 0
-      ? Object.entries(opts.npmBuildArgs).map(([k, v]) => ({ key: k, value: v }))
-      : undefined,
-    pipImageSource: opts.pipImageSource === 'dockerfile' ? 'dockerfile' : undefined,
-    pipDockerfilePath: opts.pipImageSource === 'dockerfile' ? opts.pipDockerfilePath : undefined,
-    pipBuildContext: opts.pipImageSource === 'dockerfile' ? opts.pipBuildContext : undefined,
-    pipBuildArgs: opts.pipImageSource === 'dockerfile' && opts.pipBuildArgs && Object.keys(opts.pipBuildArgs).length > 0
-      ? Object.entries(opts.pipBuildArgs).map(([k, v]) => ({ key: k, value: v }))
-      : undefined,
-    composerImageSource: opts.composerImageSource === 'dockerfile' ? 'dockerfile' : undefined,
-    composerDockerfilePath: opts.composerImageSource === 'dockerfile' ? opts.composerDockerfilePath : undefined,
-    composerBuildContext: opts.composerImageSource === 'dockerfile' ? opts.composerBuildContext : undefined,
-    composerBuildArgs: opts.composerImageSource === 'dockerfile' && opts.composerBuildArgs && Object.keys(opts.composerBuildArgs).length > 0
-      ? Object.entries(opts.composerBuildArgs).map(([k, v]) => ({ key: k, value: v }))
-      : undefined,
-    npmAllowBuildContextEscape: opts.npmImageSource === 'dockerfile' ? opts.npmAllowBuildContextEscape : undefined,
-    pipAllowBuildContextEscape: opts.pipImageSource === 'dockerfile' ? opts.pipAllowBuildContextEscape : undefined,
-    composerAllowBuildContextEscape: opts.composerImageSource === 'dockerfile' ? opts.composerAllowBuildContextEscape : undefined,
+    npmImageSource:
+      opts.npmImageSource === 'dockerfile' ? 'dockerfile' : undefined,
+    npmDockerfilePath:
+      opts.npmImageSource === 'dockerfile' ? opts.npmDockerfilePath : undefined,
+    npmBuildContext:
+      opts.npmImageSource === 'dockerfile' ? opts.npmBuildContext : undefined,
+    npmBuildArgs:
+      opts.npmImageSource === 'dockerfile' &&
+      opts.npmBuildArgs &&
+      Object.keys(opts.npmBuildArgs).length > 0
+        ? Object.entries(opts.npmBuildArgs).map(([k, v]) => ({
+            key: k,
+            value: v,
+          }))
+        : undefined,
+    pipImageSource:
+      opts.pipImageSource === 'dockerfile' ? 'dockerfile' : undefined,
+    pipDockerfilePath:
+      opts.pipImageSource === 'dockerfile' ? opts.pipDockerfilePath : undefined,
+    pipBuildContext:
+      opts.pipImageSource === 'dockerfile' ? opts.pipBuildContext : undefined,
+    pipBuildArgs:
+      opts.pipImageSource === 'dockerfile' &&
+      opts.pipBuildArgs &&
+      Object.keys(opts.pipBuildArgs).length > 0
+        ? Object.entries(opts.pipBuildArgs).map(([k, v]) => ({
+            key: k,
+            value: v,
+          }))
+        : undefined,
+    composerImageSource:
+      opts.composerImageSource === 'dockerfile' ? 'dockerfile' : undefined,
+    composerDockerfilePath:
+      opts.composerImageSource === 'dockerfile'
+        ? opts.composerDockerfilePath
+        : undefined,
+    composerBuildContext:
+      opts.composerImageSource === 'dockerfile'
+        ? opts.composerBuildContext
+        : undefined,
+    composerBuildArgs:
+      opts.composerImageSource === 'dockerfile' &&
+      opts.composerBuildArgs &&
+      Object.keys(opts.composerBuildArgs).length > 0
+        ? Object.entries(opts.composerBuildArgs).map(([k, v]) => ({
+            key: k,
+            value: v,
+          }))
+        : undefined,
+    npmAllowBuildContextEscape:
+      opts.npmImageSource === 'dockerfile'
+        ? opts.npmAllowBuildContextEscape
+        : undefined,
+    pipAllowBuildContextEscape:
+      opts.pipImageSource === 'dockerfile'
+        ? opts.pipAllowBuildContextEscape
+        : undefined,
+    composerAllowBuildContextEscape:
+      opts.composerImageSource === 'dockerfile'
+        ? opts.composerAllowBuildContextEscape
+        : undefined,
   });
 }
-

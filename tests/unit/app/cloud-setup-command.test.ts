@@ -1,8 +1,27 @@
 /**
  * Tests for src/app/commands/cloud-setup.ts — runCloudSetup
- * Mocks prompts, googleapis, and google-drive-auth to avoid real OAuth flows.
+ * Mocks @infra/utils/inquirer-prompts, googleapis, and google-drive-auth to avoid real OAuth flows.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+const {
+  mockUserinfoGet,
+  mockFilesListGdrive,
+  mockSetCredentials,
+  mockOAuth2Constructor,
+  mockConfirmPrompt,
+  mockSelectPrompt,
+  mockInputPrompt,
+} = vi.hoisted(() => {
+  const mockUserinfoGet = vi.fn();
+  const mockFilesListGdrive = vi.fn();
+  const mockSetCredentials = vi.fn();
+  const mockOAuth2Constructor = vi.fn(() => ({ setCredentials: mockSetCredentials }));
+  const mockConfirmPrompt = vi.fn();
+  const mockSelectPrompt = vi.fn();
+  const mockInputPrompt = vi.fn();
+  return { mockUserinfoGet, mockFilesListGdrive, mockSetCredentials, mockOAuth2Constructor, mockConfirmPrompt, mockSelectPrompt, mockInputPrompt };
+});
 
 // Mock fs/promises
 vi.mock('node:fs/promises', () => ({
@@ -21,11 +40,6 @@ vi.mock('@infra/storage/google-drive-auth', () => ({
 }));
 
 // Mock googleapis (for getAuthenticatedEmail and listDriveFolders)
-const mockUserinfoGet = vi.fn();
-const mockFilesListGdrive = vi.fn();
-const mockSetCredentials = vi.fn();
-const mockOAuth2Constructor = vi.fn(() => ({ setCredentials: mockSetCredentials }));
-
 vi.mock('googleapis', () => ({
   google: {
     auth: { OAuth2: mockOAuth2Constructor },
@@ -34,9 +48,13 @@ vi.mock('googleapis', () => ({
   },
 }));
 
-// Mock prompts library
-const mockPrompts = vi.fn();
-vi.mock('prompts', () => ({ default: mockPrompts }));
+// Mock inquirer-prompts
+vi.mock('@infra/utils/inquirer-prompts', () => ({
+  confirmPrompt: mockConfirmPrompt,
+  selectPrompt: mockSelectPrompt,
+  inputPrompt: mockInputPrompt,
+  checkboxPrompt: vi.fn(),
+}));
 
 import { readFile, writeFile } from 'node:fs/promises';
 import {
@@ -93,14 +111,11 @@ describe('runCloudSetup()', () => {
     vi.mocked(loadStoredTokens).mockResolvedValue(mockTokens);
     mockUserinfoGet.mockResolvedValue({ data: { email: 'user@example.com' } });
     vi.mocked(runOAuthFlow).mockResolvedValue(mockTokens);
-
     mockFilesListGdrive.mockResolvedValue({ data: { files: [{ id: 'f1', name: 'Reports' }] } });
 
-    // First call: reconnect confirm → true
-    // Second call: folder select → choose 'f1'
-    mockPrompts
-      .mockResolvedValueOnce({ reconnect: true })
-      .mockResolvedValueOnce({ folderId: 'f1' });
+    // reconnect confirm → true; folder select → 'f1'
+    mockConfirmPrompt.mockResolvedValueOnce(true);
+    mockSelectPrompt.mockResolvedValueOnce('f1');
 
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
@@ -116,11 +131,9 @@ describe('runCloudSetup()', () => {
     mockUserinfoGet.mockResolvedValue({ data: { email: 'user@example.com' } });
     mockFilesListGdrive.mockResolvedValue({ data: { files: [{ id: 'f1', name: 'Reports' }] } });
 
-    // First call: reconnect confirm → false (keep existing)
-    // Second call: folder select → choose 'f1'
-    mockPrompts
-      .mockResolvedValueOnce({ reconnect: false })
-      .mockResolvedValueOnce({ folderId: 'f1' });
+    // reconnect confirm → false; folder select → 'f1'
+    mockConfirmPrompt.mockResolvedValueOnce(false);
+    mockSelectPrompt.mockResolvedValueOnce('f1');
 
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
@@ -137,7 +150,9 @@ describe('runCloudSetup()', () => {
     mockUserinfoGet.mockResolvedValue({ data: { email: null } });
     mockFilesListGdrive.mockResolvedValue({ data: { files: [] } });
 
-    mockPrompts.mockResolvedValueOnce({ folderId: '__manual__' }).mockResolvedValueOnce({ manualId: 'manual-folder-id' });
+    // folder select → '__manual__'; manual input → 'manual-folder-id'
+    mockSelectPrompt.mockResolvedValueOnce('__manual__');
+    mockInputPrompt.mockResolvedValueOnce('manual-folder-id');
 
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
@@ -169,9 +184,9 @@ describe('runCloudSetup()', () => {
     mockUserinfoGet.mockResolvedValue({ data: { email: 'user@example.com' } });
     mockFilesListGdrive.mockResolvedValue({ data: { files: [{ id: 'f1', name: 'Reports' }] } });
 
-    mockPrompts
-      .mockResolvedValueOnce({ reconnect: false })
-      .mockResolvedValueOnce({ folderId: undefined });
+    // reconnect → false; folder select → undefined (cancelled)
+    mockConfirmPrompt.mockResolvedValueOnce(false);
+    mockSelectPrompt.mockResolvedValueOnce(undefined);
 
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     const code = await runCloudSetup({ configPath: 'project-config.yml', cwd: '/cwd' });
@@ -185,10 +200,10 @@ describe('runCloudSetup()', () => {
     mockUserinfoGet.mockResolvedValue({ data: { email: null } });
     mockFilesListGdrive.mockResolvedValue({ data: { files: [] } });
 
-    mockPrompts
-      .mockResolvedValueOnce({ reconnect: false })
-      .mockResolvedValueOnce({ folderId: '__manual__' })
-      .mockResolvedValueOnce({ manualId: undefined });
+    // reconnect → false; folder select → '__manual__'; manual input → '' (cancelled)
+    mockConfirmPrompt.mockResolvedValueOnce(false);
+    mockSelectPrompt.mockResolvedValueOnce('__manual__');
+    mockInputPrompt.mockResolvedValueOnce('');
 
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     const code = await runCloudSetup({ configPath: 'project-config.yml', cwd: '/cwd' });
@@ -202,7 +217,7 @@ describe('runCloudSetup()', () => {
     mockUserinfoGet.mockResolvedValue({ data: { email: 'user@example.com' } });
     mockFilesListGdrive.mockRejectedValue(new Error('network error'));
 
-    mockPrompts.mockResolvedValueOnce({ reconnect: false });
+    mockConfirmPrompt.mockResolvedValueOnce(false);
 
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
@@ -220,9 +235,8 @@ describe('runCloudSetup()', () => {
     mockUserinfoGet.mockResolvedValue({ data: { email: null } });
     mockFilesListGdrive.mockResolvedValue({ data: { files: [] } });
 
-    mockPrompts
-      .mockResolvedValueOnce({ reconnect: false })
-      .mockResolvedValueOnce({ folderId: 'f1' });
+    mockConfirmPrompt.mockResolvedValueOnce(false);
+    mockSelectPrompt.mockResolvedValueOnce('f1');
 
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     await runCloudSetup({ configPath: 'project-config.yml', cwd: '/cwd' });
@@ -237,10 +251,9 @@ describe('runCloudSetup()', () => {
     mockUserinfoGet.mockRejectedValue(new Error('auth error'));
     mockFilesListGdrive.mockResolvedValue({ data: { files: [] } });
 
-    mockPrompts
-      .mockResolvedValueOnce({ reconnect: false })
-      .mockResolvedValueOnce({ folderId: '__manual__' })
-      .mockResolvedValueOnce({ manualId: 'folder-xyz' });
+    mockConfirmPrompt.mockResolvedValueOnce(false);
+    mockSelectPrompt.mockResolvedValueOnce('__manual__');
+    mockInputPrompt.mockResolvedValueOnce('folder-xyz');
 
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     const code = await runCloudSetup({ configPath: 'project-config.yml', cwd: '/cwd' });
@@ -264,17 +277,15 @@ cloud_storage:
       data: {
         files: [
           { id: 'other-folder', name: 'Other' },
-          { id: 'existing-folder-id', name: 'My Reports' }, // should be pre-selected
+          { id: 'existing-folder-id', name: 'My Reports' },
         ],
       },
     });
 
-    mockPrompts
-      .mockResolvedValueOnce({ reconnect: false })
-      // folder selection — initial index will be 1 (Math.max + findIndex)
-      .mockResolvedValueOnce({ folderId: 'existing-folder-id' });
+    mockConfirmPrompt.mockResolvedValueOnce(false);
+    mockSelectPrompt.mockResolvedValueOnce('existing-folder-id');
 
-      const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     const code = await runCloudSetup({ configPath: 'project-config.yml', cwd: '/cwd' });
     expect(code).toBe(0);
     stdoutSpy.mockRestore();
@@ -313,7 +324,7 @@ cloud_storage:
     mockUserinfoGet.mockResolvedValue({ data: { email: 'user@example.com' } });
     mockFilesListGdrive.mockImplementation(() => Promise.reject('folders string error'));
 
-    mockPrompts.mockResolvedValueOnce({ reconnect: false });
+    mockConfirmPrompt.mockResolvedValueOnce(false);
 
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
@@ -332,9 +343,8 @@ cloud_storage:
     // Files with null id and null name — triggers f.id ?? '' and f.name ?? ''
     mockFilesListGdrive.mockResolvedValue({ data: { files: [{ id: null, name: null }] } });
 
-    mockPrompts
-      .mockResolvedValueOnce({ reconnect: false })
-      .mockResolvedValueOnce({ folderId: '' });
+    mockConfirmPrompt.mockResolvedValueOnce(false);
+    mockSelectPrompt.mockResolvedValueOnce('');
 
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     const code = await runCloudSetup({ configPath: 'project-config.yml', cwd: '/cwd' });
