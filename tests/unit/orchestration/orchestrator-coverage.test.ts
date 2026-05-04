@@ -36,6 +36,18 @@ vi.mock('@infra/ecosystem-runtime', async (importOriginal) => {
   return {
     ...actual,
     resolveEcosystemRuntime: vi.fn().mockImplementation((_plugin: unknown, hostRunner: unknown) => Promise.resolve(hostRunner)),
+    resolveOsvRuntime: vi.fn().mockReturnValue({
+      run: vi.fn().mockResolvedValue({
+        stdout: JSON.stringify({ results: [] }),
+        stderr: '',
+        exitCode: 0,
+        command: 'osv-scanner',
+        dryRun: false,
+      }),
+      runArgs: vi.fn().mockResolvedValue({ stdout: '', stderr: '', exitCode: 0, command: '', dryRun: false }),
+      dryRun: false,
+      environment: 'local' as const,
+    }),
   };
 });
 vi.mock('@infra/provisioner/npm-runner.js', () => ({

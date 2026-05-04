@@ -77,13 +77,17 @@ export async function spawnStreaming(
     const stderrChunks: string[] = [];
     let killedByTimeout = false;
 
-    const child = spawn(file, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(file, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: true });
 
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     if (timeoutMs !== undefined) {
       timeoutHandle = setTimeout(() => {
         killedByTimeout = true;
-        child.kill('SIGKILL');
+        try {
+          if (child.pid != null) process.kill(-child.pid, 'SIGKILL');
+        } catch {
+          child.kill('SIGKILL');
+        }
       }, timeoutMs);
     }
 
