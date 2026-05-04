@@ -2,9 +2,9 @@
 
 // Runtime Node.js version guard — must run before any other imports.
 const [nodeMajor] = process.versions.node.split(".").map(Number);
-if (nodeMajor < 22) {
+if (nodeMajor < 24) {
   process.stderr.write(
-    `deep-health requires Node.js >=22. Detected: v${process.versions.node}\n` +
+    `deep-health requires Node.js >=24. Detected: v${process.versions.node}\n` +
       `Please upgrade Node.js and try again.\n`,
   );
   process.exit(1);
