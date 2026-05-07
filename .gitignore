@@ -21,3 +21,5 @@ coverage/
 .tmp-vitest-report.json
 .agent-memory-store
 .claude/worktrees/*
+dist-sea/
+dist-bin/

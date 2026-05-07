@@ -2,8 +2,7 @@
 
 // Runtime Node.js version guard — must run before any other imports.
 const [nodeMajor] = process.versions.node.split('.').map(Number);
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-if (!(process as any).isBun && nodeMajor < 24) {
+if (nodeMajor < 24) {
   process.stderr.write(
     `${process.env['CLI_NAME'] ?? 'deep-health'} requires Node.js >=24. Detected: v${process.versions.node}\n` +
       `Please upgrade Node.js and try again.\n`,

@@ -96,57 +96,116 @@ jobs:
   #       with:
   #         generate_release_notes: true
 
+  # -----------------------------------------------------------------------
+  # BUILD-BINARIES — Node.js SEA (Single Executable Application).
+  # SEA does not support cross-compilation; each platform must build on its
+  # own native runner. linux-x64-musl uses a separate job with Alpine container
+  # (musl-linked node binary required for Alpine/Docker compatibility).
+  #
+  # vars.BRANDS: JSON array of brand objects. Example:
+  # [{"cli_name":"deep-health","npm_default_fixer":"osv-then-audit"},{"cli_name":"security-scan","npm_default_fixer":"osv"}]
+  # If not set, defaults to deep-health only.
+  # -----------------------------------------------------------------------
+
   build-binaries:
-    # vars.BRANDS: JSON array of brand objects. Example:
-    # [{"cli_name":"deep-health","npm_default_fixer":"osv-then-audit"},{"cli_name":"security-scan","npm_default_fixer":"osv"}]
-    # If not set, defaults to deep-health only.
-    name: Build Binaries (${{ matrix.brand.cli_name }})
-    runs-on: ubuntu-latest
+    name: Build Binaries (${{ matrix.brand.cli_name }}, ${{ matrix.target }})
     needs: test
     strategy:
+      fail-fast: false
+      matrix:
+        brand: ${{ fromJson(vars.BRANDS || '[{"cli_name":"deep-health","npm_default_fixer":"osv-then-audit"}]') }}
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-13, windows-latest]
+        include:
+          - os: ubuntu-latest
+            target: linux-x64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+          - os: macos-latest
+            target: macos-arm64
+          - os: macos-13
+            target: macos-x64
+          - os: windows-latest
+            target: win-x64
+    runs-on: ${{ matrix.os }}
+    env:
+      CLI_NAME: ${{ matrix.brand.cli_name }}
+      NPM_DEFAULT_FIXER: ${{ matrix.brand.npm_default_fixer }}
+      TARGET_SUFFIX: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build SEA CJS bundle
+        run: npm run build:sea
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+
+      - name: Inject SEA blob (Unix)
+        if: runner.os != 'Windows'
+        run: sh scripts/build-sea.sh
+
+      - name: Inject SEA blob (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: sh scripts/build-sea.sh
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.brand.cli_name }}-${{ matrix.target }}
+          path: dist-bin/
+
+  build-binaries-musl:
+    # linux-x64-musl requires a musl-linked node binary (Alpine).
+    # Runs as a container job on ubuntu-latest.
+    name: Build Binaries (${{ matrix.brand.cli_name }}, linux-x64-musl)
+    needs: test
+    runs-on: ubuntu-latest
+    container:
+      image: node:24-alpine
+    strategy:
+      fail-fast: false
       matrix:
         brand: ${{ fromJson(vars.BRANDS || '[{"cli_name":"deep-health","npm_default_fixer":"osv-then-audit"}]') }}
     env:
       CLI_NAME: ${{ matrix.brand.cli_name }}
       NPM_DEFAULT_FIXER: ${{ matrix.brand.npm_default_fixer }}
+      TARGET_SUFFIX: linux-x64-musl
     steps:
       - uses: actions/checkout@v4
 
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
+      - name: Install build dependencies
+        run: apk add --no-cache python3 make g++
 
       - name: Install dependencies
-        run: bun install
+        run: npm ci
 
-      - name: Compile linux-x64
-        run: bun build --compile --minify --external googleapis --external google-auth-library --target=bun-linux-x64 --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-linux-x64
+      - name: Build SEA CJS bundle
+        run: npm run build:sea
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
 
-      - name: Compile linux-arm64
-        run: bun build --compile --minify --external googleapis --external google-auth-library --target=bun-linux-arm64 --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-linux-arm64
-
-      - name: Compile linux-x64-musl
-        run: bun build --compile --minify --external googleapis --external google-auth-library --target=bun-linux-x64-musl --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-linux-x64-musl
-
-      - name: Compile macos-arm64
-        run: bun build --compile --minify --external googleapis --external google-auth-library --target=bun-darwin-arm64 --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-macos-arm64
-
-      - name: Compile macos-x64
-        run: bun build --compile --minify --external googleapis --external google-auth-library --target=bun-darwin-x64 --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-macos-x64
-
-      - name: Compile win-x64
-        run: bun build --compile --minify --external googleapis --external google-auth-library --target=bun-windows-x64 --define 'process.env.CLI_NAME="${{ env.CLI_NAME }}"' --define 'process.env.NPM_DEFAULT_FIXER="${{ env.NPM_DEFAULT_FIXER }}"' bin/deep-health.ts --outfile dist-bin/${{ env.CLI_NAME }}-win-x64
+      - name: Inject SEA blob
+        run: sh scripts/build-sea.sh
 
       - name: Upload binaries
         uses: actions/upload-artifact@v4
         with:
-          name: binaries-${{ matrix.brand.cli_name }}
+          name: binaries-${{ matrix.brand.cli_name }}-linux-x64-musl
           path: dist-bin/
 
   release:
     name: Release
     runs-on: ubuntu-latest
-    needs: [ build, build-binaries ]
+    needs: [ build, build-binaries, build-binaries-musl ]
     permissions:
       contents: write
     steps:

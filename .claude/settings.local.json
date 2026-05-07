@@ -20,7 +20,14 @@
       "Bash(rtk proxy *)",
       "Bash(rtk wc *)",
       "mcp__agent-memory-store__set_state",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "WebFetch(domain:joyeecheung.github.io)",
+      "WebFetch(domain:dev.to)",
+      "Bash(gh api *)",
+      "Bash(chmod +x *)",
+      "Bash(echo \"lizard exit $?\")",
+      "Skill(quality-gate)",
+      "Bash(rtk npx *)"
     ]
   },
   "outputStyle": "Explanatory"

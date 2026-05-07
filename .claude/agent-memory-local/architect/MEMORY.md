@@ -1,0 +1,1 @@
+- [Binary build migrated from Bun to Node.js SEA](bun-to-sea-migration.md) — Bun segfaults on Windows; Node 24 SEA (CJS-only, postject, matrix runners)

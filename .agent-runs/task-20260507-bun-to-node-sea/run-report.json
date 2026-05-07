@@ -1,0 +1,9 @@
+{
+  "task_id": "task-20260507-bun-to-node-sea",
+  "duration_seconds": 520,
+  "agent_calls": 4,
+  "tokens_estimated": 140000,
+  "verdicts": ["changes_requested", "approved"],
+  "qg_summary": "pass",
+  "slice_count": 1
+}

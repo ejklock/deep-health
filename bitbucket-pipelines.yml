@@ -26,19 +26,20 @@ pipelines:
             - osv-security-cli/dist/**
 
       - step:
+          # Node.js SEA does not support cross-compilation.
+          # Bitbucket Cloud runs on Linux x86_64 only, so we build linux-x64 here.
+          # Multi-platform builds (arm64, macOS, Windows, musl) are handled by
+          # the GitHub Actions release workflow using native OS runners.
           name: Build Binaries
-          image: oven/bun:latest
+          image: node:24-slim
           script:
             - cd osv-security-cli
-            - CLI_NAME=${CLI_NAME:-deep-health}
-            - NPM_DEFAULT_FIXER=${NPM_DEFAULT_FIXER:-osv-then-audit}
-            - bun install
-            - bun build --compile --minify --external googleapis --external google-auth-library --target=bun-linux-x64 --define "process.env.CLI_NAME=\"$CLI_NAME\"" --define "process.env.NPM_DEFAULT_FIXER=\"$NPM_DEFAULT_FIXER\"" bin/deep-health.ts --outfile dist-bin/${CLI_NAME}-linux-x64
-            - bun build --compile --minify --external googleapis --external google-auth-library --target=bun-linux-arm64 --define "process.env.CLI_NAME=\"$CLI_NAME\"" --define "process.env.NPM_DEFAULT_FIXER=\"$NPM_DEFAULT_FIXER\"" bin/deep-health.ts --outfile dist-bin/${CLI_NAME}-linux-arm64
-            - bun build --compile --minify --external googleapis --external google-auth-library --target=bun-linux-x64-musl --define "process.env.CLI_NAME=\"$CLI_NAME\"" --define "process.env.NPM_DEFAULT_FIXER=\"$NPM_DEFAULT_FIXER\"" bin/deep-health.ts --outfile dist-bin/${CLI_NAME}-linux-x64-musl
-            - bun build --compile --minify --external googleapis --external google-auth-library --target=bun-darwin-arm64 --define "process.env.CLI_NAME=\"$CLI_NAME\"" --define "process.env.NPM_DEFAULT_FIXER=\"$NPM_DEFAULT_FIXER\"" bin/deep-health.ts --outfile dist-bin/${CLI_NAME}-macos-arm64
-            - bun build --compile --minify --external googleapis --external google-auth-library --target=bun-darwin-x64 --define "process.env.CLI_NAME=\"$CLI_NAME\"" --define "process.env.NPM_DEFAULT_FIXER=\"$NPM_DEFAULT_FIXER\"" bin/deep-health.ts --outfile dist-bin/${CLI_NAME}-macos-x64
-            - bun build --compile --minify --external googleapis --external google-auth-library --target=bun-windows-x64 --define "process.env.CLI_NAME=\"$CLI_NAME\"" --define "process.env.NPM_DEFAULT_FIXER=\"$NPM_DEFAULT_FIXER\"" bin/deep-health.ts --outfile dist-bin/${CLI_NAME}-win-x64
+            - export CLI_NAME="${CLI_NAME:-deep-health}"
+            - export NPM_DEFAULT_FIXER="${NPM_DEFAULT_FIXER:-osv-then-audit}"
+            - export TARGET_SUFFIX="linux-x64"
+            - npm ci
+            - npm run build:sea
+            - sh scripts/build-sea.sh
           artifacts:
             - osv-security-cli/dist-bin/**
 

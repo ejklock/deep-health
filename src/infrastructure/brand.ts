@@ -1,8 +1,8 @@
 /**
  * Brand constants for the CLI.
  *
- * All values are evaluated at module load time.  For compiled Bun binaries,
- * `--define 'process.env.CLI_NAME="<name>"'` bakes the value in at build time.
+ * All values are evaluated at module load time.  For compiled SEA binaries,
+ * esbuild define at bundle time bakes the value in (tsup `define` option).
  * For Node.js execution (dev / test), values fall back to the `deep-health` defaults.
  */
 
@@ -37,7 +37,7 @@ export const KILL_SWITCH_VAR: string =
 
 /**
  * Default npm fixer strategy.
- * Overridable via NPM_DEFAULT_FIXER env var or --define at Bun compile time.
+ * Overridable via NPM_DEFAULT_FIXER env var or esbuild define at bundle time.
  * Valid values: 'osv' | 'npm-audit' | 'osv-then-audit'
  */
 export const NPM_DEFAULT_FIXER: string = process.env['NPM_DEFAULT_FIXER'] ?? 'osv-then-audit';
