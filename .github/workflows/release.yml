@@ -155,10 +155,14 @@ jobs:
         shell: bash
         run: sh scripts/build-sea.sh
 
+      - name: Generate timestamp
+        shell: bash
+        run: echo "TIMESTAMP=$(date -u +'%Y%m%d-%H%M%S')" >> $GITHUB_ENV
+
       - name: Upload binaries
         uses: actions/upload-artifact@v6
         with:
-          name: binaries-${{ matrix.brand.cli_name }}-${{ matrix.target }}
+          name: binaries-${{ matrix.brand.cli_name }}-${{ matrix.target }}-${{ env.TIMESTAMP }}
           path: dist-bin/
 
   build-binaries-musl:
@@ -194,10 +198,13 @@ jobs:
       - name: Inject SEA blob
         run: sh scripts/build-sea.sh
 
+      - name: Generate timestamp
+        run: echo "TIMESTAMP=$(date -u +'%Y%m%d-%H%M%S')" >> $GITHUB_ENV
+
       - name: Upload binaries
         uses: actions/upload-artifact@v6
         with:
-          name: binaries-${{ matrix.brand.cli_name }}-linux-x64-musl
+          name: binaries-${{ matrix.brand.cli_name }}-linux-x64-musl-${{ env.TIMESTAMP }}
           path: dist-bin/
 
   release:
