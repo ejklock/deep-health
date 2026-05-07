@@ -27,7 +27,15 @@
       "Bash(chmod +x *)",
       "Bash(echo \"lizard exit $?\")",
       "Skill(quality-gate)",
-      "Bash(rtk npx *)"
+      "Bash(rtk npx *)",
+      "Bash(npm view *)",
+      "Bash(python3 -c \"import sys,json; vers=json.load\\(sys.stdin\\); print\\([v for v in vers if v.startswith\\('26.'\\)][-5:]\\)\")",
+      "Bash(curl -s https://nodejs.org/dist/latest-v26.x/CHANGELOG.md)",
+      "Bash(curl -s \"https://nodejs.org/dist/\")",
+      "Bash(rtk lint *)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(npm audit *)",
+      "Bash(echo \"EXIT_CODE=$?\")"
     ]
   },
   "outputStyle": "Explanatory"

@@ -23,3 +23,5 @@ coverage/
 .claude/worktrees/*
 dist-sea/
 dist-bin/
+.agent-runs
+.claude/agent-memory-local
