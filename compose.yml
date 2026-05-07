@@ -1,0 +1,15 @@
+services:
+  dev:
+    build: .
+    working_dir: /app
+    volumes:
+      # Mount project source so edits are reflected without rebuilding the image
+      - .:/app
+      # Anonymous volume prevents host node_modules from shadowing container's
+      - /app/node_modules
+      # Docker socket so the CLI can spin up ephemeral scanner containers
+      - /var/run/docker.sock:/var/run/docker.sock
+    entrypoint: ["node", "./dist/deep-health.js"]
+    # Override entrypoint at runtime, e.g.:
+    #   docker compose run dev npm test
+    #   docker compose run dev deep-health scan
