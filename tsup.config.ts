@@ -2,7 +2,7 @@ import { defineConfig } from "tsup";
 
 const shared = {
   format: ["esm"] as const,
-  target: "node24" as const,
+  target: "node26" as const,
   sourcemap: false,
   splitting: false,
   external: ['googleapis', 'google-auth-library'],
@@ -25,7 +25,7 @@ export default defineConfig([
   },
   {
     // SEA (Single Executable Application) bundle — CJS only, all deps inlined.
-    // Node.js 24 SEA requires CJS; ESM is not supported.
+    // Node.js 26 SEA requires CJS; ESM is not supported in stable SEA.
     // googleapis and google-auth-library remain external (optional deps loaded
     // via dynamic import with try/catch — not required for core functionality).
     entry: ["bin/deep-health.ts"],
@@ -37,7 +37,7 @@ export default defineConfig([
     sourcemap: false,
     clean: false,
     dts: false,
-    target: "node24",
+    target: "node26",
     define: {
       'process.env.CLI_NAME': JSON.stringify(process.env['CLI_NAME'] || 'deep-health'),
       'process.env.NPM_DEFAULT_FIXER': JSON.stringify(process.env['NPM_DEFAULT_FIXER'] || 'osv-then-audit'),

@@ -9,7 +9,7 @@
 #   TARGET_SUFFIX  — platform suffix appended to binary (e.g. linux-x64, win-x64)
 #
 # Prerequisites:
-#   - Node.js 24+
+#   - Node.js 26+
 #   - dist-sea/deep-health.cjs  (built via: npm run build:sea-bundle)
 #   - npx postject (installed via postject in devDependencies or npx on demand)
 #

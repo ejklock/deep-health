@@ -1,6 +1,6 @@
 # deep-health — Complete Usage Guide
 
-> Version 0.1.3 | Node.js ≥ 24 | Docker required
+> Version 0.1.3 | Node.js ≥ 26 | Docker required
 
 ---
 
@@ -72,7 +72,7 @@ Breaking changes (major version bumps, constraint changes) are never applied aut
 
 | Tool    | Minimum version |
 |---------|----------------|
-| Node.js | ≥ 24.0.0       |
+| Node.js | ≥ 26.0.0       |
 | Docker  | any recent     |
 
 Docker is the only runtime requirement beyond Node.js. OSV Scanner, SonarQube, npm, PHP Composer, and pip all run inside ephemeral Docker containers. You do not need to install any of those tools locally.
@@ -1073,7 +1073,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '26'
 
       - name: Install deep-health
         run: npm install -g deep-health
@@ -1114,7 +1114,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '26'
 
       - name: Install deep-health
         run: npm install -g deep-health
@@ -1184,18 +1184,18 @@ deep-health scan && echo "Clean!" || echo "Issues found (code $?)"
 
 ## Troubleshooting
 
-### "deep-health requires Node.js >=24"
+### "deep-health requires Node.js >=26"
 
 ```
-deep-health requires Node.js >=24. Detected: v20.x.x
+deep-health requires Node.js >=26. Detected: v20.x.x
 Please upgrade Node.js and try again.
 ```
 
-Upgrade Node.js to version 24 or later. Use [nvm](https://github.com/nvm-sh/nvm) for easy version management:
+Upgrade Node.js to version 26 or later. Use [nvm](https://github.com/nvm-sh/nvm) for easy version management:
 
 ```bash
-nvm install 24
-nvm use 24
+nvm install 26
+nvm use 26
 ```
 
 ### "Config file not found"
