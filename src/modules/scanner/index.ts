@@ -62,6 +62,7 @@ export type {
   EngineRunRenderer,
   EngineRunPolicy,
   EngineRunResult,
+  ScanSweepError,
 } from './scanner-sweep';
 export {
   listr2ScannerSweepRenderer,

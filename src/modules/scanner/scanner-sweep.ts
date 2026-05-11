@@ -17,6 +17,8 @@
 
 import type { ScannerEngine, ScannerEngineContext, EngineWarning } from './types';
 import type { ScanResultJson } from '@core/types/scan';
+import type { Result } from '@core/types/result';
+import { ok, err } from '@core/types/result';
 
 // ─── Public interfaces ────────────────────────────────────────────────────────
 
@@ -84,6 +86,20 @@ export class PrimaryEngineFailure extends Error {
   }
 }
 
+// ─── ScanSweepError ───────────────────────────────────────────────────────────
+
+/**
+ * Discriminated union of the two failure modes of executeScannerSweep.
+ *
+ * - 'primary': the primary engine failed (PrimaryEngineFailure wraps the cause
+ *   and carries partialWarnings accumulated before the failure).
+ * - 'secondary': a secondary engine with on_failure='fail' threw or returned
+ *   status='error'; the original Error is carried as-is.
+ */
+export type ScanSweepError =
+  | { kind: 'primary'; failure: PrimaryEngineFailure }
+  | { kind: 'secondary'; error: Error };
+
 // ─── Core algorithm ───────────────────────────────────────────────────────────
 
 /**
@@ -107,7 +123,7 @@ export async function executeScannerSweep(
   ctx: ScannerEngineContext,
   policy: EngineRunPolicy,
   renderer: EngineRunRenderer,
-): Promise<EngineRunResult> {
+): Promise<Result<EngineRunResult, ScanSweepError>> {
   const engineEntries: Array<{ engineId: string; result: ScanResultJson }> = [];
   const warnings: EngineWarning[] = [];
 
@@ -126,13 +142,16 @@ export async function executeScannerSweep(
 
     if (resultOrError instanceof Error) {
       if (isPrimary) {
-        throw new PrimaryEngineFailure(engine.id, resultOrError, [...warnings]);
+        return err({
+          kind: 'primary',
+          failure: new PrimaryEngineFailure(engine.id, resultOrError, [...warnings]),
+        });
       }
 
       // Secondary engine threw
       const onFailure = policy.resolveOnFailure(engine.id);
       if (onFailure === 'fail') {
-        throw resultOrError;
+        return err({ kind: 'secondary', error: resultOrError });
       }
 
       // on_failure='warn' — record warning and continue
@@ -144,18 +163,21 @@ export async function executeScannerSweep(
 
     if (result.status === 'error') {
       if (isPrimary) {
-        throw new PrimaryEngineFailure(
-          engine.id,
-          new Error(result.error ?? `primary engine "${engine.id}" returned status=error`),
-          [...warnings],
-        );
+        return err({
+          kind: 'primary',
+          failure: new PrimaryEngineFailure(
+            engine.id,
+            new Error(result.error ?? `primary engine "${engine.id}" returned status=error`),
+            [...warnings],
+          ),
+        });
       }
 
       // Secondary engine returned status='error'
       const onFailure = policy.resolveOnFailure(engine.id);
       const message = result.error ?? `${engine.name} scan returned status 'error'`;
       if (onFailure === 'fail') {
-        throw new Error(message);
+        return err({ kind: 'secondary', error: new Error(message) });
       }
 
       // on_failure='warn'
@@ -171,5 +193,5 @@ export async function executeScannerSweep(
     engineEntries.push({ engineId: engine.id, result });
   }
 
-  return { engineEntries, warnings };
+  return ok({ engineEntries, warnings });
 }

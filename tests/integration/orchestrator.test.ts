@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { runOrchestrator } from '@orchestration/orchestrator';
 import { loadConfig } from '@infra/config/loader';
 import { GateValidationError } from '@core/errors';
+import { unwrap } from '@core/types/result';
 import { ScannerEngineRegistry } from '@modules/scanner/registry';
 import { OsvScannerEngine } from '@modules/scanner/osv-engine';
 import { SonarQubeEngine } from '@modules/scanner/sonarqube-engine';
@@ -102,7 +103,7 @@ class MockCommandRunner implements CommandRunner {
 }
 
 async function loadTestConfig() {
-  return loadConfig('project-config.yml', fixturesDir);
+  return unwrap(await loadConfig('project-config.yml', fixturesDir));
 }
 
 /** Build a minimal ProjectConfig with SonarQube configured */

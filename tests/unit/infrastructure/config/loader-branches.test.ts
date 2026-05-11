@@ -58,10 +58,14 @@ project: {
 `;
 
 describe('loadConfig() — YAML parse error branch (lines 125-130)', () => {
-  it('throws ConfigLoadError when YAML is malformed', async () => {
+  it('returns Err with ConfigLoadError when YAML is malformed', async () => {
     const configPath = await writeTempConfig(invalidYaml);
-    await expect(loadConfig(configPath, '/')).rejects.toBeInstanceOf(ConfigLoadError);
-    await expect(loadConfig(configPath, '/')).rejects.toThrow('Invalid YAML');
+    const result = await loadConfig(configPath, '/');
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toBeInstanceOf(ConfigLoadError);
+      expect(result.error.message).toMatch(/Invalid YAML/);
+    }
     await unlink(configPath);
   });
 });

@@ -4,6 +4,7 @@ import { setLogLevel, setJsonMode } from '@infra/utils/logger';
 import { defaultRegistry } from '@modules/ecosystem/index';
 import type { ProjectConfig } from '@core/types/config';
 import type { CommandRunner } from '@core/types/common';
+import { unwrap } from '@core/types/result';
 
 export interface RunContext {
   config: ProjectConfig;
@@ -31,7 +32,7 @@ export async function createRunContext(
   if (opts.quiet) setLogLevel('error');
   if (opts.json) setJsonMode(true);
 
-  const config = await loadConfig(opts.config, opts.cwd, defaultRegistry);
+  const config = unwrap(await loadConfig(opts.config, opts.cwd, defaultRegistry));
   const runner = new LocalExecutor({ dryRun: opts.dryRun });
 
   return { config, runner };

@@ -7,6 +7,7 @@ import { EcosystemRegistry } from '@modules/ecosystem/registry';
 import { npmPlugin } from '@modules/ecosystem/plugins/npm';
 import { composerPlugin } from '@modules/ecosystem/plugins/composer';
 import type { ProjectConfig } from '@core/types/config';
+import type { Result } from '@core/types/result';
 import { withTempConfig, minimalConfigYaml, minimalConfigWith } from '../../helpers/config-fixtures';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -33,9 +34,19 @@ function baseConfig(overrides: Partial<ProjectConfig> = {}): ProjectConfig {
   };
 }
 
+/**
+ * Local test helper: unwrap a Result<T, unknown> or fail the test if it's an Err.
+ */
+function unwrapTest<T>(r: Result<T, unknown>): T {
+  if (!r.ok) throw new Error(`Expected Ok but got Err: ${String((r as { error: unknown }).error)}`);
+  return r.value;
+}
+
 describe('loadConfig', () => {
   it('loads a valid config file', async () => {
-    const config = await loadConfig('project-config.yml', fixturesDir);
+    const result = await loadConfig('project-config.yml', fixturesDir);
+    expect(result.ok).toBe(true);
+    const config = unwrapTest(result);
     expect(config.project.name).toBe('Test PHP Project');
     expect(config.project.client).toBe('Test Client');
     expect(config.protected_packages['composer']).toHaveLength(2);
@@ -43,7 +54,9 @@ describe('loadConfig', () => {
   });
 
   it('loads ecosystems[] from config', async () => {
-    const config = await loadConfig('project-config.yml', fixturesDir);
+    const result = await loadConfig('project-config.yml', fixturesDir);
+    expect(result.ok).toBe(true);
+    const config = unwrapTest(result);
     expect(Array.isArray(config.ecosystems)).toBe(true);
     expect(config.ecosystems.length).toBeGreaterThanOrEqual(1);
     const ids = config.ecosystems.map((e) => e.id);
@@ -51,24 +64,29 @@ describe('loadConfig', () => {
     expect(ids).toContain('npm');
   });
 
-  it('throws ConfigLoadError when file does not exist', async () => {
-    await expect(loadConfig('nonexistent.yml', fixturesDir)).rejects.toThrow(ConfigLoadError);
+  it('returns Err with ConfigLoadError when file does not exist', async () => {
+    const result = await loadConfig('nonexistent.yml', fixturesDir);
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeInstanceOf(ConfigLoadError);
   });
 
   it('file-not-found error includes actionable hint', async () => {
-    const err = await loadConfig('nonexistent.yml', fixturesDir).catch((e) => e);
-    expect(err).toBeInstanceOf(ConfigLoadError);
-    expect(err.message).toMatch(/deep-health init/i);
+    const result = await loadConfig('nonexistent.yml', fixturesDir);
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeInstanceOf(ConfigLoadError);
+    expect((result.error as ConfigLoadError).message).toMatch(/deep-health init/i);
   });
 
-  it('throws ConfigLoadError for missing required fields', async () => {
+  it('returns Err with ConfigLoadError for missing required fields', async () => {
     await withTempConfig('project:\n  name: test\n', async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
-      await expect(loadConfig(filename, dir)).rejects.toThrow(ConfigLoadError);
+      const result = await loadConfig(filename, dir);
+      expect(result.ok).toBe(false);
+      expect(result.error).toBeInstanceOf(ConfigLoadError);
     });
   });
 
-  it('throws ConfigLoadError when ecosystems[] is empty', async () => {
+  it('returns Err with ConfigLoadError when ecosystems[] is empty', async () => {
     const yaml = [
       'project:',
       '  name: test',
@@ -82,12 +100,16 @@ describe('loadConfig', () => {
     ].join('\n') + '\n';
     await withTempConfig(yaml, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
-      await expect(loadConfig(filename, dir)).rejects.toThrow(ConfigLoadError);
+      const result = await loadConfig(filename, dir);
+      expect(result.ok).toBe(false);
+      expect(result.error).toBeInstanceOf(ConfigLoadError);
     });
   });
 
   it('correctly loads protected packages', async () => {
-    const config = await loadConfig('project-config.yml', fixturesDir);
+    const result = await loadConfig('project-config.yml', fixturesDir);
+    expect(result.ok).toBe(true);
+    const config = unwrapTest(result);
     const laravelFramework = config.protected_packages['composer']?.find(
       (p) => p.package === 'laravel/framework',
     );
@@ -97,12 +119,14 @@ describe('loadConfig', () => {
 
   it('passes cross-validation with registry when all ecosystem ids are registered', async () => {
     const registry = makeRegistry();
-    const config = await loadConfig('project-config.yml', fixturesDir, registry);
+    const result = await loadConfig('project-config.yml', fixturesDir, registry);
+    expect(result.ok).toBe(true);
+    const config = unwrapTest(result);
     expect(config.ecosystems.map((e) => e.id)).toContain('npm');
     expect(config.ecosystems.map((e) => e.id)).toContain('composer');
   });
 
-  it('throws ConfigLoadError when ecosystem id is not in registry', async () => {
+  it('returns Err with ConfigLoadError when ecosystem id is not in registry', async () => {
     const yaml = [
       'project:',
       '  name: test',
@@ -118,7 +142,9 @@ describe('loadConfig', () => {
     await withTempConfig(yaml, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
       const registry = makeRegistry();
-      await expect(loadConfig(filename, dir, registry)).rejects.toThrow(ConfigLoadError);
+      const result = await loadConfig(filename, dir, registry);
+      expect(result.ok).toBe(false);
+      expect(result.error).toBeInstanceOf(ConfigLoadError);
     });
   });
 });
@@ -199,7 +225,9 @@ describe('fixer schema validation', () => {
 
     await withTempConfig(yaml, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
-      const config = await loadConfig(filename, dir);
+      const result = await loadConfig(filename, dir);
+      expect(result.ok).toBe(true);
+      const config = unwrapTest(result);
       expect(config.ecosystems[0]?.fixer).toBe('osv');
     });
   });
@@ -221,7 +249,9 @@ describe('fixer schema validation', () => {
 
     await withTempConfig(yaml, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
-      const config = await loadConfig(filename, dir);
+      const result = await loadConfig(filename, dir);
+      expect(result.ok).toBe(true);
+      const config = unwrapTest(result);
       expect(config.ecosystems[0]?.fixer).toBe('npm-audit');
     });
   });
@@ -243,7 +273,9 @@ describe('fixer schema validation', () => {
 
     await withTempConfig(yaml, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
-      await expect(loadConfig(filename, dir)).rejects.toThrow(ConfigLoadError);
+      const result = await loadConfig(filename, dir);
+      expect(result.ok).toBe(false);
+      expect(result.error).toBeInstanceOf(ConfigLoadError);
     });
   });
 });
@@ -255,7 +287,9 @@ describe('OSV scanner config schema — runner + image fields', () => {
     );
     await withTempConfig(yaml, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
-      const config = await loadConfig(filename, dir);
+      const result = await loadConfig(filename, dir);
+      expect(result.ok).toBe(true);
+      const config = unwrapTest(result);
       expect(config.scanners?.osv?.runner).toBe('docker');
       expect(config.scanners?.osv?.image).toBe('ghcr.io/google/osv-scanner:v1.9.0');
     });
@@ -265,7 +299,9 @@ describe('OSV scanner config schema — runner + image fields', () => {
     const yaml = minimalConfigWith('scanners:\n  osv:\n    runner: local');
     await withTempConfig(yaml, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
-      const config = await loadConfig(filename, dir);
+      const result = await loadConfig(filename, dir);
+      expect(result.ok).toBe(true);
+      const config = unwrapTest(result);
       expect(config.scanners?.osv?.runner).toBe('local');
     });
   });
@@ -274,7 +310,9 @@ describe('OSV scanner config schema — runner + image fields', () => {
     const yaml = minimalConfigWith('scanners:\n  osv:\n    runner: auto');
     await withTempConfig(yaml, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
-      const config = await loadConfig(filename, dir);
+      const result = await loadConfig(filename, dir);
+      expect(result.ok).toBe(true);
+      const config = unwrapTest(result);
       expect(config.scanners?.osv?.runner).toBe('auto');
     });
   });
@@ -283,7 +321,9 @@ describe('OSV scanner config schema — runner + image fields', () => {
     const yaml = minimalConfigWith('scanners:\n  osv: {}');
     await withTempConfig(yaml, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
-      const config = await loadConfig(filename, dir);
+      const result = await loadConfig(filename, dir);
+      expect(result.ok).toBe(true);
+      const config = unwrapTest(result);
       expect(config.scanners?.osv?.runner).toBe('docker');
     });
   });
@@ -292,7 +332,9 @@ describe('OSV scanner config schema — runner + image fields', () => {
     const yaml = minimalConfigWith('scanners:\n  osv:\n    runner: kubernetes');
     await withTempConfig(yaml, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
-      await expect(loadConfig(filename, dir)).rejects.toThrow(ConfigLoadError);
+      const result = await loadConfig(filename, dir);
+      expect(result.ok).toBe(false);
+      expect(result.error).toBeInstanceOf(ConfigLoadError);
     });
   });
 
@@ -300,12 +342,13 @@ describe('OSV scanner config schema — runner + image fields', () => {
     const yaml = minimalConfigWith('scanners:\n  osv:\n    runner: kubernetes');
     await withTempConfig(yaml, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
-      const err = await loadConfig(filename, dir).catch((e) => e);
-      expect(err).toBeInstanceOf(ConfigLoadError);
+      const result = await loadConfig(filename, dir);
+      expect(result.ok).toBe(false);
+      expect(result.error).toBeInstanceOf(ConfigLoadError);
       // Should show expected enum values
-      expect(err.message).toMatch(/"auto"/);
-      expect(err.message).toMatch(/"local"/);
-      expect(err.message).toMatch(/"docker"/);
+      expect((result.error as ConfigLoadError).message).toMatch(/"auto"/);
+      expect((result.error as ConfigLoadError).message).toMatch(/"local"/);
+      expect((result.error as ConfigLoadError).message).toMatch(/"docker"/);
     });
   });
 
@@ -315,7 +358,9 @@ describe('OSV scanner config schema — runner + image fields', () => {
     );
     await withTempConfig(yaml, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
-      const config = await loadConfig(filename, dir);
+      const result = await loadConfig(filename, dir);
+      expect(result.ok).toBe(true);
+      const config = unwrapTest(result);
       expect(config.scanners?.osv?.image).toBe('ghcr.io/google/osv-scanner:v1.9.0');
       // runner defaults to 'docker'
       expect(config.scanners?.osv?.runner).toBe('docker');
@@ -333,7 +378,9 @@ describe('strict schema enforcement — unknown keys', () => {
     const yaml = minimalConfigWith('unknown_top_key: oops');
     await withTempConfig(yaml, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
-      await expect(loadConfig(filename, dir)).rejects.toThrow(ConfigLoadError);
+      const result = await loadConfig(filename, dir);
+      expect(result.ok).toBe(false);
+      expect(result.error).toBeInstanceOf(ConfigLoadError);
     });
   });
 
@@ -341,9 +388,10 @@ describe('strict schema enforcement — unknown keys', () => {
     const yaml = minimalConfigWith('unknown_top_key: oops');
     await withTempConfig(yaml, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
-      const err = await loadConfig(filename, dir).catch((e) => e);
-      expect(err).toBeInstanceOf(ConfigLoadError);
-      expect(err.message).toMatch(/"unknown_top_key"/);
+      const result = await loadConfig(filename, dir);
+      expect(result.ok).toBe(false);
+      expect(result.error).toBeInstanceOf(ConfigLoadError);
+      expect((result.error as ConfigLoadError).message).toMatch(/"unknown_top_key"/);
     });
   });
 
@@ -363,7 +411,9 @@ describe('strict schema enforcement — unknown keys', () => {
     ].join('\n') + '\n';
     await withTempConfig(yaml, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
-      await expect(loadConfig(filename, dir)).rejects.toThrow(ConfigLoadError);
+      const result = await loadConfig(filename, dir);
+      expect(result.ok).toBe(false);
+      expect(result.error).toBeInstanceOf(ConfigLoadError);
     });
   });
 
@@ -373,7 +423,9 @@ describe('strict schema enforcement — unknown keys', () => {
     );
     await withTempConfig(yaml, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
-      await expect(loadConfig(filename, dir)).rejects.toThrow(ConfigLoadError);
+      const result = await loadConfig(filename, dir);
+      expect(result.ok).toBe(false);
+      expect(result.error).toBeInstanceOf(ConfigLoadError);
     });
   });
 
@@ -393,7 +445,9 @@ describe('strict schema enforcement — unknown keys', () => {
     ].join('\n') + '\n';
     await withTempConfig(yaml, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
-      await expect(loadConfig(filename, dir)).rejects.toThrow(ConfigLoadError);
+      const result = await loadConfig(filename, dir);
+      expect(result.ok).toBe(false);
+      expect(result.error).toBeInstanceOf(ConfigLoadError);
     });
   });
 
@@ -417,7 +471,9 @@ describe('strict schema enforcement — unknown keys', () => {
 
     await withTempConfig(yaml, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
-      await expect(loadConfig(filename, dir)).rejects.toThrow(ConfigLoadError);
+      const result = await loadConfig(filename, dir);
+      expect(result.ok).toBe(false);
+      expect(result.error).toBeInstanceOf(ConfigLoadError);
     });
   });
 });

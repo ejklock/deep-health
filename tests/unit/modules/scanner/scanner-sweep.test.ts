@@ -170,9 +170,12 @@ describe('Scanner Sweep: success path', () => {
       silentScannerSweepRenderer,
     );
 
-    expect(result.engineEntries).toHaveLength(3);
-    expect(result.engineEntries.map((e) => e.engineId)).toEqual(['osv', 'sonar', 'extra']);
-    expect(result.warnings).toHaveLength(0);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return; // narrow type for TypeScript
+
+    expect(result.value.engineEntries).toHaveLength(3);
+    expect(result.value.engineEntries.map((e) => e.engineId)).toEqual(['osv', 'sonar', 'extra']);
+    expect(result.value.warnings).toHaveLength(0);
   });
 });
 
@@ -192,29 +195,42 @@ describe('Scanner Sweep: secondary throws + on_failure="warn"', () => {
       silentScannerSweepRenderer,
     );
 
-    expect(result.engineEntries).toHaveLength(1);
-    expect(result.engineEntries[0]?.engineId).toBe('osv');
-    expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0]).toMatchObject({ engineId: 'sonar', message: 'sonar down' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.value.engineEntries).toHaveLength(1);
+    expect(result.value.engineEntries[0]?.engineId).toBe('osv');
+    expect(result.value.warnings).toHaveLength(1);
+    expect(result.value.warnings[0]).toMatchObject({ engineId: 'sonar', message: 'sonar down' });
   });
 });
 
 describe('Scanner Sweep: secondary throws + on_failure="fail"', () => {
-  it('re-throws the original error (NOT PrimaryEngineFailure)', async () => {
+  it('returns Err with kind="secondary" carrying the original error', async () => {
     const originalError = new Error('sonar exploded');
     const engines = [
       makeEngine('osv', () => Promise.resolve(successResult())),
       makeEngine('sonar', () => Promise.reject(originalError)),
     ];
 
-    await expect(
-      executeScannerSweep(engines, makeCtx(), policy('osv', () => 'fail'), silentScannerSweepRenderer),
-    ).rejects.toThrow('sonar exploded');
+    const result = await executeScannerSweep(
+      engines,
+      makeCtx(),
+      policy('osv', () => 'fail'),
+      silentScannerSweepRenderer,
+    );
 
-    // Must NOT be wrapped in PrimaryEngineFailure
-    await expect(
-      executeScannerSweep(engines, makeCtx(), policy('osv', () => 'fail'), silentScannerSweepRenderer),
-    ).rejects.not.toBeInstanceOf(PrimaryEngineFailure);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+
+    expect(result.error.kind).toBe('secondary');
+    if (result.error.kind !== 'secondary') return;
+
+    expect(result.error.error).toBe(originalError);
+    expect(result.error.error.message).toBe('sonar exploded');
+
+    // Must NOT be a PrimaryEngineFailure
+    expect(result.error.error).not.toBeInstanceOf(PrimaryEngineFailure);
   });
 });
 
@@ -232,22 +248,36 @@ describe('Scanner Sweep: secondary returns status="error" + on_failure="warn"', 
       silentScannerSweepRenderer,
     );
 
-    expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0]).toMatchObject({ engineId: 'sonar', message: 'sonar reported error' });
-    expect(result.engineEntries).toHaveLength(1); // only osv
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.value.warnings).toHaveLength(1);
+    expect(result.value.warnings[0]).toMatchObject({ engineId: 'sonar', message: 'sonar reported error' });
+    expect(result.value.engineEntries).toHaveLength(1); // only osv
   });
 });
 
 describe('Scanner Sweep: secondary returns status="error" + on_failure="fail"', () => {
-  it('throws an Error with the result.error message', async () => {
+  it('returns Err with kind="secondary" and the error message from result.error', async () => {
     const engines = [
       makeEngine('osv', () => Promise.resolve(successResult())),
       makeEngine('sonar', () => Promise.resolve(errorResult('sonar fatal error'))),
     ];
 
-    await expect(
-      executeScannerSweep(engines, makeCtx(), policy('osv', () => 'fail'), silentScannerSweepRenderer),
-    ).rejects.toThrow('sonar fatal error');
+    const result = await executeScannerSweep(
+      engines,
+      makeCtx(),
+      policy('osv', () => 'fail'),
+      silentScannerSweepRenderer,
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+
+    expect(result.error.kind).toBe('secondary');
+    if (result.error.kind !== 'secondary') return;
+
+    expect(result.error.error.message).toBe('sonar fatal error');
   });
 });
 
@@ -265,55 +295,68 @@ describe('Scanner Sweep: secondary returns status="skipped"', () => {
       silentScannerSweepRenderer,
     );
 
-    expect(result.engineEntries).toHaveLength(1);
-    expect(result.engineEntries[0]?.engineId).toBe('osv');
-    expect(result.warnings).toHaveLength(0);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.value.engineEntries).toHaveLength(1);
+    expect(result.value.engineEntries[0]?.engineId).toBe('osv');
+    expect(result.value.warnings).toHaveLength(0);
   });
 });
 
 // ─── Tests: primary engine errors ────────────────────────────────────────────
 
 describe('Scanner Sweep: primary throws', () => {
-  it('throws PrimaryEngineFailure with engineId, cause, and partialWarnings', async () => {
+  it('returns Err with kind="primary", failure has engineId, cause, and partialWarnings', async () => {
     const primaryError = new Error('osv crashed');
     const engines = [
       makeEngine('osv', () => Promise.reject(primaryError)),
     ];
 
-    let caught: unknown;
-    try {
-      await executeScannerSweep(engines, makeCtx(), policy('osv'), silentScannerSweepRenderer);
-    } catch (err) {
-      caught = err;
-    }
+    const result = await executeScannerSweep(
+      engines,
+      makeCtx(),
+      policy('osv'),
+      silentScannerSweepRenderer,
+    );
 
-    expect(caught).toBeInstanceOf(PrimaryEngineFailure);
-    const failure = caught as PrimaryEngineFailure;
-    expect(failure.engineId).toBe('osv');
-    expect(failure.cause).toBe(primaryError);
-    expect(failure.partialWarnings).toEqual([]);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+
+    expect(result.error.kind).toBe('primary');
+    if (result.error.kind !== 'primary') return;
+
+    expect(result.error.failure).toBeInstanceOf(PrimaryEngineFailure);
+    expect(result.error.failure.engineId).toBe('osv');
+    expect(result.error.failure.cause).toBe(primaryError);
+    expect(result.error.failure.partialWarnings).toEqual([]);
   });
 });
 
 describe('Scanner Sweep: primary returns status="error"', () => {
-  it('throws PrimaryEngineFailure with cause wrapping result.error', async () => {
+  it('returns Err with kind="primary", failure.cause wraps result.error', async () => {
     const engines = [
       makeEngine('osv', () => Promise.resolve(errorResult('scan tool failed'))),
     ];
 
-    let caught: unknown;
-    try {
-      await executeScannerSweep(engines, makeCtx(), policy('osv'), silentScannerSweepRenderer);
-    } catch (err) {
-      caught = err;
-    }
+    const result = await executeScannerSweep(
+      engines,
+      makeCtx(),
+      policy('osv'),
+      silentScannerSweepRenderer,
+    );
 
-    expect(caught).toBeInstanceOf(PrimaryEngineFailure);
-    const failure = caught as PrimaryEngineFailure;
-    expect(failure.engineId).toBe('osv');
-    expect(failure.cause).toBeInstanceOf(Error);
-    expect((failure.cause as Error).message).toContain('scan tool failed');
-    expect(failure.partialWarnings).toEqual([]);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+
+    expect(result.error.kind).toBe('primary');
+    if (result.error.kind !== 'primary') return;
+
+    expect(result.error.failure).toBeInstanceOf(PrimaryEngineFailure);
+    expect(result.error.failure.engineId).toBe('osv');
+    expect(result.error.failure.cause).toBeInstanceOf(Error);
+    expect((result.error.failure.cause as Error).message).toContain('scan tool failed');
+    expect(result.error.failure.partialWarnings).toEqual([]);
   });
 });
 
@@ -331,22 +374,21 @@ describe('Scanner Sweep: primary failure preserves partialWarnings from earlier 
 
     const resolveOnFailure = (id: string) => (id === 'sonar' ? 'warn' : 'fail') as 'warn' | 'fail';
 
-    let caught: unknown;
-    try {
-      await executeScannerSweep(
-        engines,
-        makeCtx(),
-        policy('osv', resolveOnFailure),
-        silentScannerSweepRenderer,
-      );
-    } catch (err) {
-      caught = err;
-    }
+    const result = await executeScannerSweep(
+      engines,
+      makeCtx(),
+      policy('osv', resolveOnFailure),
+      silentScannerSweepRenderer,
+    );
 
-    expect(caught).toBeInstanceOf(PrimaryEngineFailure);
-    const failure = caught as PrimaryEngineFailure;
-    expect(failure.partialWarnings).toHaveLength(1);
-    expect(failure.partialWarnings[0]).toMatchObject({ engineId: 'sonar', message: 'sonar non-fatal' });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+
+    expect(result.error.kind).toBe('primary');
+    if (result.error.kind !== 'primary') return;
+
+    expect(result.error.failure.partialWarnings).toHaveLength(1);
+    expect(result.error.failure.partialWarnings[0]).toMatchObject({ engineId: 'sonar', message: 'sonar non-fatal' });
   });
 });
 

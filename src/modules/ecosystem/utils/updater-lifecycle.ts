@@ -5,21 +5,29 @@ import type { ScanResultJson } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
 import { PhaseError } from '@core/errors';
 import { logger } from '@infra/utils/logger';
+import type { Ok, Err } from '@core/types/result';
 import type { BootstrapSpec } from './updater-transaction';
 import { beginUpdaterTransaction } from './updater-transaction';
 import { runValidations } from './validation-runner';
 
-export type FixResult<T> =
-  | { ok: true; value: T }
-  | {
-      ok: false;
-      error: string;
-      /**
-       * Defaults to 'skipped' — validations never ran.
-       * Use 'fail' for fix failures that are validation-level signals (e.g. breaking install error).
-       */
-      validationStatus?: 'fail' | 'skipped';
-    };
+/**
+ * The string error message carried by a failed fix operation.
+ *
+ * Used as the `E` parameter so that `Err<FixError>` resolves to
+ * `{ ok: false; error: string }`, preserving the original flat shape.
+ */
+export type FixError = string;
+
+/**
+ * Result type for ecosystem fix operations.
+ *
+ * Built from the canonical `Ok<T>` and `Err<FixError>` building blocks, with
+ * an optional `validationStatus` field appended to the Err variant.  The
+ * resulting discriminated union is identical to the original shape:
+ *   - `{ ok: true; value: T }`
+ *   - `{ ok: false; error: string; validationStatus?: 'fail' | 'skipped' }`
+ */
+export type FixResult<T> = Ok<T> | (Err<FixError> & { validationStatus?: 'fail' | 'skipped' });
 
 export interface LifecycleCtx {
   readonly runner: CommandRunner;

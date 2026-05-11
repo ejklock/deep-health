@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ProjectConfig } from '@core/types/config';
+import { ok } from '@core/types/result';
+import type { Result } from '@core/types/result';
+import { ConfigLoadError } from '@core/errors';
 import { defaultRegistry } from '@modules/ecosystem/index';
 
 vi.mock('@infra/config/loader', () => ({
@@ -41,7 +44,7 @@ describe('createRunContext', () => {
   });
 
   it('loads config with default registry and creates a LocalExecutor', async () => {
-    vi.mocked(loadConfig).mockResolvedValue(baseConfig);
+    vi.mocked(loadConfig).mockResolvedValue(ok(baseConfig) as Result<ProjectConfig, ConfigLoadError>);
 
     const result = await createRunContext({
       config: 'project-config.yml',
@@ -58,7 +61,7 @@ describe('createRunContext', () => {
   });
 
   it('passes dryRun flag to LocalExecutor', async () => {
-    vi.mocked(loadConfig).mockResolvedValue(baseConfig);
+    vi.mocked(loadConfig).mockResolvedValue(ok(baseConfig) as Result<ProjectConfig, ConfigLoadError>);
 
     await createRunContext({
       config: 'project-config.yml',
@@ -72,7 +75,7 @@ describe('createRunContext', () => {
   });
 
   it('applies verbose and quiet log levels', async () => {
-    vi.mocked(loadConfig).mockResolvedValue(baseConfig);
+    vi.mocked(loadConfig).mockResolvedValue(ok(baseConfig) as Result<ProjectConfig, ConfigLoadError>);
 
     await createRunContext({
       config: 'project-config.yml',
@@ -87,7 +90,7 @@ describe('createRunContext', () => {
   });
 
   it('calls setJsonMode(true) when opts.json is true', async () => {
-    vi.mocked(loadConfig).mockResolvedValue(baseConfig);
+    vi.mocked(loadConfig).mockResolvedValue(ok(baseConfig) as Result<ProjectConfig, ConfigLoadError>);
 
     await createRunContext({
       config: 'project-config.yml',
@@ -102,7 +105,7 @@ describe('createRunContext', () => {
   });
 
   it('does NOT call setJsonMode when opts.json is falsy', async () => {
-    vi.mocked(loadConfig).mockResolvedValue(baseConfig);
+    vi.mocked(loadConfig).mockResolvedValue(ok(baseConfig) as Result<ProjectConfig, ConfigLoadError>);
 
     await createRunContext({
       config: 'project-config.yml',

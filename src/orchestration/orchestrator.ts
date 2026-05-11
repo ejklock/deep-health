@@ -22,9 +22,9 @@ import {
   OSV_ENGINE_ID,
   bootstrapDefaultEngines,
   executeScannerSweep,
-  PrimaryEngineFailure,
   listr2ScannerSweepRenderer,
 } from "@modules/scanner/index";
+import { isErr } from "@core/types/result";
 import type { AggregatedScanResult } from "@modules/scanner/index";
 import { runAdvisors } from "@modules/advisor/index";
 import { CLI_NAME, KILL_SWITCH_VAR } from "@infra/brand";
@@ -232,27 +232,30 @@ export async function runOrchestrator(
   // then re-throw the original cause to preserve today's observable behaviour.
   let engineEntries: Array<{ engineId: string; result: ScanResultJson }>;
   let warnings: EngineWarning[];
-  try {
-    const sweep = await executeScannerSweep(
-      engineRegistry.getByPhase('scan'),
-      ctx,
-      {
-        primaryEngineId,
-        resolveOnFailure: (id) => resolveOnFailure(id, config),
-      },
-      listr2ScannerSweepRenderer(options.rendererType ?? 'default'),
-    );
-    engineEntries = sweep.engineEntries;
-    warnings = sweep.warnings;
-  } catch (err) {
-    if (err instanceof PrimaryEngineFailure) {
+  const sweepResult = await executeScannerSweep(
+    engineRegistry.getByPhase('scan'),
+    ctx,
+    {
+      primaryEngineId,
+      resolveOnFailure: (id) => resolveOnFailure(id, config),
+    },
+    listr2ScannerSweepRenderer(options.rendererType ?? 'default'),
+  );
+  if (isErr(sweepResult)) {
+    const sweepErr = sweepResult.error;
+    if (sweepErr.kind === 'primary') {
       // Preserve partial warnings from secondary engines that ran before primary failed
-      result.warnings = err.partialWarnings;
+      result.warnings = sweepErr.failure.partialWarnings;
       // Re-throw the original cause — preserves the error the orchestrator's callers expect
-      throw err.cause instanceof Error ? err.cause : new Error(String(err.cause));
+      throw sweepErr.failure.cause instanceof Error
+        ? sweepErr.failure.cause
+        : new Error(String(sweepErr.failure.cause));
     }
-    throw err;
+    // kind === 'secondary': re-throw as-is
+    throw sweepErr.error;
   }
+  engineEntries = sweepResult.value.engineEntries;
+  warnings = sweepResult.value.warnings;
   result.warnings = warnings;
 
   // Aggregate: primary engine result drives Gate A; secondary results go into engineResults
@@ -354,30 +357,32 @@ export async function runOrchestrator(
   const postFixEngines = engineRegistry.getByPhase('post-fix');
   if (postFixEngines.length > 0 && result.overallStatus !== 'error') {
     logger.phase('Post-Fix Scan');
-    try {
-      const postFixSweep = await executeScannerSweep(
-        postFixEngines,
-        ctx,
-        {
-          // Post-fix engines are all secondary — use a sentinel primary that won't match any
-          // engine in this sweep; failures are governed by resolveOnFailure only.
-          primaryEngineId: '__post-fix-no-primary__',
-          resolveOnFailure: (id) => resolveOnFailure(id, config),
-        },
-        listr2ScannerSweepRenderer(options.rendererType ?? 'default'),
-      );
+    const postFixSweepResult = await executeScannerSweep(
+      postFixEngines,
+      ctx,
+      {
+        // Post-fix engines are all secondary — use a sentinel primary that won't match any
+        // engine in this sweep; failures are governed by resolveOnFailure only.
+        primaryEngineId: '__post-fix-no-primary__',
+        resolveOnFailure: (id) => resolveOnFailure(id, config),
+      },
+      listr2ScannerSweepRenderer(options.rendererType ?? 'default'),
+    );
+    if (isErr(postFixSweepResult)) {
+      const postFixErr = postFixSweepResult.error;
+      if (postFixErr.kind === 'primary') {
+        // No primary in the post-fix sweep — this path is unexpected, but guard defensively
+        result.warnings.push(...postFixErr.failure.partialWarnings);
+      } else {
+        // kind === 'secondary': re-throw as-is
+        throw postFixErr.error;
+      }
+    } else {
       // Merge post-fix engine entries and warnings into the aggregated result
-      engineEntries.push(...postFixSweep.engineEntries);
-      result.warnings.push(...postFixSweep.warnings);
+      engineEntries.push(...postFixSweepResult.value.engineEntries);
+      result.warnings.push(...postFixSweepResult.value.warnings);
       // Re-aggregate so the post-fix engine results appear in result.aggregated.engineResults
       result.aggregated = aggregateScanResults(engineEntries, result.warnings, primaryEngineId);
-    } catch (err) {
-      if (err instanceof PrimaryEngineFailure) {
-        // No primary in the post-fix sweep — this path is unexpected, but guard defensively
-        result.warnings.push(...err.partialWarnings);
-      } else {
-        throw err;
-      }
     }
   }
 

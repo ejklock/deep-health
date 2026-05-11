@@ -7,6 +7,7 @@ import type { ProjectConfig } from '@core/types/config';
 import { ConfigLoadError } from '@core/errors';
 import type { EcosystemRegistry } from '@modules/ecosystem/registry';
 import { CLI_NAME } from '@infra/brand';
+import { type Result, ok, err } from '@core/types/result';
 
 export const DEFAULT_CONFIG_PATH = 'project-config.yml';
 
@@ -153,63 +154,63 @@ export async function loadConfig(
   configPath: string,
   cwd: string = process.cwd(),
   registry?: EcosystemRegistry,
-): Promise<ProjectConfig> {
+): Promise<Result<ProjectConfig, ConfigLoadError>> {
   const absolutePath = resolve(cwd, configPath);
 
   let raw: string;
   try {
     raw = await readFile(absolutePath, 'utf-8');
   } catch (_err) {
-    throw new ConfigLoadError(
+    return err(new ConfigLoadError(
       `Cannot read config file: ${absolutePath}\n` +
       `  Hint: Run "${CLI_NAME} init" to generate a starter config, ` +
       `or check the --config / --cwd flags.`,
       absolutePath,
-    );
+    ));
   }
 
   let parsed: unknown;
   try {
     parsed = parse(raw);
   } catch (_err) {
-    throw new ConfigLoadError(
+    return err(new ConfigLoadError(
       `Invalid YAML in config file: ${absolutePath}\n` +
       `  Hint: Validate your YAML syntax at https://yaml.org/spec/ or use a linter.`,
       absolutePath,
-    );
+    ));
   }
 
   try {
     rejectLegacyModeField(parsed);
-  } catch (err) {
-    throw new ConfigLoadError(
-      `${(err as Error).message}`,
+  } catch (e) {
+    return err(new ConfigLoadError(
+      `${(e as Error).message}`,
       absolutePath,
-    );
+    ));
   }
 
-  const result = ProjectConfigSchema.safeParse(parsed);
-  if (!result.success) {
-    const issues = result.error.issues.map(formatZodIssue).join('\n');
-    throw new ConfigLoadError(
+  const zodResult = ProjectConfigSchema.safeParse(parsed);
+  if (!zodResult.success) {
+    const issues = zodResult.error.issues.map(formatZodIssue).join('\n');
+    return err(new ConfigLoadError(
       `Config validation failed in ${absolutePath}:\n${issues}`,
       absolutePath,
-    );
+    ));
   }
 
-  const config = result.data;
+  const config = zodResult.data;
 
   // Cross-validate ecosystems[] against registry if one is provided
   if (registry) {
     const crossErrors = validateEcosystemsAgainstRegistry(config, registry);
     if (crossErrors.length > 0) {
-      throw new ConfigLoadError(
+      return err(new ConfigLoadError(
         `Config ecosystem cross-validation failed in ${absolutePath}:\n` +
         crossErrors.map((e) => `  ${e}`).join('\n'),
         absolutePath,
-      );
+      ));
     }
   }
 
-  return config;
+  return ok(config);
 }
