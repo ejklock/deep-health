@@ -1,1 +1,2 @@
 - [Binary build migrated from Bun to Node.js SEA](bun-to-sea-migration.md) — Bun segfaults on Windows; Node 26 SEA (still CJS-only as of 26.1, postject, matrix runners)
+- [Result<T, E> migration status](result-type-migration.md) — loadConfig + scannerSweep migrated; FixResult unified; remaining modules still use throws
