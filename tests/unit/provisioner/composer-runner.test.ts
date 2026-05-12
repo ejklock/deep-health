@@ -111,7 +111,7 @@ describe('EphemeralEcosystemContainer._buildDockerArgs (composer mode)', () => {
     const shellCmd = args[args.indexOf('sh') + 2] as string;
     expect(shellCmd).toContain('command -v git');
     expect(shellCmd).toContain('command -v unzip');
-    expect(shellCmd).toContain('apt-get install -y --no-install-recommends git unzip');
+    expect(shellCmd).toContain('apt-get install -y --no-install-recommends -o APT::Sandbox::User=root git unzip');
   });
 
   it('falls back to COMPOSER_DEFAULT_IMAGE when no image is specified', () => {

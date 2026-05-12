@@ -114,7 +114,7 @@ describe('EphemeralEcosystemContainer._buildDockerArgs() — shell-wrap mode (co
     const shellCmd = args[args.indexOf('sh') + 2] as string;
     expect(shellCmd).toContain('command -v git');
     expect(shellCmd).toContain('command -v unzip');
-    expect(shellCmd).toContain('apt-get install -y --no-install-recommends git unzip');
+    expect(shellCmd).toContain('apt-get install -y --no-install-recommends -o APT::Sandbox::User=root git unzip');
     expect(shellCmd.indexOf('command -v')).toBeLessThan(shellCmd.indexOf('getcomposer.org/installer'));
   });
 
