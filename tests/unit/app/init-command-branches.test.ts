@@ -47,8 +47,9 @@ const mockWriteSonar = vi.mocked(writeSonarPropertiesTemplateIfMissing);
  * Standard interactive setup helper.
  * - ecosystems: what checkboxPrompt returns
  * - sonar: confirmPrompt response when msg includes 'SonarQube'
- * - markdown: confirmPrompt response when msg includes 'Generate markdown'
+ * - markdown: confirmPrompt response when msg includes 'Generate markdown' or 'markdown'
  * All other confirms (validation commands, advisors) return false.
+ * selectPrompt always returns 'en' for the language prompt, and first choice for all others.
  */
 function setupInteractiveMocks({
   sonar = false,
@@ -56,12 +57,14 @@ function setupInteractiveMocks({
   ecosystems = ['npm', 'composer', 'pip'],
 }: { sonar?: boolean; markdown?: boolean; ecosystems?: string[] } = {}) {
   mockCheckbox.mockResolvedValue(ecosystems as ReturnType<typeof mockCheckbox.mock.results[0]['value']> extends Promise<infer U> ? U : never);
-  mockSelect.mockImplementation((_msg: string, choices: Array<{ name: string; value: string }>) =>
-    Promise.resolve(choices[0].value),
-  );
+  mockSelect.mockImplementation((msg: string, choices: Array<{ name: string; value: string }>) => {
+    // Language / Idioma is always the first prompt — return 'en' so subsequent EN strings work
+    if (msg.includes('Language') || msg.includes('Idioma')) return Promise.resolve('en');
+    return Promise.resolve(choices[0].value);
+  });
   mockConfirm.mockImplementation((msg: string) => {
     if (msg.includes('SonarQube')) return Promise.resolve(sonar);
-    if (msg.includes('Generate markdown')) return Promise.resolve(markdown);
+    if (msg.includes('Generate markdown') || msg.includes('markdown')) return Promise.resolve(markdown);
     return Promise.resolve(false); // decline validation commands, advisors
   });
   mockPrompt.mockImplementation((_q: string, def?: string) => Promise.resolve(def ?? ''));
@@ -160,9 +163,10 @@ describe('runInitCommand — outputs: undefined path', () => {
     mockReadFile.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
 
     mockCheckbox.mockResolvedValue(['npm']);
-    mockSelect.mockImplementation((_m: string, c: Array<{ name: string; value: string }>) =>
-      Promise.resolve(c[0].value),
-    );
+    mockSelect.mockImplementation((msg: string, c: Array<{ name: string; value: string }>) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return Promise.resolve('en');
+      return Promise.resolve(c[0].value);
+    });
     mockConfirm.mockResolvedValue(false); // declines SonarQube AND 'Generate markdown'
     mockPrompt.mockImplementation((_q: string, def?: string) => Promise.resolve(def ?? ''));
 
@@ -219,14 +223,16 @@ describe('runInitCommand — client prompt', () => {
 
     // Ecosystem/fixer/image source handled by inquirer mocks (no ecosystems selected → loop skipped)
     mockCheckbox.mockResolvedValue([]);
-    mockSelect.mockImplementation((_m: string, c: Array<{ name: string; value: string }>) =>
-      Promise.resolve(c[0].value),
-    );
+    mockSelect.mockImplementation((msg: string, c: Array<{ name: string; value: string }>) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return Promise.resolve('en');
+      return Promise.resolve(c[0].value);
+    });
     mockConfirm.mockResolvedValue(false);
 
     const mockPromptLocal = vi.mocked(prompt);
     mockPromptLocal.mockImplementation(async (question: string, defaultValue?: string) => {
-      if (question.includes('Client name')) return 'PromptedClient';
+      // EN locale uses 'Client name'
+      if (question.includes('Client name') || question.includes('Nome do cliente')) return 'PromptedClient';
       return defaultValue ?? '';
     });
 
@@ -241,7 +247,7 @@ describe('runInitCommand — client prompt', () => {
     stdoutSpy.mockRestore();
 
     expect(mockPromptLocal).toHaveBeenCalledWith(
-      expect.stringContaining('Client name'),
+      expect.stringMatching(/Client name|Nome do cliente/),
       expect.any(String),
     );
   });
@@ -259,9 +265,10 @@ describe('runInitCommand — fixer strategy via selectPrompt', () => {
     mockWriteSonar.mockResolvedValue('created');
 
     mockCheckbox.mockResolvedValue(['npm']);
-    mockSelect.mockImplementation((_m: string, c: Array<{ name: string; value: string }>) =>
-      Promise.resolve(c[0].value),
-    );
+    mockSelect.mockImplementation((msg: string, c: Array<{ name: string; value: string }>) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return Promise.resolve('en');
+      return Promise.resolve(c[0].value);
+    });
     mockConfirm.mockResolvedValue(false);
     mockPrompt.mockImplementation((_q: string, def?: string) => Promise.resolve(def ?? ''));
 
@@ -275,7 +282,7 @@ describe('runInitCommand — fixer strategy via selectPrompt', () => {
     });
     stdoutSpy.mockRestore();
 
-    // selectPrompt must have been called with a message containing 'Fixer strategy'
+    // selectPrompt must have been called with a message containing 'Fixer strategy' (EN locale)
     const fixerCall = mockSelect.mock.calls.find(([msg]) =>
       typeof msg === 'string' && msg.includes('Fixer strategy'),
     );
@@ -338,9 +345,10 @@ describe('runInitCommand — composer interactive with inferred version', () => 
 
     // Only composer selected — no npm/pip loop overhead
     mockCheckbox.mockResolvedValue(['composer']);
-    mockSelect.mockImplementation((_m: string, c: Array<{ name: string; value: string }>) =>
-      Promise.resolve(c[0].value),
-    );
+    mockSelect.mockImplementation((msg: string, c: Array<{ name: string; value: string }>) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return Promise.resolve('en');
+      return Promise.resolve(c[0].value);
+    });
     mockConfirm.mockResolvedValue(false); // skip validation/advisors/sonar/markdown
 
     const mockPromptLocal = vi.mocked(prompt);
@@ -383,9 +391,10 @@ describe('runInitCommand() — branch coverage top-up', () => {
 
     // No ecosystems selected — skips per-ecosystem loop entirely
     mockCheckbox.mockResolvedValue([]);
-    mockSelect.mockImplementation((_m: string, c: Array<{ name: string; value: string }>) =>
-      Promise.resolve(c[0].value),
-    );
+    mockSelect.mockImplementation((msg: string, c: Array<{ name: string; value: string }>) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return Promise.resolve('en');
+      return Promise.resolve(c[0].value);
+    });
     mockConfirm.mockResolvedValue(false);
 
     mockPrompt.mockImplementation(async (question: string, defaultValue?: string) => {
@@ -404,15 +413,16 @@ describe('runInitCommand() — branch coverage top-up', () => {
 
     stdoutSpy.mockRestore();
 
-    expect(promptted.some((q) => q.includes('Project name'))).toBe(true);
-    expect(promptted.some((q) => q.includes('Client name'))).toBe(true);
+    // EN locale: 'Project name' and 'Client name'
+    expect(promptted.some((q) => q.includes('Project name') || q.includes('Nome do projeto'))).toBe(true);
+    expect(promptted.some((q) => q.includes('Client name') || q.includes('Nome do cliente'))).toBe(true);
   });
 
-  it('selectPrompt called with en choice; generateConfigYaml called with reportLanguage: en', async () => {
+  it('selectPrompt called with "Language / Idioma" first; generateConfigYaml called with reportLanguage: en', async () => {
     setupInteractiveMocks();
     mockCheckbox.mockResolvedValue([]);
     mockSelect.mockImplementation(async (msg: string, choices: Array<{ name: string; value: string }>) => {
-      if (msg === 'Report language') return 'en';
+      if (msg === 'Language / Idioma') return 'en';
       return choices[0].value;
     });
     mockConfirm.mockResolvedValue(false);
@@ -437,15 +447,16 @@ describe('runInitCommand() — branch coverage top-up', () => {
 
   it('uses default reports dir when dirAnswer is empty string (line 213 || branch)', async () => {
     mockCheckbox.mockResolvedValue([]);
-    mockSelect.mockImplementation((_m: string, c: Array<{ name: string; value: string }>) =>
-      Promise.resolve(c[0].value),
-    );
+    mockSelect.mockImplementation((msg: string, c: Array<{ name: string; value: string }>) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return Promise.resolve('en');
+      return Promise.resolve(c[0].value);
+    });
     mockConfirm.mockImplementation((msg: string) => {
-      if (msg.includes('Generate markdown')) return Promise.resolve(true);
+      if (msg.includes('Generate markdown') || msg.includes('markdown')) return Promise.resolve(true);
       return Promise.resolve(false); // decline SonarQube and others
     });
     mockPrompt.mockImplementation(async (question: string, defaultValue?: string) => {
-      if (question.includes('output directory')) return '   '; // whitespace → trim → empty → fallback
+      if (question.includes('output directory') || question.includes('saída')) return '   '; // whitespace → trim → empty → fallback
       return defaultValue ?? '';
     });
 

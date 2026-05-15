@@ -170,12 +170,15 @@ describe('runInitCommand — interactive version prompts', () => {
 
     // checkboxPrompt: select all ecosystems
     mockCheckbox.mockResolvedValue(['npm', 'composer']);
-    // selectPrompt: first choice for fixer/image-source; pt-br for language
-    mockSelect.mockImplementation(async (_msg: string, choices: any[]) => choices[0].value);
+    // selectPrompt: return 'en' for language prompt; first choice for everything else
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
+      return choices[0].value;
+    });
     // confirmPrompt: skip validation/advisors; no sonarqube; yes markdown
     mockConfirm.mockImplementation(async (msg: string) => {
       if (msg.includes('SonarQube')) return false;
-      if (msg.includes('Generate markdown')) return true;
+      if (msg.includes('Generate markdown') || msg.includes('markdown')) return true;
       return false; // skip validation commands and advisors
     });
 
@@ -227,7 +230,10 @@ describe('runInitCommand — interactive version prompts', () => {
     });
 
     mockCheckbox.mockResolvedValue(['npm', 'composer']);
-    mockSelect.mockImplementation(async (_msg: string, choices: any[]) => choices[0].value);
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
+      return choices[0].value;
+    });
     mockConfirm.mockResolvedValue(false);
 
     // User explicitly blanks out the version
@@ -271,7 +277,10 @@ describe('runInitCommand — interactive version prompts', () => {
 
     // Only npm selected — composer excluded
     mockCheckbox.mockResolvedValue(['npm']);
-    mockSelect.mockImplementation(async (_msg: string, choices: any[]) => choices[0].value);
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
+      return choices[0].value;
+    });
     mockConfirm.mockResolvedValue(false);
 
     mockPrompt.mockImplementation(async (question: string, defaultValue?: string) => {
@@ -315,9 +324,10 @@ describe('runInitCommand — interactive dockerfile image_source prompts', () =>
   it('wires image_source -> dockerfile_path -> build_context -> build_args for npm/pip/composer', async () => {
     // All ecosystems selected
     mockCheckbox.mockResolvedValue(['npm', 'composer', 'pip']);
-    // selectPrompt: return 'dockerfile' for image source; first choice for fixer; pt-br for language
+    // selectPrompt: return 'en' for language; 'dockerfile' for image source; first choice for fixer
     mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
-      if (msg.includes('Image source')) return 'dockerfile';
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
+      if (msg.includes('Image source') || msg.includes('Origem')) return 'dockerfile';
       return choices[0].value;
     });
     // confirmPrompt: skip validation/advisors/sonarqube; no markdown
@@ -325,7 +335,7 @@ describe('runInitCommand — interactive dockerfile image_source prompts', () =>
 
     mockPrompt.mockImplementation(async (question: string, defaultValue?: string) => {
       // Skip version prompts
-      if (question.includes('Language version') || question.includes('PHP language version') || question.includes('Python language version')) return '';
+      if (question.includes('Language version') || question.includes('PHP language version') || question.includes('Python language version') || question.includes('PHP') || question.includes('Python')) return '';
 
       // npm dockerfile flow
       if (question.includes('[npm] Dockerfile path')) return '.docker/node.Dockerfile';
@@ -517,10 +527,13 @@ describe('runInitCommand — ecosystem detection', () => {
       return ['npm'];
     });
 
-    mockSelect.mockImplementation(async (_msg: string, choices: any[]) => choices[0].value);
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
+      return choices[0].value;
+    });
     mockConfirm.mockImplementation(async (msg: string) => {
       if (msg.includes('SonarQube')) return false;
-      if (msg.includes('Generate markdown')) return true;
+      if (msg.includes('Generate markdown') || msg.includes('markdown')) return true;
       return false;
     });
     mockPrompt.mockImplementation(async (_question: string, defaultValue?: string) => defaultValue ?? '');
@@ -551,10 +564,13 @@ describe('runInitCommand — ecosystem detection', () => {
       return choices.map((c: any) => c.value);
     });
 
-    mockSelect.mockImplementation(async (_msg: string, choices: any[]) => choices[0].value);
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
+      return choices[0].value;
+    });
     mockConfirm.mockImplementation(async (msg: string) => {
       if (msg.includes('SonarQube')) return false;
-      if (msg.includes('Generate markdown')) return true;
+      if (msg.includes('Generate markdown') || msg.includes('markdown')) return true;
       return false;
     });
     mockPrompt.mockImplementation(async (_question: string, defaultValue?: string) => defaultValue ?? '');
@@ -623,11 +639,12 @@ describe('runInitCommand — SonarQube mode selection', () => {
     mockCheckbox.mockResolvedValue(['npm']);
     mockConfirm.mockImplementation(async (msg: string) => {
       if (msg.includes('SonarQube')) return true;
-      if (msg.includes('Generate markdown')) return true;
+      if (msg.includes('Generate markdown') || msg.includes('markdown')) return true;
       return false;
     });
-    // selectPrompt: return 'managed' for the mode prompt; first choice for others
+    // selectPrompt: return 'en' for language; 'managed' for SonarQube mode; first choice for others
     mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
       if (msg.includes('SonarQube mode')) return 'managed';
       return choices[0].value;
     });
@@ -662,11 +679,12 @@ describe('runInitCommand — SonarQube mode selection', () => {
     mockCheckbox.mockResolvedValue(['npm']);
     mockConfirm.mockImplementation(async (msg: string) => {
       if (msg.includes('SonarQube')) return true;
-      if (msg.includes('Generate markdown')) return true;
+      if (msg.includes('Generate markdown') || msg.includes('markdown')) return true;
       return false;
     });
-    // selectPrompt: return 'external' for mode; first choice for everything else
+    // selectPrompt: return 'en' for language; 'external' for mode; first choice for everything else
     mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
       if (msg.includes('SonarQube mode')) return 'external';
       return choices[0].value;
     });
@@ -692,17 +710,17 @@ describe('runInitCommand — SonarQube mode selection', () => {
     mockCheckbox.mockResolvedValue(['npm']);
     mockConfirm.mockImplementation(async (msg: string) => {
       if (msg.includes('SonarQube')) return false;
-      if (msg.includes('Generate markdown')) return false;
+      if (msg.includes('Generate markdown') || msg.includes('markdown')) return false;
       return false;
     });
-    mockSelect.mockImplementation(async (_msg: string, choices: any[]) => choices[0].value);
-    mockPrompt.mockImplementation(async (_question: string, defaultValue?: string) => defaultValue ?? '');
 
     const selectCalls: string[] = [];
     mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
       selectCalls.push(msg);
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
       return choices[0].value;
     });
+    mockPrompt.mockImplementation(async (_question: string, defaultValue?: string) => defaultValue ?? '');
 
     await runInitCommand({
       cwd: '/repo',
@@ -750,6 +768,7 @@ describe('runInitCommand — SonarQube mode selection', () => {
 
     const capturedChoices: any[] = [];
     mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
       if (msg.includes('SonarQube mode')) {
         capturedChoices.push(...choices);
         return 'managed';
@@ -775,5 +794,199 @@ describe('runInitCommand — SonarQube mode selection', () => {
     expect(managedChoice?.name).toMatch(/ephemeral|container/i);
     // external choice should mention existing server or better performance
     expect(externalChoice?.name).toMatch(/existing|performance/i);
+  });
+});
+
+// ─── i18n: language prompt and locale selection ───────────────────────────────
+
+describe('runInitCommand — i18n', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAccess.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+    mockDetectEcosystems.mockResolvedValue(new Set());
+  });
+
+  it('language prompt is the FIRST selectPrompt call (before any ecosystem or project prompts)', async () => {
+    mockCheckbox.mockResolvedValue([]);
+    const selectCallOrder: string[] = [];
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      selectCallOrder.push(msg);
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
+      return choices[0].value;
+    });
+    mockConfirm.mockResolvedValue(false);
+    mockPrompt.mockImplementation(async (_q: string, def?: string) => def ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'Lang First Test',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    // Language / Idioma must be the very first selectPrompt call
+    expect(selectCallOrder[0]).toBe('Language / Idioma');
+  });
+
+  it('language prompt uses bilingual label "Language / Idioma"', async () => {
+    mockCheckbox.mockResolvedValue([]);
+    const capturedMessages: string[] = [];
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      capturedMessages.push(msg);
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
+      return choices[0].value;
+    });
+    mockConfirm.mockResolvedValue(false);
+    mockPrompt.mockImplementation(async (_q: string, def?: string) => def ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'Bilingual Label Test',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    expect(capturedMessages).toContain('Language / Idioma');
+  });
+
+  it('language prompt choices are "English (en)" and "Português (pt-br)"', async () => {
+    mockCheckbox.mockResolvedValue([]);
+    let capturedChoices: Array<{ name: string; value: string }> = [];
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg === 'Language / Idioma') {
+        capturedChoices = choices;
+        return 'en';
+      }
+      return choices[0].value;
+    });
+    mockConfirm.mockResolvedValue(false);
+    mockPrompt.mockImplementation(async (_q: string, def?: string) => def ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'Choices Test',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    expect(capturedChoices.some((c) => c.value === 'en' && c.name === 'English (en)')).toBe(true);
+    expect(capturedChoices.some((c) => c.value === 'pt-br' && c.name === 'Português (pt-br)')).toBe(true);
+  });
+
+  it('uses EN strings when language "en" is selected', async () => {
+    mockCheckbox.mockResolvedValue([]);
+    const confirmMessages: string[] = [];
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg === 'Language / Idioma') return 'en';
+      return choices[0].value;
+    });
+    mockConfirm.mockImplementation(async (msg: string) => {
+      confirmMessages.push(msg);
+      return false;
+    });
+    mockPrompt.mockImplementation(async (_q: string, def?: string) => def ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'EN Strings Test',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    // EN locale: enableSonarQubePrompt is 'Enable SonarQube scanner?'
+    expect(confirmMessages.some((m) => m.includes('Enable SonarQube scanner?'))).toBe(true);
+  });
+
+  it('uses PT-BR strings when language "pt-br" is selected', async () => {
+    mockCheckbox.mockResolvedValue([]);
+    const confirmMessages: string[] = [];
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg === 'Language / Idioma') return 'pt-br';
+      return choices[0].value;
+    });
+    mockConfirm.mockImplementation(async (msg: string) => {
+      confirmMessages.push(msg);
+      return false;
+    });
+    mockPrompt.mockImplementation(async (_q: string, def?: string) => def ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'PT-BR Strings Test',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    // PT-BR locale: enableSonarQubePrompt is 'Habilitar scanner SonarQube?'
+    expect(confirmMessages.some((m) => m.includes('Habilitar scanner SonarQube?'))).toBe(true);
+  });
+
+  it('non-interactive mode defaults language via resolveDefaultLocale() — no selectPrompt called', async () => {
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      projectName: 'Non-interactive i18n test',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    // No selectPrompt should be called in non-interactive mode
+    expect(mockSelect).not.toHaveBeenCalled();
+    // generateConfigYaml should have been called with a valid reportLanguage
+    expect(generateConfigYaml).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reportLanguage: expect.stringMatching(/^(en|pt-br)$/),
+      }),
+    );
+  });
+
+  it('selected language is passed to generateConfigYaml as reportLanguage (backward compat)', async () => {
+    mockCheckbox.mockResolvedValue([]);
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg === 'Language / Idioma') return 'pt-br';
+      return choices[0].value;
+    });
+    mockConfirm.mockResolvedValue(false);
+    mockPrompt.mockImplementation(async (_q: string, def?: string) => def ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'Backward Compat Test',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    expect(generateConfigYaml).toHaveBeenCalledWith(
+      expect.objectContaining({ reportLanguage: 'pt-br' }),
+    );
+  });
+
+  it('old "Report language" selectPrompt is no longer called', async () => {
+    mockCheckbox.mockResolvedValue([]);
+    const selectMessages: string[] = [];
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      selectMessages.push(msg);
+      if (msg === 'Language / Idioma') return 'en';
+      return choices[0].value;
+    });
+    mockConfirm.mockResolvedValue(false);
+    mockPrompt.mockImplementation(async (_q: string, def?: string) => def ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'No Old Prompt Test',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    expect(selectMessages.some((m) => m === 'Report language')).toBe(false);
   });
 });

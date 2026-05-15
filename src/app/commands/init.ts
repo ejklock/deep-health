@@ -10,6 +10,7 @@ import { defaultRegistry } from '@modules/ecosystem/index';
 import { ConfigLoadError } from '@core/errors';
 import { resolveDefaultLocale } from '@core/locale-detect';
 import { CLI_NAME, DEFAULT_REPORTS_SUBDIR } from '@infra/brand';
+import { getInitLocale } from '@app/i18n/init-locale';
 
 export interface InitCommandOptions {
   projectName?: string;
@@ -47,7 +48,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     ? resolve(opts.cwd, opts.output)
     : resolve(opts.cwd, DEFAULT_CONFIG_PATH);
 
-  // Check if file already exists
+  // Check if file already exists — stays in English (fires before language selection)
   if (!opts.force) {
     try {
       await access(outputPath);
@@ -64,8 +65,29 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     }
   }
 
-  const projectName = opts.projectName ?? await prompt('Project name', 'Project');
-  const client = opts.client ?? await prompt('Client name', 'Client Name');
+  // ─── Language selection (FIRST interactive question) ─────────────────────────
+
+  let reportLanguage: 'pt-br' | 'en' = resolveDefaultLocale();
+
+  if (!opts.nonInteractive) {
+    // The label is bilingual because it appears before any locale is resolved
+    reportLanguage = await selectPrompt<'pt-br' | 'en'>(
+      'Language / Idioma',
+      [
+        { name: 'English (en)', value: 'en' },
+        { name: 'Português (pt-br)', value: 'pt-br' },
+      ],
+      resolveDefaultLocale(),
+    );
+  }
+
+  // Load the locale object for all subsequent prompts and messages
+  const t = getInitLocale(reportLanguage);
+
+  // ─── Project name and client ──────────────────────────────────────────────────
+
+  const projectName = opts.projectName ?? await prompt(t.projectNamePrompt, 'Project');
+  const client = opts.client ?? await prompt(t.clientNamePrompt, 'Client Name');
 
   // ─── Ecosystem selection (registry-driven) ───────────────────────────────────
 
@@ -80,7 +102,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
       : allPlugins.map((p) => p.id);
   } else {
     selectedEcosystemIds = await checkboxPrompt(
-      'Select ecosystems to configure (Space to toggle, Enter to confirm)',
+      t.ecosystemSelectPrompt,
       allPlugins.map((p) => ({ name: `${p.name} (${p.id})`, value: p.id, checked: detectedIds.has(p.id) })),
     );
   }
@@ -117,7 +139,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     let fixerStrategy: string | undefined;
     if (plugin.supportedFixers.length > 0 && !opts.nonInteractive) {
       fixerStrategy = await selectPrompt(
-        `  [${plugin.name}] Fixer strategy`,
+        t.fixerStrategyPrompt(plugin.name),
         plugin.supportedFixers.map((f) => ({ name: f, value: f })),
       );
     } else if (plugin.supportedFixers.length > 0) {
@@ -129,12 +151,12 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     if (!opts.nonInteractive) {
       for (const defaultCmd of plugin.defaultValidationCommands) {
         const include = await confirmPrompt(
-          `  [${plugin.name}] Include "${defaultCmd.name}" validation command?`,
+          t.includeValidationCommandPrompt(plugin.name, defaultCmd.name),
           true,
         );
         if (include) {
           const cmdAnswer = await prompt(
-            `  [${plugin.name}] Validation command "${defaultCmd.name}"`,
+            t.validationCommandValuePrompt(plugin.name, defaultCmd.name),
             defaultCmd.command,
           );
           if (cmdAnswer.trim()) {
@@ -151,12 +173,12 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     if (!opts.nonInteractive) {
       for (const defaultAdvisor of plugin.defaultAdvisors) {
         const include = await confirmPrompt(
-          `  [${plugin.name}] Include "${defaultAdvisor.name}" advisor?`,
+          t.includeAdvisorPrompt(plugin.name, defaultAdvisor.name),
           true,
         );
         if (include) {
           const advisorAnswer = await prompt(
-            `  [${plugin.name}] Advisor "${defaultAdvisor.name}" command`,
+            t.advisorCommandPrompt(plugin.name, defaultAdvisor.name),
             defaultAdvisor.command,
           );
           if (advisorAnswer.trim()) {
@@ -178,10 +200,10 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
       let resolvedVersion: string | undefined;
       if (!opts.nonInteractive) {
         const versionDefault = inferredVersion ?? '';
-        const versionPrompt = inferredVersion
-          ? `  [${plugin.name}] Language version (inferred: ${inferredVersion}, blank to skip)`
-          : `  [${plugin.name}] Language version (blank to skip)`;
-        const versionAnswer = await prompt(versionPrompt, versionDefault);
+        const versionPromptMsg = inferredVersion
+          ? t.languageVersionPromptWithInferred(plugin.name, inferredVersion)
+          : t.languageVersionPromptBlank(plugin.name);
+        const versionAnswer = await prompt(versionPromptMsg, versionDefault);
         resolvedVersion = versionAnswer.trim() || undefined;
       } else {
         resolvedVersion = inferredVersion;
@@ -191,21 +213,18 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
       // image_source prompts for npm scanner
       if (!opts.nonInteractive) {
         npmImageSource = await selectPrompt(
-          `  [${plugin.name}] Image source`,
+          t.imageSourcePrompt(plugin.name),
           [
-            { name: 'pull (default)', value: 'pull' as const },
-            { name: 'dockerfile (custom build)', value: 'dockerfile' as const },
+            { name: t.imageSourcePull, value: 'pull' as const },
+            { name: t.imageSourceDockerfile, value: 'dockerfile' as const },
           ],
         );
         if (npmImageSource === 'dockerfile') {
-          const dfPath = await prompt(`  [${plugin.name}] Dockerfile path`, './Dockerfile');
+          const dfPath = await prompt(t.dockerfilePathPrompt(plugin.name), './Dockerfile');
           npmDockerfilePath = dfPath.trim() || './Dockerfile';
-          const ctxAnswer = await prompt(`  [${plugin.name}] Build context (blank for '.')`, '');
+          const ctxAnswer = await prompt(t.buildContextPrompt(plugin.name), '');
           npmBuildContext = ctxAnswer.trim() || '.';
-          const buildArgsAnswer = await prompt(
-            `  [${plugin.name}] Build args (KEY=VALUE comma-separated, blank to skip)`,
-            '',
-          );
+          const buildArgsAnswer = await prompt(t.buildArgsPrompt(plugin.name), '');
           npmBuildArgs = parseBuildArgs(buildArgsAnswer);
         }
       } else {
@@ -216,10 +235,10 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
       let resolvedVersion: string | undefined;
       if (!opts.nonInteractive) {
         const versionDefault = inferredVersion ?? '';
-        const versionPrompt = inferredVersion
-          ? `  [${plugin.name}] PHP language version (inferred: ${inferredVersion}, blank to skip)`
-          : `  [${plugin.name}] PHP language version (blank to skip)`;
-        const versionAnswer = await prompt(versionPrompt, versionDefault);
+        const versionPromptMsg = inferredVersion
+          ? t.phpVersionPromptWithInferred(plugin.name, inferredVersion)
+          : t.phpVersionPromptBlank(plugin.name);
+        const versionAnswer = await prompt(versionPromptMsg, versionDefault);
         resolvedVersion = versionAnswer.trim() || undefined;
       } else {
         resolvedVersion = inferredVersion;
@@ -229,21 +248,18 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
       // image_source prompts for composer scanner
       if (!opts.nonInteractive) {
         composerImageSource = await selectPrompt(
-          `  [${plugin.name}] Image source`,
+          t.imageSourcePrompt(plugin.name),
           [
-            { name: 'pull (default)', value: 'pull' as const },
-            { name: 'dockerfile (custom build)', value: 'dockerfile' as const },
+            { name: t.imageSourcePull, value: 'pull' as const },
+            { name: t.imageSourceDockerfile, value: 'dockerfile' as const },
           ],
         );
         if (composerImageSource === 'dockerfile') {
-          const dfPath = await prompt(`  [${plugin.name}] Dockerfile path`, './Dockerfile');
+          const dfPath = await prompt(t.dockerfilePathPrompt(plugin.name), './Dockerfile');
           composerDockerfilePath = dfPath.trim() || './Dockerfile';
-          const ctxAnswer = await prompt(`  [${plugin.name}] Build context (blank for '.')`, '');
+          const ctxAnswer = await prompt(t.buildContextPrompt(plugin.name), '');
           composerBuildContext = ctxAnswer.trim() || '.';
-          const buildArgsAnswer = await prompt(
-            `  [${plugin.name}] Build args (KEY=VALUE comma-separated, blank to skip)`,
-            '',
-          );
+          const buildArgsAnswer = await prompt(t.buildArgsPrompt(plugin.name), '');
           composerBuildArgs = parseBuildArgs(buildArgsAnswer);
         }
       } else {
@@ -254,10 +270,10 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
       let resolvedPipVersion: string | undefined;
       if (!opts.nonInteractive) {
         const versionDefault = inferredVersion ?? '';
-        const versionPrompt = inferredVersion
-          ? `  [${plugin.name}] Python language version (inferred: ${inferredVersion}, blank to skip)`
-          : `  [${plugin.name}] Python language version (blank to skip)`;
-        const versionAnswer = await prompt(versionPrompt, versionDefault);
+        const versionPromptMsg = inferredVersion
+          ? t.pythonVersionPromptWithInferred(plugin.name, inferredVersion)
+          : t.pythonVersionPromptBlank(plugin.name);
+        const versionAnswer = await prompt(versionPromptMsg, versionDefault);
         resolvedPipVersion = versionAnswer.trim() || undefined;
       } else {
         resolvedPipVersion = inferredVersion;
@@ -267,21 +283,18 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
       // image_source prompts for pip scanner
       if (!opts.nonInteractive) {
         pipImageSource = await selectPrompt(
-          `  [${plugin.name}] Image source`,
+          t.imageSourcePrompt(plugin.name),
           [
-            { name: 'pull (default)', value: 'pull' as const },
-            { name: 'dockerfile (custom build)', value: 'dockerfile' as const },
+            { name: t.imageSourcePull, value: 'pull' as const },
+            { name: t.imageSourceDockerfile, value: 'dockerfile' as const },
           ],
         );
         if (pipImageSource === 'dockerfile') {
-          const dfPath = await prompt(`  [${plugin.name}] Dockerfile path`, './Dockerfile');
+          const dfPath = await prompt(t.dockerfilePathPrompt(plugin.name), './Dockerfile');
           pipDockerfilePath = dfPath.trim() || './Dockerfile';
-          const ctxAnswer = await prompt(`  [${plugin.name}] Build context (blank for '.')`, '');
+          const ctxAnswer = await prompt(t.buildContextPrompt(plugin.name), '');
           pipBuildContext = ctxAnswer.trim() || '.';
-          const buildArgsAnswer = await prompt(
-            `  [${plugin.name}] Build args (KEY=VALUE comma-separated, blank to skip)`,
-            '',
-          );
+          const buildArgsAnswer = await prompt(t.buildArgsPrompt(plugin.name), '');
           pipBuildArgs = parseBuildArgs(buildArgsAnswer);
         }
       } else {
@@ -299,17 +312,17 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   let enableSonarQube = false;
   let sonarQubeMode: 'managed' | 'external' = 'managed';
   if (!opts.nonInteractive) {
-    enableSonarQube = await confirmPrompt('Enable SonarQube scanner?', false);
+    enableSonarQube = await confirmPrompt(t.enableSonarQubePrompt, false);
     if (enableSonarQube) {
       sonarQubeMode = await selectPrompt<'managed' | 'external'>(
-        'SonarQube mode',
+        t.sonarQubeModePrompt,
         [
           {
-            name: "Managed (recommended) — provisions an ephemeral SonarQube container via Docker, no server setup needed",
+            name: t.sonarQubeModeManaged,
             value: 'managed',
           },
           {
-            name: "External — connects to an existing SonarQube server (better performance, no container overhead per scan)",
+            name: t.sonarQubeModeExternal,
             value: 'external',
           },
         ],
@@ -320,20 +333,14 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
 
   // ─── Output / report settings ────────────────────────────────────────────────
 
-  let reportLanguage: 'pt-br' | 'en' = resolveDefaultLocale();
   let outputsDir: string | undefined;
   let enableMarkdown = true;
 
   if (!opts.nonInteractive) {
-    reportLanguage = await selectPrompt<'pt-br' | 'en'>('Report language', [
-      { name: 'Português (pt-br)', value: 'pt-br' },
-      { name: 'English (en)', value: 'en' },
-    ], resolveDefaultLocale());
-
-    enableMarkdown = await confirmPrompt('Generate markdown reports?', true);
+    enableMarkdown = await confirmPrompt(t.generateMarkdownPrompt, true);
 
     if (enableMarkdown) {
-      const dirAnswer = await prompt('Reports output directory', DEFAULT_REPORTS_SUBDIR);
+      const dirAnswer = await prompt(t.reportsOutputDirPrompt, DEFAULT_REPORTS_SUBDIR);
       outputsDir = dirAnswer.trim() || DEFAULT_REPORTS_SUBDIR;
     }
   } else {
@@ -373,7 +380,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
 
   await mkdir(dirname(outputPath), { recursive: true });
   await writeFile(outputPath, yaml, 'utf-8');
-  process.stdout.write(`Created: ${outputPath}\n`);
+  process.stdout.write(t.createdFile(outputPath));
 
   // When SonarQube is enabled, make sure the project has a sonar-project.properties.
   // That file is SonarQube's convention for project-level analysis config (sources,
@@ -386,30 +393,20 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     });
     if (status === 'created') {
       sonarPropsCreated = true;
-      process.stdout.write(`Created: ${resolve(opts.cwd, 'sonar-project.properties')}\n`);
+      process.stdout.write(t.createdFile(resolve(opts.cwd, 'sonar-project.properties')));
     } else {
-      process.stdout.write(`Found existing sonar-project.properties (not overwritten)\n`);
+      process.stdout.write(t.foundExistingSonarProps);
     }
   }
 
-  process.stdout.write(`\nNext steps:\n`);
-  process.stdout.write(`  1. Edit ${outputPath} to match your project\n`);
-  process.stdout.write(
-    `  2. Review protected_packages — add any packages that must not be auto-upgraded\n`,
-  );
+  process.stdout.write(t.nextStepsHeader);
+  process.stdout.write(t.nextStepEditConfig(outputPath));
+  process.stdout.write(t.nextStepReviewProtectedPackages);
   if (sonarPropsCreated) {
-    process.stdout.write(
-      `  3. Review sonar-project.properties — adjust sonar.sources and sonar.exclusions for your layout\n`,
-    );
-    process.stdout.write(
-      `  4. Run: ${CLI_NAME} scan --cwd <your-project-dir>\n`,
-    );
+    process.stdout.write(t.nextStepReviewSonarProps);
+    process.stdout.write(t.nextStepRunScanStep4(CLI_NAME));
   } else {
-    process.stdout.write(
-      `  3. Run: ${CLI_NAME} scan --cwd <your-project-dir>\n`,
-    );
+    process.stdout.write(t.nextStepRunScanStep3(CLI_NAME));
   }
-  process.stdout.write(
-    `     (config will be loaded from project-config.yml at project root by default)\n`,
-  );
+  process.stdout.write(t.nextStepConfigNote);
 }
