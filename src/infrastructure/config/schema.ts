@@ -1,3 +1,4 @@
+import { CLI_NAME } from '@infra/brand';
 import { z } from "zod";
 
 const ProtectedPackageSchema = z
@@ -559,8 +560,8 @@ export const ProjectConfigSchema = z
         code: z.ZodIssueCode.custom,
         message:
           `Unsupported config_version "${data.config_version}". ` +
-          `This version of deep-health supports config_version "1". ` +
-          `Run "deep-health init --force" to regenerate a compatible config.`,
+          `This version of ${CLI_NAME} supports config_version "1". ` +
+          `Run "${CLI_NAME} init --force" to regenerate a compatible config.`,
       });
     }
   });

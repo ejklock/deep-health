@@ -1,3 +1,4 @@
+import { CLI_NAME } from '@infra/brand';
 import { runScanner } from '@modules/scanner/index';
 import { generateExecutiveReport, executiveReportFilename } from '@reporting/executive';
 import { generateSonarQubeHtmlReport, sonarqubeHtmlReportFilename } from '@reporting/sonarqube-report';
@@ -77,7 +78,7 @@ export async function generateAndSaveReportArtifacts(
   const outcome = await saveReport(filename, execReport, reportsDir, config.cloud_storage, cwd);
   if (outcome.cloudError && config.cloud_storage?.require_upload) {
     process.stderr.write(
-      `[deep-health] Cloud upload required but failed: ${outcome.cloudError}\n`,
+      `[${CLI_NAME}] Cloud upload required but failed: ${outcome.cloudError}\n`,
     );
     return 1;
   }
@@ -95,7 +96,7 @@ export async function generateAndSaveReportArtifacts(
     );
     if (sonarOutcome.cloudError && config.cloud_storage?.require_upload) {
       process.stderr.write(
-        `[deep-health] Cloud upload required but failed (SonarQube HTML): ${sonarOutcome.cloudError}\n`,
+        `[${CLI_NAME}] Cloud upload required but failed (SonarQube HTML): ${sonarOutcome.cloudError}\n`,
       );
       return 1;
     }

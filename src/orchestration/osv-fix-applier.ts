@@ -1,3 +1,4 @@
+import { CLI_NAME } from '@infra/brand';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import os from 'node:os';
@@ -146,7 +147,7 @@ export async function applyOsvFixViaStaging(
   const backups = await backupFiles(Array.from(osvFixSpec.backupFiles), cwd);
 
   // Create isolated staging temp dir
-  const stagingDir = await mkdtemp(join(os.tmpdir(), 'deep-health-osv-fix-'));
+  const stagingDir = await mkdtemp(join(os.tmpdir(), `${CLI_NAME}-osv-fix-`));
 
   try {
     // Copy files into staging dir

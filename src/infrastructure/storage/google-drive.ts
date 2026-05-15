@@ -1,3 +1,4 @@
+import { CLI_NAME } from '@infra/brand';
 import type { StorageProvider, UploadResult } from './provider';
 import type { CloudStorageConfig } from '@core/types/config';
 import { loadStoredTokens, saveTokens } from './google-drive-auth';
@@ -76,7 +77,7 @@ export async function createGoogleDriveProvider(
 
   if (!tokens) {
     throw new Error(
-      "Google Drive tokens not found. Run 'deep-health cloud-setup' first to connect Google Drive.",
+      `Google Drive tokens not found. Run '${CLI_NAME} cloud-setup' first to connect Google Drive.`,
     );
   }
 

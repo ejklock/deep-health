@@ -1,3 +1,4 @@
+import { CLI_NAME } from '@infra/brand';
 import type { ScanResultJson } from '@core/types/scan';
 import { render } from './renderer';
 import sonarqubeHtmlTemplate from './templates/sonarqube-report-html.hbs';
@@ -77,6 +78,7 @@ export function generateSonarQubeHtmlReport(
       noIssues: false,
       issuesByFile: null,
       issueCountSuffix: null,
+      cliName: CLI_NAME,
     });
   }
 
@@ -155,6 +157,7 @@ export function generateSonarQubeHtmlReport(
     issueCountSuffix: totalIssues > 0 ? `${totalIssues} found` : null,
     // suppress unused warning via assignment
     _qualityGatePassed: rawQgPassed,
+    cliName: CLI_NAME,
   });
 }
 

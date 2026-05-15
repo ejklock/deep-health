@@ -64,6 +64,7 @@ vi.mock('@infra/ecosystem-runtime/resolve-build-context-boundary', () => ({
 }));
 
 import { execFile } from 'node:child_process';
+import { CLI_NAME } from '@infra/brand';
 import { buildProjectImage } from '@infra/ecosystem-runtime/build-project-image';
 import {
   resolveAllowedBuildContextRoot,
@@ -78,7 +79,7 @@ const mockAssertBoundary = vi.mocked(assertBuildContextWithinBoundary);
 async function stableTag(contents: string, logPrefix: string): Promise<string> {
   const { createHash } = await import('node:crypto');
   const sha256 = createHash('sha256').update(contents).digest('hex');
-  return `deep-health-project/${logPrefix}:${sha256.slice(0, 12)}`;
+  return `${CLI_NAME}-project/${logPrefix}:${sha256.slice(0, 12)}`;
 }
 
 describe('buildProjectImage', () => {

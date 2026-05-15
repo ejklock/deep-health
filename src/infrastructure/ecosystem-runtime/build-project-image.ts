@@ -17,6 +17,7 @@
  * @module
  */
 
+import { CLI_NAME } from '@infra/brand';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
@@ -35,7 +36,7 @@ const execFileAsync = promisify(execFile);
 const LARGE_CONTEXT_THRESHOLD_BYTES = 50 * 1024 * 1024; // 50 MB
 
 /** Namespace prefix for all project-built image tags. */
-const IMAGE_TAG_NAMESPACE = 'deep-health-project';
+const IMAGE_TAG_NAMESPACE = `${CLI_NAME}-project`;
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -81,8 +82,8 @@ export interface BuildProjectImageOptions {
 export interface BuildProjectImageResult {
   /**
    * The stable local image tag that was built.
-   * Format: `deep-health-project/<logPrefix>:<sha256-prefix>`
-   * Example: `deep-health-project/npm:a3f1b2c4`
+   * Format: `<CLI_NAME>-project/<logPrefix>:<sha256-prefix>`
+   * Example: `<CLI_NAME>-project/npm:a3f1b2c4`
    */
   image: string;
   /**

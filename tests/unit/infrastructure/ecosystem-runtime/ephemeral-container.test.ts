@@ -20,6 +20,7 @@ vi.mock('@infra/utils/retry', () => ({
 }));
 
 import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
+import { CLI_NAME } from '@infra/brand';
 import type { RunMode } from '@infra/ecosystem-runtime/types';
 
 function makeContainer(opts: {
@@ -65,11 +66,11 @@ describe('EphemeralEcosystemContainer — _buildDockerArgs', () => {
   // ─── --entrypoint appears BEFORE the image name ───────────────────────────
 
   it('places --entrypoint before the image name in the arg list', () => {
-    const container = makeContainer({ image: 'deep-health-project/npm:abc123', entrypointOverride: '' });
+    const container = makeContainer({ image: `${CLI_NAME}-project/npm:abc123`, entrypointOverride: '' });
     const args = container._buildDockerArgs(['ci']);
 
     const entrypointIdx = args.indexOf('--entrypoint');
-    const imageIdx = args.indexOf('deep-health-project/npm:abc123');
+    const imageIdx = args.indexOf(`${CLI_NAME}-project/npm:abc123`);
     expect(entrypointIdx).toBeGreaterThan(-1);
     expect(imageIdx).toBeGreaterThan(-1);
     expect(entrypointIdx).toBeLessThan(imageIdx);
