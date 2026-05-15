@@ -241,6 +241,39 @@ describe('normalizeSonarProjectKey', () => {
     const result = ProjectConfigSchema.safeParse(parsed);
     expect(result.success).toBe(true);
   });
+
+  it('defaults sonarQubeMode to managed when enableSonarQube=true and no mode provided', () => {
+    const yaml = generateConfigYaml({
+      projectName: 'My Project',
+      enableSonarQube: true,
+      ecosystemConfigs: [{ id: 'npm', fixerStrategy: 'npm-audit' }],
+    });
+    const parsed = parse(yaml) as { scanners?: { sonarqube?: Record<string, unknown> } };
+    expect(parsed.scanners?.sonarqube?.mode).toBe('managed');
+  });
+
+  it('emits mode: external when sonarQubeMode is external', () => {
+    const yaml = generateConfigYaml({
+      projectName: 'External Sonar Project',
+      enableSonarQube: true,
+      sonarQubeMode: 'external',
+      ecosystemConfigs: [{ id: 'npm', fixerStrategy: 'npm-audit' }],
+    });
+    const parsed = parse(yaml) as { scanners?: { sonarqube?: Record<string, unknown> } };
+    expect(parsed.scanners?.sonarqube?.mode).toBe('external');
+  });
+
+  it('generated config with sonarQubeMode external passes schema validation', () => {
+    const yaml = generateConfigYaml({
+      projectName: 'External Sonar Project',
+      enableSonarQube: true,
+      sonarQubeMode: 'external',
+      ecosystemConfigs: [{ id: 'npm' }],
+    });
+    const parsed = parse(yaml);
+    const result = ProjectConfigSchema.safeParse(parsed);
+    expect(result.success).toBe(true);
+  });
 });
 
 describe('generateConfigYaml — dockerfile image_source options', () => {

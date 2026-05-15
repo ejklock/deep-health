@@ -46,6 +46,12 @@ export interface GenerateConfigOptions {
   ecosystemConfigs?: EcosystemConfigEntry[];
   /** Whether to add SonarQube scanner block */
   enableSonarQube?: boolean;
+  /**
+   * SonarQube integration mode.
+   * - 'managed' (default): the CLI provisions an ephemeral SonarQube container via Docker.
+   * - 'external': connects to an existing SonarQube server (better performance, no container spin-up per scan).
+   */
+  sonarQubeMode?: 'managed' | 'external';
   /** Outputs config for report generation */
   outputs?: { formats?: OutputFormat[]; dir?: string };
   /**
@@ -286,6 +292,7 @@ export function generateConfigYaml(opts: GenerateConfigOptions = {}): string {
     reportLanguage: opts.reportLanguage ?? 'pt-br',
     protectedPackageEcosystems,
     enableSonarQube: opts.enableSonarQube ?? false,
+    sonarQubeMode: opts.sonarQubeMode ?? 'managed',
     hasOutputs,
     outputFormats,
     outputsDir,

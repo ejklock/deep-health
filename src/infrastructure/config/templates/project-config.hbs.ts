@@ -76,7 +76,7 @@ scanners:
     # mode: 'external' — sonar.host.url and sonar.projectKey come from
     #       sonar-project.properties at your project root; SONAR_TOKEN env var
     #       provides auth. Use this when you have an existing SonarQube server.
-    mode: 'managed'
+    mode: '{{sonarQubeMode}}'
     on_failure: 'warn'
     # ce_task_timeout_seconds: 120     # optional — seconds to wait for Compute Engine task before
     #                                  #   fetching quality gate; 0 disables waiting (default: 120)

@@ -297,8 +297,25 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   // ─── Scanner options ─────────────────────────────────────────────────────────
 
   let enableSonarQube = false;
+  let sonarQubeMode: 'managed' | 'external' = 'managed';
   if (!opts.nonInteractive) {
     enableSonarQube = await confirmPrompt('Enable SonarQube scanner?', false);
+    if (enableSonarQube) {
+      sonarQubeMode = await selectPrompt<'managed' | 'external'>(
+        'SonarQube mode',
+        [
+          {
+            name: "Managed (recommended) — provisions an ephemeral SonarQube container via Docker, no server setup needed",
+            value: 'managed',
+          },
+          {
+            name: "External — connects to an existing SonarQube server (better performance, no container overhead per scan)",
+            value: 'external',
+          },
+        ],
+        'managed',
+      );
+    }
   }
 
   // ─── Output / report settings ────────────────────────────────────────────────
@@ -333,6 +350,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     reportLanguage,
     ecosystemConfigs,
     enableSonarQube,
+    sonarQubeMode,
     npmLanguageVersion,
     pipLanguageVersion,
     composerLanguageVersion,

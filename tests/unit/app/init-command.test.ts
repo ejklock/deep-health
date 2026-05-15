@@ -10,6 +10,7 @@ vi.mock('node:fs/promises', () => ({
 
 vi.mock('@infra/config/generator', () => ({
   generateConfigYaml: vi.fn(() => 'project:\n  name: demo\n'),
+  normalizeSonarProjectKey: vi.fn((name: string) => name.replace(/\s+/g, '-')),
 }));
 
 vi.mock('@infra/utils/prompt', () => ({
@@ -606,5 +607,173 @@ describe('runInitCommand — ecosystem detection', () => {
     expect(ids).toContain('npm');
     expect(ids).toContain('composer');
     expect(ids).toContain('pip');
+  });
+});
+
+// ─── SonarQube mode selection ─────────────────────────────────────────────────
+
+describe('runInitCommand — SonarQube mode selection', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAccess.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+    mockDetectEcosystems.mockResolvedValue(new Set());
+  });
+
+  it('prompts for mode when SonarQube is enabled in interactive mode and passes managed to generateConfigYaml', async () => {
+    mockCheckbox.mockResolvedValue(['npm']);
+    mockConfirm.mockImplementation(async (msg: string) => {
+      if (msg.includes('SonarQube')) return true;
+      if (msg.includes('Generate markdown')) return true;
+      return false;
+    });
+    // selectPrompt: return 'managed' for the mode prompt; first choice for others
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('SonarQube mode')) return 'managed';
+      return choices[0].value;
+    });
+    mockPrompt.mockImplementation(async (_question: string, defaultValue?: string) => defaultValue ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'Sonar Managed Project',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    expect(mockSelect).toHaveBeenCalledWith(
+      'SonarQube mode',
+      expect.arrayContaining([
+        expect.objectContaining({ value: 'managed' }),
+        expect.objectContaining({ value: 'external' }),
+      ]),
+      'managed',
+    );
+
+    expect(generateConfigYaml).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enableSonarQube: true,
+        sonarQubeMode: 'managed',
+      }),
+    );
+  });
+
+  it('passes external mode to generateConfigYaml when user selects external', async () => {
+    mockCheckbox.mockResolvedValue(['npm']);
+    mockConfirm.mockImplementation(async (msg: string) => {
+      if (msg.includes('SonarQube')) return true;
+      if (msg.includes('Generate markdown')) return true;
+      return false;
+    });
+    // selectPrompt: return 'external' for mode; first choice for everything else
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('SonarQube mode')) return 'external';
+      return choices[0].value;
+    });
+    mockPrompt.mockImplementation(async (_question: string, defaultValue?: string) => defaultValue ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'Sonar External Project',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    expect(generateConfigYaml).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enableSonarQube: true,
+        sonarQubeMode: 'external',
+      }),
+    );
+  });
+
+  it('does not prompt for mode when SonarQube is disabled', async () => {
+    mockCheckbox.mockResolvedValue(['npm']);
+    mockConfirm.mockImplementation(async (msg: string) => {
+      if (msg.includes('SonarQube')) return false;
+      if (msg.includes('Generate markdown')) return false;
+      return false;
+    });
+    mockSelect.mockImplementation(async (_msg: string, choices: any[]) => choices[0].value);
+    mockPrompt.mockImplementation(async (_question: string, defaultValue?: string) => defaultValue ?? '');
+
+    const selectCalls: string[] = [];
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      selectCalls.push(msg);
+      return choices[0].value;
+    });
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'No Sonar Project',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    expect(selectCalls.some((m) => m.includes('SonarQube mode'))).toBe(false);
+    expect(generateConfigYaml).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enableSonarQube: false,
+        sonarQubeMode: 'managed',
+      }),
+    );
+  });
+
+  it('defaults mode to managed in non-interactive mode even when SonarQube would be enabled', async () => {
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      projectName: 'Non-Interactive Sonar',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    expect(generateConfigYaml).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sonarQubeMode: 'managed',
+      }),
+    );
+
+    // No select prompt should be called in non-interactive mode
+    expect(mockSelect).not.toHaveBeenCalled();
+  });
+
+  it('mode select choices include descriptions mentioning ephemeral container and existing server', async () => {
+    mockCheckbox.mockResolvedValue(['npm']);
+    mockConfirm.mockImplementation(async (msg: string) => {
+      if (msg.includes('SonarQube')) return true;
+      return false;
+    });
+
+    const capturedChoices: any[] = [];
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('SonarQube mode')) {
+        capturedChoices.push(...choices);
+        return 'managed';
+      }
+      return choices[0].value;
+    });
+    mockPrompt.mockImplementation(async (_question: string, defaultValue?: string) => defaultValue ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'Choices Verify Project',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    const managedChoice = capturedChoices.find((c: any) => c.value === 'managed');
+    const externalChoice = capturedChoices.find((c: any) => c.value === 'external');
+
+    expect(managedChoice).toBeDefined();
+    expect(externalChoice).toBeDefined();
+    // managed choice should mention ephemeral container
+    expect(managedChoice?.name).toMatch(/ephemeral|container/i);
+    // external choice should mention existing server or better performance
+    expect(externalChoice?.name).toMatch(/existing|performance/i);
   });
 });
