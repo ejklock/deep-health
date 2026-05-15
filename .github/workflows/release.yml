@@ -51,10 +51,13 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
 
+      - name: Generate timestamp
+        run: echo "TIMESTAMP=$(date -u +'%Y%m%d-%H%M%S')" >> $GITHUB_ENV
+
       - name: Upload dist
         uses: actions/upload-artifact@v6
         with:
-          name: dist
+          name: dist-${{ env.TIMESTAMP }}
           path: dist/
 
   # -----------------------------------------------------------------------
