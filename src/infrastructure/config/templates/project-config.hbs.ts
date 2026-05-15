@@ -25,11 +25,12 @@ project:
 ecosystems:
 {{#each ecosystems}}
   - id: '{{id}}'{{#if hasFixer}}
-    fixer: '{{fixer}}'{{/if}}{{#if hasValidationCommands}}
-    validationCommands:
+    fixer: '{{fixer}}'{{/if}}
+    validationCommands:{{#if hasValidationCommands}}
 {{#each validationCommands}}      - name: '{{name}}'
         command: '{{command}}'
-{{/each}}{{/if}}{{#if hasAdvisors}}    advisors:
+{{/each}}{{else}} []
+{{/if}}{{#if hasAdvisors}}    advisors:
 {{#each advisors}}      - name: '{{name}}'
         command: '{{command}}'
 {{/each}}{{/if}}
@@ -63,7 +64,7 @@ outputs:
 {{else}}
 # outputs:                               # optional — output configuration
 #   formats: ['markdown']
-#   dir: '.deep-health/reports'
+#   dir: '.${CLI_NAME}/reports'
 {{/if}}
 
 {{#if enableSonarQube}}
@@ -94,7 +95,7 @@ scanners:
     # server_image: 'sonarqube:lts-community'  # managed mode only — SonarQube CE server image (NOT the sonar-scanner-cli image; use scanner_image for that)
     #
     # NOTE: project_key, host_url, sources, exclusions, etc. live in sonar-project.properties.
-    #       Run "deep-health init" (with SonarQube enabled) to generate a template if missing.
+    #       Run "${CLI_NAME} init" (with SonarQube enabled) to generate a template if missing.
 
 {{#if hasAnyRunnerConfig}}
 runners:
@@ -161,16 +162,16 @@ runners:
 #   create_branch: false                 # create a branch + commit before applying fixes
 #   open_pr: false                       # push branch and open a GitHub PR (implies create_branch)
 #                                        #   requires the gh CLI installed and authenticated
-#   branch_prefix: 'fix/deep-health-'   # prefix for the generated branch name
+#   branch_prefix: 'fix/${CLI_NAME}-'   # prefix for the generated branch name
 #   pr_title: 'fix: apply safe dependency updates'  # custom PR title
 
 # cloud_storage:                         # optional — upload reports to cloud storage after generation
 #   provider: google_drive
-#   folder_id: 'YOUR_GOOGLE_DRIVE_FOLDER_ID'   # set automatically by 'deep-health cloud-setup'
+#   folder_id: 'YOUR_GOOGLE_DRIVE_FOLDER_ID'   # set automatically by '${CLI_NAME} cloud-setup'
 #
-# To connect Google Drive, run: deep-health cloud-setup
+# To connect Google Drive, run: ${CLI_NAME} cloud-setup
 # Required environment variables (OAuth 2.0 Desktop app credentials from GCP Console):
 #   DEEP_HEALTH_GOOGLE_CLIENT_ID=<your-oauth2-client-id>
 #   DEEP_HEALTH_GOOGLE_CLIENT_SECRET=<your-oauth2-client-secret>
-# Tokens are stored in: ~/.config/deep-health/tokens.json (chmod 600)
+# Tokens are stored in: ~/.config/${CLI_NAME}/tokens.json (chmod 600)
 `;

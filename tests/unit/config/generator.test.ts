@@ -437,6 +437,66 @@ describe('generateConfigYaml — dockerfile image_source options', () => {
   });
 });
 
+describe('generateConfigYaml — empty validationCommands', () => {
+  it('emits validationCommands: [] and keeps advisors on its own line when validationCommands is empty', () => {
+    const yaml = generateConfigYaml({
+      ecosystemConfigs: [
+        {
+          id: 'composer',
+          validationCommands: [],
+          advisors: [{ name: 'audit', command: 'composer audit' }],
+        },
+      ],
+    });
+
+    // (a) YAML must parse successfully
+    const parsed = parse(yaml) as { ecosystems: Array<{ id: string; validationCommands?: unknown[]; advisors?: Array<{ name: string; command: string }> }> };
+
+    // (b) validationCommands must be an empty array
+    const composer = parsed.ecosystems.find((e) => e.id === 'composer');
+    expect(composer).toBeDefined();
+    expect(Array.isArray(composer?.validationCommands)).toBe(true);
+    expect(composer?.validationCommands).toHaveLength(0);
+
+    // (c) advisors must be present with the audit entry
+    expect(Array.isArray(composer?.advisors)).toBe(true);
+    expect(composer?.advisors).toHaveLength(1);
+    expect(composer?.advisors?.[0]).toEqual({ name: 'audit', command: 'composer audit' });
+  });
+
+  it('emits validationCommands: [] for npm with empty validationCommands and advisors present', () => {
+    const yaml = generateConfigYaml({
+      ecosystemConfigs: [
+        {
+          id: 'npm',
+          validationCommands: [],
+          advisors: [{ name: 'audit', command: 'npm audit' }],
+        },
+      ],
+    });
+
+    const parsed = parse(yaml) as { ecosystems: Array<{ id: string; validationCommands?: unknown[]; advisors?: unknown[] }> };
+    const npm = parsed.ecosystems.find((e) => e.id === 'npm');
+    expect(npm?.validationCommands).toEqual([]);
+    expect(npm?.advisors).toHaveLength(1);
+  });
+
+  it('generated YAML with empty validationCommands passes schema validation', () => {
+    const yaml = generateConfigYaml({
+      ecosystemConfigs: [
+        {
+          id: 'composer',
+          validationCommands: [],
+          advisors: [{ name: 'audit', command: 'composer audit' }],
+        },
+      ],
+    });
+    const parsed = parse(yaml);
+    const result = ProjectConfigSchema.safeParse(parsed);
+    expect(result.success).toBe(true);
+  });
+});
+
 describe('generateConfigYaml — single-quote YAML injection prevention', () => {
   it("escapes single quotes in project name (O'Brien → O''Brien in YAML)", () => {
     const yaml = generateConfigYaml({ projectName: "O'Brien", client: 'Client' });

@@ -30,22 +30,24 @@ export const en: InitLocale = {
 
   // ── Version prompts ───────────────────────────────────────────────────────────
   languageVersionPromptWithInferred: (pluginName, inferred) =>
-    `  [${pluginName}] Language version (inferred: ${inferred}, blank to skip)`,
+    `  [${pluginName}] Language version (inferred: ${inferred}, blank to use detected)`,
   languageVersionPromptBlank: (pluginName) =>
     `  [${pluginName}] Language version (blank to skip)`,
   phpVersionPromptWithInferred: (pluginName, inferred) =>
-    `  [${pluginName}] PHP language version (inferred: ${inferred}, blank to skip)`,
+    `  [${pluginName}] PHP language version (inferred: ${inferred}, blank to use detected)`,
   phpVersionPromptBlank: (pluginName) =>
     `  [${pluginName}] PHP language version (blank to skip)`,
   pythonVersionPromptWithInferred: (pluginName, inferred) =>
-    `  [${pluginName}] Python language version (inferred: ${inferred}, blank to skip)`,
+    `  [${pluginName}] Python language version (inferred: ${inferred}, blank to use detected)`,
   pythonVersionPromptBlank: (pluginName) =>
     `  [${pluginName}] Python language version (blank to skip)`,
 
   // ── Image source ──────────────────────────────────────────────────────────────
   imageSourcePrompt: (pluginName) => `  [${pluginName}] Image source`,
-  imageSourcePull: 'pull (default)',
-  imageSourceDockerfile: 'dockerfile (custom build)',
+  imageSourcePull:
+    'pull — uses a standard registry image (may lack project-specific extensions or tools)',
+  imageSourceDockerfile:
+    'dockerfile (recommended) — builds from your project Dockerfile with all extensions and tools pre-installed',
   dockerfilePathPrompt: (pluginName) => `  [${pluginName}] Dockerfile path`,
   buildContextPrompt: (pluginName) => `  [${pluginName}] Build context (blank for '.')`,
   buildArgsPrompt: (pluginName) =>

@@ -31,22 +31,24 @@ export const ptBr: InitLocale = {
 
   // ── Version prompts ───────────────────────────────────────────────────────────
   languageVersionPromptWithInferred: (pluginName, inferred) =>
-    `  [${pluginName}] Versão da linguagem (detectada: ${inferred}, deixe em branco para ignorar)`,
+    `  [${pluginName}] Versão da linguagem (detectada: ${inferred}, deixe em branco para usar a detectada)`,
   languageVersionPromptBlank: (pluginName) =>
     `  [${pluginName}] Versão da linguagem (deixe em branco para ignorar)`,
   phpVersionPromptWithInferred: (pluginName, inferred) =>
-    `  [${pluginName}] Versão do PHP (detectada: ${inferred}, deixe em branco para ignorar)`,
+    `  [${pluginName}] Versão do PHP (detectada: ${inferred}, deixe em branco para usar a detectada)`,
   phpVersionPromptBlank: (pluginName) =>
     `  [${pluginName}] Versão do PHP (deixe em branco para ignorar)`,
   pythonVersionPromptWithInferred: (pluginName, inferred) =>
-    `  [${pluginName}] Versão do Python (detectada: ${inferred}, deixe em branco para ignorar)`,
+    `  [${pluginName}] Versão do Python (detectada: ${inferred}, deixe em branco para usar a detectada)`,
   pythonVersionPromptBlank: (pluginName) =>
     `  [${pluginName}] Versão do Python (deixe em branco para ignorar)`,
 
   // ── Image source ──────────────────────────────────────────────────────────────
   imageSourcePrompt: (pluginName) => `  [${pluginName}] Origem da imagem`,
-  imageSourcePull: 'pull (padrão)',
-  imageSourceDockerfile: 'dockerfile (build customizado)',
+  imageSourcePull:
+    'pull — usa uma imagem padrão do registry (pode não ter extensões ou ferramentas do projeto)',
+  imageSourceDockerfile:
+    'dockerfile (recomendado) — constrói a partir do Dockerfile do projeto com todas as extensões e ferramentas instaladas',
   dockerfilePathPrompt: (pluginName) => `  [${pluginName}] Caminho do Dockerfile`,
   buildContextPrompt: (pluginName) =>
     `  [${pluginName}] Contexto de build (deixe em branco para '.')`,

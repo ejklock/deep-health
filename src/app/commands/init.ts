@@ -215,9 +215,10 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
         npmImageSource = await selectPrompt(
           t.imageSourcePrompt(plugin.name),
           [
-            { name: t.imageSourcePull, value: 'pull' as const },
             { name: t.imageSourceDockerfile, value: 'dockerfile' as const },
+            { name: t.imageSourcePull, value: 'pull' as const },
           ],
+          'dockerfile',
         );
         if (npmImageSource === 'dockerfile') {
           const dfPath = await prompt(t.dockerfilePathPrompt(plugin.name), './Dockerfile');
@@ -250,9 +251,10 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
         composerImageSource = await selectPrompt(
           t.imageSourcePrompt(plugin.name),
           [
-            { name: t.imageSourcePull, value: 'pull' as const },
             { name: t.imageSourceDockerfile, value: 'dockerfile' as const },
+            { name: t.imageSourcePull, value: 'pull' as const },
           ],
+          'dockerfile',
         );
         if (composerImageSource === 'dockerfile') {
           const dfPath = await prompt(t.dockerfilePathPrompt(plugin.name), './Dockerfile');
@@ -285,9 +287,10 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
         pipImageSource = await selectPrompt(
           t.imageSourcePrompt(plugin.name),
           [
-            { name: t.imageSourcePull, value: 'pull' as const },
             { name: t.imageSourceDockerfile, value: 'dockerfile' as const },
+            { name: t.imageSourcePull, value: 'pull' as const },
           ],
+          'dockerfile',
         );
         if (pipImageSource === 'dockerfile') {
           const dfPath = await prompt(t.dockerfilePathPrompt(plugin.name), './Dockerfile');
