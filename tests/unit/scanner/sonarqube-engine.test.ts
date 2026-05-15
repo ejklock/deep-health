@@ -43,6 +43,24 @@ vi.mock('@modules/scanner/sonar-properties', () => ({
   CLI_OWNED_KEYS: ['sonar.host.url', 'sonar.token'],
 }));
 
+// ─── Mock logger ──────────────────────────────────────────────────────────────
+const { mockLoggerWarn } = vi.hoisted(() => ({
+  mockLoggerWarn: vi.fn(),
+}));
+
+vi.mock('@infra/utils/logger', () => ({
+  logger: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: mockLoggerWarn,
+    error: vi.fn(),
+    phase: vi.fn(),
+    skip: vi.fn(),
+    header: vi.fn(),
+    tagged: vi.fn(),
+  },
+}));
+
 // ─── Mock DockerSonarQubeProvisioner for unit tests ────────────────────────────
 // We do NOT want real Docker calls in unit tests.
 
@@ -287,9 +305,22 @@ describe('SonarQubeEngine', () => {
   describe('scan — token missing', () => {
     beforeEach(() => {
       delete process.env['SONAR_TOKEN'];
+      // Ensure fixture has no token fallback keys so the error path is reached
+      setSonarPropsFixture(new Map<string, string>([
+        ['sonar.projectKey', 'my-project'],
+        ['sonar.host.url', 'http://localhost:9000'],
+      ]));
     });
 
-    it('throws EnvironmentError when token env var is not set', async () => {
+    afterEach(() => {
+      // Restore default fixture
+      setSonarPropsFixture(new Map<string, string>([
+        ['sonar.projectKey', 'my-project'],
+        ['sonar.host.url', 'http://localhost:9000'],
+      ]));
+    });
+
+    it('throws EnvironmentError when token env var is not set and no fallback keys exist', async () => {
       const runner = new MockRunner();
       const config = makeConfig(true);
 
@@ -301,6 +332,169 @@ describe('SonarQubeEngine', () => {
       const config = makeConfig(true);
 
       await expect(engine.scan(makeCtx(runner, config))).rejects.toThrow('SONAR_TOKEN');
+    });
+  });
+
+  describe('scan — token fallback from properties', () => {
+    beforeEach(() => {
+      delete process.env['SONAR_TOKEN'];
+      mockLoggerWarn.mockClear();
+    });
+
+    afterEach(() => {
+      // Restore default fixture (without any token keys)
+      setSonarPropsFixture(new Map<string, string>([
+        ['sonar.projectKey', 'my-project'],
+        ['sonar.host.url', 'http://localhost:9000'],
+      ]));
+      vi.unstubAllGlobals();
+    });
+
+    it('falls back to sonar.token from properties when SONAR_TOKEN is unset (AC1)', async () => {
+      setSonarPropsFixture(new Map<string, string>([
+        ['sonar.projectKey', 'my-project'],
+        ['sonar.host.url', 'http://localhost:9000'],
+        ['sonar.token', 'props-token-value'],
+      ]));
+
+      const runner = new MockRunner({
+        '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+        'sonar-scanner -D': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+      });
+      const config = makeConfig(true);
+
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
+
+      const result = await engine.scan(makeCtx(runner, config));
+
+      expect(result.status).toBe('success');
+
+      // The props token must be passed to sonar-scanner
+      const scanCmd = runner.calledCommands.find((c) => c.includes('-Dsonar.projectKey'));
+      expect(scanCmd).toContain('props-token-value');
+    });
+
+    it('falls back to sonar.login from properties when SONAR_TOKEN and sonar.token are both unset (AC2)', async () => {
+      setSonarPropsFixture(new Map<string, string>([
+        ['sonar.projectKey', 'my-project'],
+        ['sonar.host.url', 'http://localhost:9000'],
+        ['sonar.login', 'legacy-login-value'],
+      ]));
+
+      const runner = new MockRunner({
+        '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+        'sonar-scanner -D': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+      });
+      const config = makeConfig(true);
+
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
+
+      const result = await engine.scan(makeCtx(runner, config));
+
+      expect(result.status).toBe('success');
+
+      // The legacy login must be passed to sonar-scanner
+      const scanCmd = runner.calledCommands.find((c) => c.includes('-Dsonar.projectKey'));
+      expect(scanCmd).toContain('legacy-login-value');
+    });
+
+    it('prefers SONAR_TOKEN env var over properties-file values when both exist (AC3)', async () => {
+      process.env['SONAR_TOKEN'] = 'env-token-wins';
+      setSonarPropsFixture(new Map<string, string>([
+        ['sonar.projectKey', 'my-project'],
+        ['sonar.host.url', 'http://localhost:9000'],
+        ['sonar.token', 'props-token-value'],
+        ['sonar.login', 'legacy-login-value'],
+      ]));
+
+      const runner = new MockRunner({
+        '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+        'sonar-scanner -D': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+      });
+      const config = makeConfig(true);
+
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
+
+      await engine.scan(makeCtx(runner, config));
+
+      const scanCmd = runner.calledCommands.find((c) => c.includes('-Dsonar.projectKey'));
+      expect(scanCmd).toContain('env-token-wins');
+      expect(scanCmd).not.toContain('props-token-value');
+      expect(scanCmd).not.toContain('legacy-login-value');
+
+      // No warning should be logged when env var is set
+      expect(mockLoggerWarn).not.toHaveBeenCalledWith(
+        expect.stringContaining('sonar-project.properties as a fallback'),
+      );
+
+      delete process.env['SONAR_TOKEN'];
+    });
+
+    it('prefers sonar.token over sonar.login when both exist in properties (AC3/AC7)', async () => {
+      setSonarPropsFixture(new Map<string, string>([
+        ['sonar.projectKey', 'my-project'],
+        ['sonar.host.url', 'http://localhost:9000'],
+        ['sonar.token', 'modern-token'],
+        ['sonar.login', 'legacy-login-value'],
+      ]));
+
+      const runner = new MockRunner({
+        '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+        'sonar-scanner -D': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+      });
+      const config = makeConfig(true);
+
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
+
+      await engine.scan(makeCtx(runner, config));
+
+      const scanCmd = runner.calledCommands.find((c) => c.includes('-Dsonar.projectKey'));
+      expect(scanCmd).toContain('modern-token');
+      expect(scanCmd).not.toContain('legacy-login-value');
+    });
+
+    it('logs a warning when using sonar.token fallback from properties (AC5)', async () => {
+      setSonarPropsFixture(new Map<string, string>([
+        ['sonar.projectKey', 'my-project'],
+        ['sonar.host.url', 'http://localhost:9000'],
+        ['sonar.token', 'props-token-value'],
+      ]));
+
+      const runner = new MockRunner({
+        '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+        'sonar-scanner -D': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+      });
+      const config = makeConfig(true);
+
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
+
+      await engine.scan(makeCtx(runner, config));
+
+      expect(mockLoggerWarn).toHaveBeenCalledWith(
+        expect.stringContaining('SONAR_TOKEN environment variable instead'),
+      );
+    });
+
+    it('logs a warning when using sonar.login fallback from properties (AC5)', async () => {
+      setSonarPropsFixture(new Map<string, string>([
+        ['sonar.projectKey', 'my-project'],
+        ['sonar.host.url', 'http://localhost:9000'],
+        ['sonar.login', 'legacy-login-value'],
+      ]));
+
+      const runner = new MockRunner({
+        '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+        'sonar-scanner -D': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+      });
+      const config = makeConfig(true);
+
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
+
+      await engine.scan(makeCtx(runner, config));
+
+      expect(mockLoggerWarn).toHaveBeenCalledWith(
+        expect.stringContaining('SONAR_TOKEN environment variable instead'),
+      );
     });
   });
 

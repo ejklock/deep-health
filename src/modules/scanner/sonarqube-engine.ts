@@ -841,10 +841,31 @@ export class SonarQubeEngine implements ScannerEngine {
     }
 
     // ─── External mode ────────────────────────────────────────────────────────
-    // SONAR_TOKEN is the conventional env var name; no longer configurable via
-    // config.yml (keeping the CLI→env contract as narrow as possible).
-    const token = process.env['SONAR_TOKEN'] ?? '';
-    if (!token) {
+    // Token resolution precedence (highest to lowest):
+    //   1. SONAR_TOKEN env var  — recommended; keeps secrets out of the repo
+    //   2. sonar.token in sonar-project.properties  — modern SonarQube key (9.x+)
+    //   3. sonar.login in sonar-project.properties  — legacy key (pre-9.x)
+    // Only throw when ALL three sources are absent.
+    const envToken = process.env['SONAR_TOKEN'] ?? '';
+    const propsToken = userProps.get('sonar.token') ?? '';
+    const propsLogin = userProps.get('sonar.login') ?? '';
+
+    let token: string;
+    if (envToken) {
+      token = envToken;
+    } else if (propsToken) {
+      token = propsToken;
+      logger.warn(
+        `SonarQube: using sonar.token from sonar-project.properties as a fallback. ` +
+        `For better security, set the SONAR_TOKEN environment variable instead.`,
+      );
+    } else if (propsLogin) {
+      token = propsLogin;
+      logger.warn(
+        `SonarQube: using sonar.login from sonar-project.properties as a fallback. ` +
+        `For better security, set the SONAR_TOKEN environment variable instead.`,
+      );
+    } else {
       throw new EnvironmentError(
         `SonarQube: the SONAR_TOKEN environment variable is not set. ` +
         `Set it before running the scan (generate a token in your SonarQube UI at User → My Account → Security).`,
