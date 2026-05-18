@@ -149,18 +149,24 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
 
+      - name: Generate timestamp
+        shell: bash
+        run: echo "TIMESTAMP=$(date -u +'%Y%m%d-%H%M%S')" >> $GITHUB_ENV
+
       - name: Inject SEA blob (Unix)
         if: runner.os != 'Windows'
         run: sh scripts/build-sea.sh
+        env:
+          VERSION: ${{ github.ref_name }}
+          BUILD_TIMESTAMP: ${{ env.TIMESTAMP }}
 
       - name: Inject SEA blob (Windows)
         if: runner.os == 'Windows'
         shell: bash
         run: sh scripts/build-sea.sh
-
-      - name: Generate timestamp
-        shell: bash
-        run: echo "TIMESTAMP=$(date -u +'%Y%m%d-%H%M%S')" >> $GITHUB_ENV
+        env:
+          VERSION: ${{ github.ref_name }}
+          BUILD_TIMESTAMP: ${{ env.TIMESTAMP }}
 
       - name: Upload binaries
         uses: actions/upload-artifact@v6
@@ -198,11 +204,14 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
 
-      - name: Inject SEA blob
-        run: sh scripts/build-sea.sh
-
       - name: Generate timestamp
         run: echo "TIMESTAMP=$(date -u +'%Y%m%d-%H%M%S')" >> $GITHUB_ENV
+
+      - name: Inject SEA blob
+        run: sh scripts/build-sea.sh
+        env:
+          VERSION: ${{ github.ref_name }}
+          BUILD_TIMESTAMP: ${{ env.TIMESTAMP }}
 
       - name: Upload binaries
         uses: actions/upload-artifact@v6
