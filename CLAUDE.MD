@@ -1,168 +1,106 @@
-## Memory
+# CLAUDE.md
 
-You have persistent memory via agent-memory-store MCP tools.
-
-**Before acting on any task:**
-
-1. `search_context` with 2–3 queries related to the task. Check for prior decisions, conventions, and relevant outputs.
-2. `get_state("project_tags")` to load the tag vocabulary. If empty, this is a new project — ask the user about stack, conventions, and structure, then persist them with `write_context` and `set_state`.
-
-**After completing work:**
-
-1. `write_context` to persist decisions (with rationale), outputs (with file paths), and discoveries (with impact).
-2. Use short, lowercase tags consistent with the vocabulary: `auth`, `config`, `decision`, `output`, `discovery`.
-3. Set `importance: "critical"` for decisions other agents depend on, `"high"` for outputs, `"medium"` for background context.
-
-**Before every write:**
-
-1. `search_context` for the same topic first. If a chunk exists, `delete_context` it, then write the updated version. One chunk per topic.
-
-**Rules:**
-
-- Never guess a fact that might be in memory — search first, it costs <10ms.
-- Never store secrets — write references to where they live, not the values.
-- `set_state` is for mutable values (current phase, counters). `write_context` is for searchable knowledge (decisions, outputs). Don't mix them.
-- Use `search_mode: "semantic"` when exact terms don't match (e.g., searching "autenticação" when the chunk says "auth").
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ---
 
 ## Project Identity
 
 **Package name:** `deep-health`
-**CLI binary:** `deep-health`
-**Language:** TypeScript (Node ≥ 22), built with `tsup`
+**CLI binary:** `deep-health` (whitelabel-able via `CLI_NAME` env var)
+**Language:** TypeScript (ESM, Node >= 26), built with `tsup`
 **Test framework:** Vitest
+**Domain vocabulary:** see `CONTEXT.md` for canonical terms (Pipeline, Ecosystem, Runtime, Scanner, etc.)
 
-This is a security-focused CLI that scans PHP (Composer), Node.js (npm), and Python (pip) projects for known CVEs via OSV Scanner, applies safe patch/minor updates automatically, and generates an executive HTML report — all without requiring local tool installations beyond Docker.
+Security-focused CLI that scans PHP (Composer), Node.js (npm), and Python (pip) projects for known CVEs via OSV Scanner, applies safe patch/minor updates automatically inside Docker containers, and generates an executive HTML report.
 
 ---
 
-## Source Tree
+## Commands
+
+```bash
+# Development
+npm run dev -- <command> [args]     # Run CLI in dev mode via tsx (e.g. npm run dev -- scan --help)
+npm run build                       # Build library + CLI binary to dist/
+npm run build:sea                   # Build SEA (Single Executable Application) bundle to dist-sea/
+npm run typecheck                   # TypeScript type check (tsc --noEmit)
+
+# Tests
+npm test                            # Unit + integration tests (dot reporter, silent)
+npm run test:unit                   # Unit tests only
+npm run test:integration            # Integration tests only
+npm run test:smoke                  # Smoke tests (requires Docker running)
+npm run test:coverage               # All tests with v8 coverage
+npm run test:watch                  # Watch mode
+
+# Run a single test file
+npx vitest run tests/unit/path/to/file.test.ts
+
+# Run tests matching a pattern
+npx vitest run -t "pattern" tests/unit
+```
+
+---
+
+## Source Architecture
 
 ```
 src/
-├── app/               # CLI entry points and I/O
-│   ├── commands/      # One file per CLI command (fix, scan, init, …)
-│   ├── audit-trail.ts # Writes .deep-health-audit.json after each fix run
-│   ├── output-writer.ts
-│   ├── report-saver.ts
-│   └── run-context.ts # Shared RunContext (config + runner) passed to commands
-│
-├── core/              # Pure domain logic — no I/O, no Docker
-│   ├── errors.ts      # GateValidationError and typed errors
-│   ├── gates/
-│   │   └── validator.ts   # validateGateA, validateEcosystemGate (Zod schemas)
-│   ├── policy/
-│   │   └── safe-update.ts # classifyPackage — auto_safe | breaking | manual
-│   └── types/         # Shared TypeScript interfaces
-│
-├── infrastructure/    # I/O, Docker, config — never imported by core/
-│   ├── config/        # YAML loader + Zod schema + config generator
-│   ├── executor/      # CommandRunner wrappers per ecosystem (npm, pip, composer, osv)
-│   ├── provisioner/   # Docker container runners (NpmDockerRunner, etc.)
-│   ├── storage/       # Local + Google Drive report storage
-│   └── utils/         # Logger, git, docker-platform, shutdown hooks
-│
-├── modules/
-│   ├── advisor/       # Informational advisor runner (never blocks pipeline)
-│   ├── ecosystem/     # Plugin system: registry + per-ecosystem plugins
-│   │   ├── registry.ts          # EcosystemRegistry (Map-based)
-│   │   ├── types.ts             # EcosystemPlugin interface
-│   │   ├── index.ts             # defaultRegistry with registered plugins
-│   │   ├── plugins/             # npm, composer, pip plugin implementations
-│   │   ├── fixers/              # npm-audit-fixer, osv-fixer, osv-then-audit-fixer
-│   │   └── utils/               # validation-runner
-│   └── scanner/       # Scanner engine system: OSV + SonarQube
-│       ├── registry.ts          # ScannerEngineRegistry
-│       ├── index.ts             # defaultScannerRegistry + aggregateScanResults
-│       ├── osv-engine.ts        # OSV Scanner engine implementation
-│       └── sonarqube-engine.ts  # SonarQube engine (secondary, on_failure=warn)
-│
-├── orchestration/     # Main pipeline coordinator
-│   ├── orchestrator.ts          # runOrchestrator() — owns the full fix pipeline
-│   ├── osv-fix-applier.ts       # Staging-apply for OSV in-place fixes
-│   ├── dry-run-preview.ts       # Dry-run planned-changes log
-│   └── lockfile-inspect.ts      # npm lockfileVersion detection
-│
-├── reporting/         # HTML/Markdown report generation (Handlebars + i18n)
-│   ├── executive.ts             # generateExecutiveReport()
-│   ├── renderer.ts              # Handlebars render helper
-│   ├── sonarqube-export.ts
-│   ├── sonarqube-report.ts
-│   └── i18n/                    # en + pt-br locale JSONs
-│
-└── index.ts           # Public API barrel export (used when imported as a library)
+  app/           CLI commands (init, scan, fix, executive-report, cloud-setup) and I/O
+  core/          Pure domain logic — no I/O, no Docker
+    gates/       Zod gate validators (Gate A, Ecosystem Gate)
+    policy/      safe-update classification (auto_safe | breaking | manual)
+    types/       Shared TypeScript interfaces + Result<T, E> discriminated union
+  infrastructure/
+    brand.ts     Whitelabel constants (CLI_NAME, kill switch var, default paths)
+    config/      YAML loader + Zod schema + config generator
+    ecosystem-runtime/  Docker container lifecycle (image resolution, run modes, project image build)
+    executor/    CommandRunner wrappers per ecosystem
+    provisioner/ Docker container runners with retry
+    storage/     Local + Google Drive report storage
+    utils/       Logger, git, docker-platform, shutdown hooks
+  modules/
+    advisor/     Informational advisor runner (never blocks pipeline)
+    ecosystem/   Plugin system: registry + per-ecosystem plugins (npm, composer, pip)
+      fixers/    npm-audit-fixer, osv-fixer, osv-then-audit-fixer
+      utils/     updater-lifecycle, updater-transaction, environment-probe, validation-runner
+    scanner/     Scanner engine system: OSV (primary) + SonarQube (secondary)
+  orchestration/ Pipeline coordinator: orchestrator, run-ecosystem-fix, osv-fix-applier, dry-run-preview
+  reporting/     HTML report generation (Handlebars + i18n: en, pt-br)
 ```
 
 ---
 
 ## Key Design Patterns
 
-### 1. Registry Pattern (EcosystemPlugin + ScannerEngine)
+### Registry Pattern
+Ecosystem plugins and scanner engines are registered at startup via side-effects in `modules/ecosystem/index.ts` and `modules/scanner/index.ts`. The orchestrator iterates `registry.getAll()` — never hard-codes ecosystem names.
 
-Plugins and engines are registered at startup via side-effects in `modules/ecosystem/index.ts` and `modules/scanner/index.ts`. The orchestrator never hard-codes ecosystem names — it iterates `registry.getAll()`.
+**To add a new ecosystem:** implement `EcosystemPlugin` from `modules/ecosystem/types.ts`, register it in `modules/ecosystem/index.ts`. No orchestrator changes needed.
 
-**To add a new ecosystem:** implement `EcosystemPlugin` from `modules/ecosystem/types.ts`, register it in `modules/ecosystem/index.ts`. No orchestrator changes required.
-
-```
-EcosystemPlugin interface
-  id, name, lockfiles, osvEcosystems
-  buildScanArgs(): string[]
-  runUpdater(ctx): Promise<UpdateResultJson>
-  runtimeContainer?  ← 'npm-docker' | 'pip-docker' | 'composer-docker'
-  osvFixSpec?        ← declarative OSV staging-fix spec
-  postUpdateOsvVerify← 'always' | 'osv-strategy-only' | 'never'
-  inferVersion?()    ← reads project files to pick Docker image tag
-```
-
-### 2. Gate Pattern (Zod validation between phases)
-
-Every phase output is validated against a Zod schema before the next phase runs. If validation fails, a `GateValidationError` is thrown and the pipeline stops.
-
-- **Gate A** — validates `ScanResultJson` from OSV (shape + `status !== 'error'`)
+### Gate Pattern (Zod validation between phases)
+Every phase output is validated against a Zod schema before the next phase runs. `GateValidationError` on failure.
+- **Gate A** — validates `ScanResultJson` from OSV
 - **Ecosystem gates** — validates `UpdateResultJson` from each plugin (`validations` must be non-empty)
 
 `core/gates/validator.ts` owns all gate schemas. Never bypass gates in tests — inject clean fixture data instead.
 
-### 3. Container-First Runner Strategy
+### Container-First Runner Strategy
+Runtime image resolution precedence: explicit config override > `language_version` config > `plugin.inferVersion(cwd)` > built-in fallback.
 
-The orchestrator resolves a per-ecosystem `CommandRunner` before calling `plugin.runUpdater()`:
+Run modes: `direct-exec` (npm) vs `shell-wrap` with optional preamble (pip, composer).
 
-```
-runtimeContainer tag  →  Docker runner
-'npm-docker'          →  NpmDockerRunner  → NpmContainerCommandRunner
-'pip-docker'          →  PipDockerRunner  → PipContainerCommandRunner
-'composer-docker'     →  ComposerDockerRunner → ComposerContainerCommandRunner
-(none / local mode)   →  base LocalExecutor runner
-```
+### Updater Transaction
+`beginUpdaterTransaction()` encapsulates the full lifecycle: backup snapshot at begin, success path (`tx.success()`), revert path (`tx.abortWithError()` — restore > bootstrap > restore-byte-identical > warn-only dirty-tree check).
 
-Docker image resolution follows a precedence chain:
-1. `scanners.<eco>.image` (explicit config override)
-2. `scanners.<eco>.runtime_version` (version → image tag)
-3. `plugin.inferVersion(cwd)` (reads `.nvmrc`, `package.json engines`, `composer.json`)
-4. Built-in fallback (`node:lts`, `python:3-slim`, `composer:2`)
+### Updater Lifecycle
+`runUpdaterLifecycle<T>()` generic skeleton: probe > dry-run gate > begin transaction > apply fix > pre-validation > run validations > partial-revert loop > success/abort > PhaseError wrap. Each updater provides an `UpdaterRecipe<TFixerResult>` with typed hooks.
 
-### 4. Safe-Update Classification
+### Result<T, E>
+Canonical discriminated union in `core/types/result.ts`. Constructors: `ok(value)`, `err(error)`. Helpers: `isOk`, `isErr`, `map`, `flatMap`, `match`, `fromPromise`, `tryCatch`, `unwrap`, `unwrapOr`.
 
-`core/policy/safe-update.ts:classifyPackage()` assigns every vulnerable package one of:
-
-| Class | Condition |
-|---|---|
-| `auto_safe` | safe version satisfies constraint AND no major bump |
-| `breaking` | major version bump required OR constraint violation |
-| `manual` | no safe version available OR unparseable semver |
-
-Only `auto_safe` packages are updated automatically. `breaking` requires `--authorize-breaking <id>`.
-
-### 5. Fixer Strategies
-
-Each plugin declares `supportedFixers` and the config can override with `ecosystems[].fixer`:
-
-| Strategy | Description |
-|---|---|
-| `osv` | OSV Scanner `fix` command mutates the lockfile in-place (via staging copy) |
-| `npm-audit` | `npm audit fix` |
-| `osv-then-audit` | OSV fix first, then npm audit fix as fallback |
+### Whitelabel / Brand System
+All user-visible names derive from `CLI_NAME` in `src/infrastructure/brand.ts`. For SEA builds, `tsup.config.ts` bakes the value via esbuild `define`. Never hardcode `'deep-health'` in user-facing strings — use the brand constants.
 
 ---
 
@@ -170,16 +108,39 @@ Each plugin declares `supportedFixers` and the config can override with `ecosyst
 
 - **OSV is always primary.** Gate A reads from the OSV engine result, regardless of registration order.
 - **SonarQube is always secondary** (`on_failure: warn` by default). It never blocks the pipeline.
-- **`DEEP_HEALTH_NO_AUTO_FIX` env var** is a global kill-switch that skips all automated fixes after scan.
-- **`preRunSnapshots`** are taken at orchestrator startup (before any mutations) for dirty-tree detection after revert. Do not take snapshots inside plugins.
-- **Advisors never block the pipeline.** They run before `runUpdater()` and their errors are swallowed.
+- **Kill switch:** `DEEP_HEALTH_NO_AUTO_FIX` env var skips all automated fixes after scan.
+- **`preRunSnapshots`** are taken at orchestrator startup (before mutations) for dirty-tree detection. Do not take snapshots inside plugins.
+- **Advisors never block the pipeline.** Their errors are swallowed.
 - **`validations` array must never be empty** — gate schema enforces `min(1)`. Emit a `skipped` entry when tests are not run.
+
+---
+
+## Test Conventions
+
+- Tests live in `tests/unit/` mirroring `src/`. Pattern: `<module>.test.ts` for happy-path, `<module>-branches.test.ts` for error/edge branches.
+- Integration tests in `tests/integration/`, smoke tests in `tests/smoke/` (require Docker).
+- Setup file `tests/helpers/silence-logger.ts` silences logger output in unit/integration tests.
+- Smoke tests run sequentially (single fork) with 120s test timeout and Docker cleanup via `tests/helpers/docker-cleanup.ts`.
+- Coverage thresholds: statements 100%, functions 100%, lines 100%, branches 88%.
+- Vitest globals are enabled — no need to import `describe`, `it`, `expect`.
+- Path-based invocation for targeting: `vitest run tests/<dir>` (inline projects do NOT support `--project` CLI filtering in vitest 2.x).
 
 ---
 
 ## Conventions
 
 - Path aliases: `@app/`, `@core/`, `@infra/`, `@modules/`, `@orchestration/`, `@reporting/` (defined in `tsconfig.json`)
-- Tests live in `tests/unit/` mirroring `src/`. File name pattern: `<module>.test.ts` for happy-path, `<module>-branches.test.ts` for error/edge branches.
+- Prettier: single quotes enabled (`.prettierrc`)
 - No comments in code unless the WHY is non-obvious. Gate schemas and policy rules are the exception.
-- Exit codes: `0` clean, `1` vulns/errors, `2` gate/scanner failure, `3` config error.
+- Exit codes: `0` clean, `1` vulns/errors, `2` gate/scanner failure, `3` config error
+- ESM only (`"type": "module"` in package.json). SEA build uses CJS (Node.js SEA constraint).
+- `googleapis` and `google-auth-library` are external/optional — loaded via dynamic import with try/catch.
+
+---
+
+## CI / Build
+
+- **Bitbucket Pipelines** (`bitbucket-pipelines.yml`): tag-triggered pipeline — typecheck > test:unit + test:integration > build > build SEA binary (linux-x64) > publish to Bitbucket Downloads.
+- **GitHub Actions** (`release.yml`): multi-platform SEA builds (linux-x64, arm64, macOS, Windows).
+- SEA binaries support whitelabel via `CLI_NAME` and `NPM_DEFAULT_FIXER` env vars at build time.
+- Docker dev environment via `compose.yml` — mounts source + Docker socket for ephemeral container spawning.
