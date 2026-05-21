@@ -39,8 +39,8 @@ export default defineConfig([
     dts: false,
     target: "node26",
     define: {
-      'process.env.CLI_NAME': JSON.stringify(process.env['CLI_NAME'] || 'deep-health'),
-      'process.env.NPM_DEFAULT_FIXER': JSON.stringify(process.env['NPM_DEFAULT_FIXER'] || 'osv-then-audit'),
+      'process.env.CLI_NAME': JSON.stringify('deep-health'),
+      'process.env.NPM_DEFAULT_FIXER': JSON.stringify('osv-then-audit'),
     },
   },
 ]);

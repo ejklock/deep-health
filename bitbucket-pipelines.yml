@@ -34,8 +34,6 @@ pipelines:
           image: node:24-slim
           script:
             - cd osv-security-cli
-            - export CLI_NAME="${CLI_NAME:-deep-health}"
-            - export NPM_DEFAULT_FIXER="${NPM_DEFAULT_FIXER:-osv-then-audit}"
             - export TARGET_SUFFIX="linux-x64"
             - npm ci
             - npm run build:sea
@@ -46,11 +44,10 @@ pipelines:
       - step:
           name: Publish Release
           script:
-            - CLI_NAME=${CLI_NAME:-deep-health}
             - cd osv-security-cli
             - apt-get update -qq && apt-get install -y -qq curl
             - |
-              for f in dist-bin/${CLI_NAME}-*; do
+              for f in dist-bin/deep-health-*; do
                 curl -s -u "${BITBUCKET_USERNAME}:${BITBUCKET_APP_PASSWORD}" \
                   -X POST "https://api.bitbucket.org/2.0/repositories/${BITBUCKET_REPO_FULL_NAME}/downloads" \
                   --form files=@"$f"

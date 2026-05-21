@@ -104,19 +104,14 @@ jobs:
   # SEA does not support cross-compilation; each platform must build on its
   # own native runner. linux-x64-musl uses a separate job with Alpine container
   # (musl-linked node binary required for Alpine/Docker compatibility).
-  #
-  # vars.BRANDS: JSON array of brand objects. Example:
-  # [{"cli_name":"deep-health","npm_default_fixer":"osv-then-audit"},{"cli_name":"security-scan","npm_default_fixer":"osv"}]
-  # If not set, defaults to deep-health only.
   # -----------------------------------------------------------------------
 
   build-binaries:
-    name: Build Binaries (${{ matrix.brand.cli_name }}, ${{ matrix.target }})
+    name: Build Binaries (${{ matrix.target }})
     needs: test
     strategy:
       fail-fast: false
       matrix:
-        brand: ${{ fromJson(vars.BRANDS || '[{"cli_name":"deep-health","npm_default_fixer":"osv-then-audit"}]') }}
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
         include:
           - os: ubuntu-latest
@@ -129,8 +124,6 @@ jobs:
             target: win-x64
     runs-on: ${{ matrix.os }}
     env:
-      CLI_NAME: ${{ matrix.brand.cli_name }}
-      NPM_DEFAULT_FIXER: ${{ matrix.brand.npm_default_fixer }}
       TARGET_SUFFIX: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@v6
@@ -171,24 +164,18 @@ jobs:
       - name: Upload binaries
         uses: actions/upload-artifact@v6
         with:
-          name: binaries-${{ matrix.brand.cli_name }}-${{ matrix.target }}-${{ env.TIMESTAMP }}
+          name: binaries-deep-health-${{ matrix.target }}-${{ env.TIMESTAMP }}
           path: dist-bin/
 
   build-binaries-musl:
     # linux-x64-musl requires a musl-linked node binary (Alpine).
     # Runs as a container job on ubuntu-latest.
-    name: Build Binaries (${{ matrix.brand.cli_name }}, linux-x64-musl)
+    name: Build Binaries (linux-x64-musl)
     needs: test
     runs-on: ubuntu-latest
     container:
       image: node:26-alpine
-    strategy:
-      fail-fast: false
-      matrix:
-        brand: ${{ fromJson(vars.BRANDS || '[{"cli_name":"deep-health","npm_default_fixer":"osv-then-audit"}]') }}
     env:
-      CLI_NAME: ${{ matrix.brand.cli_name }}
-      NPM_DEFAULT_FIXER: ${{ matrix.brand.npm_default_fixer }}
       TARGET_SUFFIX: linux-x64-musl
     steps:
       - uses: actions/checkout@v6
@@ -216,7 +203,7 @@ jobs:
       - name: Upload binaries
         uses: actions/upload-artifact@v6
         with:
-          name: binaries-${{ matrix.brand.cli_name }}-linux-x64-musl-${{ env.TIMESTAMP }}
+          name: binaries-deep-health-linux-x64-musl-${{ env.TIMESTAMP }}
           path: dist-bin/
 
   release:
