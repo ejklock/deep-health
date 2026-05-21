@@ -1,6 +1,6 @@
 import type { CommandRunner } from '@core/types/common';
 import type { ValidationCommandConfig } from '@core/types/config';
-import type { UpdateResultJson, ValidationEntry } from '@core/types/update';
+import type { UpdateResultJson, ValidationEntry, AuditFinding } from '@core/types/update';
 import type { ScanResultJson } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
 import { PhaseError } from '@core/errors';
@@ -59,6 +59,15 @@ export interface UpdaterRecipe<TFixerResult = void> {
 
   /** Derive packages_updated from the fixer result. Defaults to []. */
   derivePackagesUpdated?(ctx: LifecycleCtx, fixerResult: TFixerResult): Promise<string[]>;
+
+  /**
+   * Derive structured audit findings from the fixer result.
+   * Called after derivePackagesUpdated when present. Results are forwarded to
+   * UpdateResultJson.audit_findings so the executive report can inject them as
+   * synthetic VulnerabilityEntry objects for audit-discovered packages.
+   * Optional — only ecosystem updaters that run a secondary audit step need this.
+   */
+  deriveAuditFindings?(ctx: LifecycleCtx, fixerResult: TFixerResult): Promise<AuditFinding[] | undefined>;
 
   /**
    * Attempt a partial rollback when validation fails.
@@ -187,7 +196,11 @@ export async function runUpdaterLifecycle<TFixerResult>(
       ? await recipe.derivePackagesUpdated(ctx, fixerResult)
       : [];
 
-    return tx.success({ packages_updated: packagesUpdated, validations: validationResult.entries });
+    const auditFindings = recipe.deriveAuditFindings
+      ? await recipe.deriveAuditFindings(ctx, fixerResult)
+      : undefined;
+
+    return tx.success({ packages_updated: packagesUpdated, validations: validationResult.entries, audit_findings: auditFindings });
   } catch (err) {
     if (err instanceof PhaseError) throw err;
     throw new PhaseError(

@@ -8,7 +8,9 @@ import { emptyEcosystem } from '@core/types/scan';
 import { logger } from '@infra/utils/logger';
 import { runEcosystemEnvironmentProbe } from '../utils/environment-probe';
 import { runUpdaterLifecycle } from '../utils/updater-lifecycle';
-import { parseComposerAuditJson } from './composer-audit-parser';
+import { parseComposerAuditJson, parseComposerAuditAdvisories } from './composer-audit-parser';
+import type { ComposerAuditAdvisory } from './composer-audit-parser';
+import type { AuditFinding } from '@core/types/update';
 
 const COMPOSER_FILES = ['composer.json', 'composer.lock'];
 
@@ -98,9 +100,11 @@ function buildComposerAutomationArgs(runner: CommandRunner, config: ProjectConfi
 /**
  * The typed fixer result flowing through applyFix → derivePackagesUpdated.
  * auditPackageNames: additional packages discovered via `composer audit` (osv-then-audit strategy).
+ * auditAdvisories: structured advisory data for packages that were successfully fixed by the audit step.
  */
 interface ComposerFixerResult {
   auditPackageNames: string[];
+  auditAdvisories: ComposerAuditAdvisory[];
 }
 
 export async function runComposerUpdater(
@@ -220,6 +224,7 @@ export async function runComposerUpdater(
 
         // ── osv-then-audit step ───────────────────────────────────────────────────
         let auditPackageNames: string[] = [];
+        let auditAdvisories: ComposerAuditAdvisory[] = [];
 
         if (fixerStrategy === 'osv-then-audit') {
           try {
@@ -233,6 +238,7 @@ export async function runComposerUpdater(
 
             const rawAudit = auditResult.stdout ?? '';
             const auditFindings = parseComposerAuditJson(rawAudit);
+            const allAdvisories = parseComposerAuditAdvisories(rawAudit);
 
             // Filter out packages already targeted by the OSV update
             const newAuditPackages = auditFindings.filter(
@@ -261,6 +267,8 @@ export async function runComposerUpdater(
                 );
               } else {
                 auditPackageNames = newAuditPackages;
+                // Store structured advisories only for the packages that were actually fixed.
+                auditAdvisories = allAdvisories.filter((a) => auditPackageNames.includes(a.package));
               }
             } else {
               logger.tagged('composer', 'audit-fix', 'No additional packages found by audit — continuing with OSV results only');
@@ -289,7 +297,7 @@ export async function runComposerUpdater(
           }
         }
 
-        return { ok: true, value: { auditPackageNames } };
+        return { ok: true, value: { auditPackageNames, auditAdvisories } };
       },
 
       async derivePackagesUpdated(ctx, fixerResult) {
@@ -312,6 +320,18 @@ export async function runComposerUpdater(
           );
           return composerEcosystem.auto_safe_packages;
         }
+      },
+
+      async deriveAuditFindings(_ctx, fixerResult): Promise<AuditFinding[] | undefined> {
+        if (fixerResult.auditAdvisories.length === 0) return undefined;
+        return fixerResult.auditAdvisories.map((advisory) => ({
+          ecosystem: 'composer',
+          package: advisory.package,
+          advisoryId: advisory.advisoryId,
+          title: advisory.title,
+          cve: advisory.cve,
+          affectedVersions: advisory.affectedVersions,
+        }));
       },
     },
     { runner, cwd, scanResult, ecosystemId: 'composer', validationCommands, authorizeBreaking },

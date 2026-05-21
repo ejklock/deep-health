@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { CommandRunner } from '@core/types/common';
-import type { UpdateResultJson, ValidationEntry } from '@core/types/update';
+import type { UpdateResultJson, ValidationEntry, AuditFinding } from '@core/types/update';
 import { backupFiles, restoreFiles } from '@infra/utils/fs-backup';
 import { logger } from '@infra/utils/logger';
 
@@ -45,7 +45,7 @@ export interface UpdaterTransaction {
   readonly backups: Map<string, string>;
 
   /** Build a success-shaped result. Does NOT touch files. */
-  success(opts: { packages_updated: string[]; validations: ValidationEntry[] }): UpdateResultJson;
+  success(opts: { packages_updated: string[]; validations: ValidationEntry[]; audit_findings?: AuditFinding[] }): UpdateResultJson;
 
   /**
    * Run the revert protocol and build an error-shaped result.
@@ -143,8 +143,10 @@ export async function beginUpdaterTransaction(
 
   return {
     backups,
-    success({ packages_updated, validations }) {
-      return { ...opts.base, packages_updated, validations };
+    success({ packages_updated, validations, audit_findings }) {
+      const result: UpdateResultJson = { ...opts.base, packages_updated, validations };
+      if (audit_findings !== undefined) result.audit_findings = audit_findings;
+      return result;
     },
     async abortWithError({ error, validations }) {
       await revertWithBootstrap(
