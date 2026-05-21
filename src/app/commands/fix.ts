@@ -30,7 +30,7 @@ export interface FixCommandOptions {
   authorizeBreaking?: string[];
   /** Create a git branch before applying fixes and commit changes on success */
   createBranch?: boolean;
-  /** Branch name prefix (default: 'fix/deep-health-') */
+  /** Branch name prefix (default: 'fix/security-scan-') */
   branchPrefix?: string;
   /** Create a GitHub pull request after fix (implies createBranch; requires gh CLI) */
   openPr?: boolean;
