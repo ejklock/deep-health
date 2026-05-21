@@ -5,5 +5,5 @@ export interface UploadResult {
 }
 
 export interface StorageProvider {
-  upload(filename: string, content: string): Promise<UploadResult>;
+  upload(filename: string, content: string | Buffer): Promise<UploadResult>;
 }

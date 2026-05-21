@@ -10,7 +10,7 @@ export class GoogleDriveProvider implements StorageProvider {
     private readonly tokens: StoredTokens,
   ) {}
 
-  async upload(filename: string, content: string): Promise<UploadResult> {
+  async upload(filename: string, content: string | Buffer): Promise<UploadResult> {
     let googleModule: typeof import('googleapis');
     try {
       googleModule = await import('googleapis');
@@ -49,14 +49,18 @@ export class GoogleDriveProvider implements StorageProvider {
 
     const drive = google.drive({ version: 'v3', auth: oauth2Client });
 
+    const mimeType = filename.endsWith('.docx')
+      ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      : 'text/markdown';
+
     const response = await drive.files.create({
       requestBody: {
         name: filename,
-        mimeType: 'text/markdown',
+        mimeType,
         parents: [this.folderId],
       },
       media: {
-        mimeType: 'text/markdown',
+        mimeType,
         body: content,
       },
       fields: 'id,webViewLink',
