@@ -897,6 +897,22 @@ Defina o token de autenticação:
 export SONAR_TOKEN=seu_token_aqui
 ```
 
+**Gerando um token no SonarQube:**
+
+Acesse sua instância SonarQube → **Ícone do usuário (canto superior direito) → My Account → Security → Generate Tokens**.
+
+| Tipo de token | Prefixo | Submete análise | Consulta API (CE task, Quality Gate, métricas) |
+|---|---|---|---|
+| **User Token** | `squ_` | Sim | Sim (herda as permissões do usuário) |
+| Project Analysis Token | `sqp_` | Sim | Não (somente análise) |
+| Global Analysis Token | `sqa_` | Sim | Não (somente análise) |
+
+**Use um User Token** (`squ_`). Tokens do tipo Project e Global Analysis podem submeter scans, mas não conseguem consultar as APIs de Compute Engine ou Quality Gate — você verá erros HTTP 403 durante a fase pós-scan.
+
+O usuário associado ao token precisa ter permissão **Browse** no projeto (concedida por padrão para membros do projeto) ou **Administer System** globalmente.
+
+> **Importante:** Não armazene o token no `sonar-project.properties`. Os campos `sonar.login` e `sonar.password` são deprecated (sonar-scanner 5+ os rejeita). Sempre use a variável de ambiente `SONAR_TOKEN`. Em CI, adicione-o como secret do ambiente.
+
 **Modo managed:**
 
 A CLI provisiona um container SonarQube Community Edition efêmero, executa o scan e depois o derruba.
@@ -1277,6 +1293,22 @@ deep-health scan
 ```
 
 Ou adicione-o como secret no ambiente de CI.
+
+### SonarQube — CE task poll retorna HTTP 403
+
+```
+SonarQube CE: task poll returned HTTP 403 — token lacks permission for the CE API.
+```
+
+O token usado para autenticação consegue submeter a análise, mas não consegue consultar a API do Compute Engine. Isso acontece quando se usa um **Project Analysis Token** (`sqp_`) ou **Global Analysis Token** (`sqa_`) em vez de um **User Token** (`squ_`).
+
+**Solução:** gere um User Token na sua instância SonarQube (User → My Account → Security → Generate Tokens → type: User Token). Defina-o via `SONAR_TOKEN`:
+
+```bash
+export SONAR_TOKEN=squ_seu_novo_token
+```
+
+Também remova quaisquer linhas `sonar.login` ou `sonar.password` do `sonar-project.properties` — esses campos são deprecated e o sonar-scanner 5+ os rejeita.
 
 ### Vulnerabilidades disruptivas não corrigidas
 

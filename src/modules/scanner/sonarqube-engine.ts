@@ -142,6 +142,13 @@ async function waitForCeTask(
       });
 
       if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          logger.warn(
+            `SonarQube CE: task poll returned HTTP ${response.status} — token lacks permission for the CE API. ` +
+            `Ensure the token set in SONAR_TOKEN has 'Browse' permission on the project. Skipping CE wait.`,
+          );
+          return 'failed';
+        }
         logger.warn(`SonarQube CE: task poll returned HTTP ${response.status} — will retry`);
       } else {
         const data = (await response.json()) as SonarQubeCeTaskResponse;

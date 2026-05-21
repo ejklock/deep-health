@@ -877,6 +877,22 @@ Set the auth token:
 export SONAR_TOKEN=your_token_here
 ```
 
+**Generating a SonarQube token:**
+
+Go to your SonarQube instance → **User icon (top-right) → My Account → Security → Generate Tokens**.
+
+| Token type | Prefix | Submit analysis | Query API (CE task, Quality Gate, metrics) |
+|---|---|---|---|
+| **User Token** | `squ_` | Yes | Yes (inherits the user's permissions) |
+| Project Analysis Token | `sqp_` | Yes | No (analysis only) |
+| Global Analysis Token | `sqa_` | Yes | No (analysis only) |
+
+**Use a User Token** (`squ_`). Project and Global Analysis tokens can submit scans but cannot query the Compute Engine or Quality Gate APIs — you will see HTTP 403 errors during the post-scan phase.
+
+The user associated with the token must have **Browse** permission on the project (granted by default for project members) or **Administer System** globally.
+
+> **Important:** Do not store the token in `sonar-project.properties`. The `sonar.login` and `sonar.password` fields are deprecated (sonar-scanner 5+ rejects them). Always use the `SONAR_TOKEN` environment variable. In CI, add it as an environment secret.
+
 **Managed mode:**
 
 The CLI provisions an ephemeral SonarQube Community Edition container, runs the scan, then tears it down.
@@ -1257,6 +1273,22 @@ deep-health scan
 ```
 
 Or add it to your CI environment secrets.
+
+### SonarQube CE task poll returns HTTP 403
+
+```
+SonarQube CE: task poll returned HTTP 403 — token lacks permission for the CE API.
+```
+
+The token used for authentication can submit analysis but cannot query the Compute Engine API. This happens when using a **Project Analysis Token** (`sqp_`) or **Global Analysis Token** (`sqa_`) instead of a **User Token** (`squ_`).
+
+**Fix:** generate a User Token in your SonarQube instance (User → My Account → Security → Generate Tokens → type: User Token). Set it via `SONAR_TOKEN`:
+
+```bash
+export SONAR_TOKEN=squ_your_new_token
+```
+
+Also remove any `sonar.login` or `sonar.password` lines from `sonar-project.properties` — these are deprecated and sonar-scanner 5+ rejects them.
 
 ### Breaking vulnerabilities not fixed
 
