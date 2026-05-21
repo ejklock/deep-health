@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # generate-quick-start.sh
-# Generates quick-start doc from the shared template.
+# Generates branded quick-start docs from the shared template.
 # Usage: bash scripts/generate-quick-start.sh
 
 set -euo pipefail
@@ -29,6 +29,11 @@ generate() {
 }
 
 generate \
-  "security-scan" \
+  "deep-health" \
   "./usage-guide.md" \
   "${REPO_ROOT}/docs/pt-br/quick-start.md"
+
+generate \
+  "security-scan" \
+  "./usage-guide-security-scan.md" \
+  "${REPO_ROOT}/docs/pt-br/quick-start-security-scan.md"

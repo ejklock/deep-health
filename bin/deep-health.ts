@@ -4,7 +4,7 @@
 const [nodeMajor] = process.versions.node.split('.').map(Number);
 if (nodeMajor < 24) {
   process.stderr.write(
-    `security-scan requires Node.js >=24. Detected: v${process.versions.node}\n` +
+    `${process.env['CLI_NAME'] ?? 'deep-health'} requires Node.js >=24. Detected: v${process.versions.node}\n` +
       `Please upgrade Node.js and try again.\n`,
   );
   process.exit(1);

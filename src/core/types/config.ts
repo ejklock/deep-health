@@ -99,7 +99,7 @@ export interface NpmRunnerConfig {
    * When set, the image is resolved as `node:<major>` (e.g. '20' → 'node:20').
    * Overrides the version inferred from project files.
    * Only used when `image` is not set.
-   * Set by `security-scan init` when a Node version can be inferred from .nvmrc / .node-version / package.json.
+   * Set by `deep-health init` when a Node version can be inferred from .nvmrc / .node-version / package.json.
    */
   language_version?: string;
   /**
@@ -347,7 +347,7 @@ export interface ComposerRunnerConfig {
    * When set, the image is resolved as `php:<major>.<minor>-cli` (e.g. '8.2' → 'php:8.2-cli').
    * Overrides the version inferred from project files.
    * Only used when `image` is not set.
-   * Set by `security-scan init` when a PHP version can be inferred from .php-version / composer.json.
+   * Set by `deep-health init` when a PHP version can be inferred from .php-version / composer.json.
    */
   language_version?: string;
   /**
@@ -495,7 +495,7 @@ export interface SafeUpdatePolicy {
 /**
  * Git / PR workflow configuration.
  *
- * Controls whether `security-scan fix` creates a git branch and optionally opens
+ * Controls whether `deep-health fix` creates a git branch and optionally opens
  * a pull request after applying updates.  All fields are optional — when absent
  * the CLI defaults to running in-place (no branch, no PR).
  *
@@ -520,7 +520,7 @@ export interface WorkflowConfig {
   /**
    * Prefix used when generating the branch name.
    * The full branch name is: `<branch_prefix><ISO-timestamp>`.
-   * Default: 'fix/security-scan-'.
+   * Default: 'fix/deep-health-'.
    */
   branch_prefix?: string;
   /**

@@ -106,8 +106,8 @@ jobs:
   # (musl-linked node binary required for Alpine/Docker compatibility).
   #
   # vars.BRANDS: JSON array of brand objects. Example:
-  # [{"cli_name":"security-scan","npm_default_fixer":"osv-then-audit"},{"cli_name":"security-scan","npm_default_fixer":"osv"}]
-  # If not set, defaults to security-scan only.
+  # [{"cli_name":"deep-health","npm_default_fixer":"osv-then-audit"},{"cli_name":"security-scan","npm_default_fixer":"osv"}]
+  # If not set, defaults to deep-health only.
   # -----------------------------------------------------------------------
 
   build-binaries:
@@ -116,7 +116,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        brand: ${{ fromJson(vars.BRANDS || '[{"cli_name":"security-scan","npm_default_fixer":"osv-then-audit"}]') }}
+        brand: ${{ fromJson(vars.BRANDS || '[{"cli_name":"deep-health","npm_default_fixer":"osv-then-audit"}]') }}
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
         include:
           - os: ubuntu-latest
@@ -185,7 +185,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        brand: ${{ fromJson(vars.BRANDS || '[{"cli_name":"security-scan","npm_default_fixer":"osv-then-audit"}]') }}
+        brand: ${{ fromJson(vars.BRANDS || '[{"cli_name":"deep-health","npm_default_fixer":"osv-then-audit"}]') }}
     env:
       CLI_NAME: ${{ matrix.brand.cli_name }}
       NPM_DEFAULT_FIXER: ${{ matrix.brand.npm_default_fixer }}

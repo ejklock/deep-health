@@ -34,7 +34,7 @@ pipelines:
           image: node:24-slim
           script:
             - cd osv-security-cli
-            - export CLI_NAME="${CLI_NAME:-security-scan}"
+            - export CLI_NAME="${CLI_NAME:-deep-health}"
             - export NPM_DEFAULT_FIXER="${NPM_DEFAULT_FIXER:-osv-then-audit}"
             - export TARGET_SUFFIX="linux-x64"
             - npm ci
@@ -46,7 +46,7 @@ pipelines:
       - step:
           name: Publish Release
           script:
-            - CLI_NAME=${CLI_NAME:-security-scan}
+            - CLI_NAME=${CLI_NAME:-deep-health}
             - cd osv-security-cli
             - apt-get update -qq && apt-get install -y -qq curl
             - |

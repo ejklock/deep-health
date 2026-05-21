@@ -1,5 +1,5 @@
 {
-  "main": "dist-sea/security-scan.cjs",
+  "main": "dist-sea/deep-health.cjs",
   "output": "dist-sea/sea-prep.blob",
   "disableExperimentalSEAWarning": true,
   "useCodeCache": false,

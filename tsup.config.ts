@@ -19,7 +19,7 @@ export default defineConfig([
   {
     // CLI binary — no DTS needed (not imported as a library)
     ...shared,
-    entry: ["bin/security-scan.ts"],
+    entry: ["bin/deep-health.ts"],
     clean: false, // preserve library output from first build
     dts: false,
   },
@@ -28,7 +28,7 @@ export default defineConfig([
     // Node.js 26 SEA requires CJS; ESM is not supported in stable SEA.
     // googleapis and google-auth-library remain external (optional deps loaded
     // via dynamic import with try/catch — not required for core functionality).
-    entry: ["bin/security-scan.ts"],
+    entry: ["bin/deep-health.ts"],
     format: ["cjs"],
     outDir: "dist-sea",
     noExternal: [/.*/],
@@ -39,8 +39,8 @@ export default defineConfig([
     dts: false,
     target: "node26",
     define: {
-      'process.env.CLI_NAME': JSON.stringify('security-scan'),
-      'process.env.NPM_DEFAULT_FIXER': JSON.stringify('osv-then-audit'),
+      'process.env.CLI_NAME': JSON.stringify(process.env['CLI_NAME'] || 'deep-health'),
+      'process.env.NPM_DEFAULT_FIXER': JSON.stringify(process.env['NPM_DEFAULT_FIXER'] || 'osv-then-audit'),
     },
   },
 ]);

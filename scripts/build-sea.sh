@@ -2,10 +2,10 @@
 # build-sea.sh — Build a Node.js SEA (Single Executable Application) binary.
 #
 # Usage:
-#   CLI_NAME=security-scan TARGET_SUFFIX=linux-x64 ./scripts/build-sea.sh
+#   CLI_NAME=deep-health TARGET_SUFFIX=linux-x64 ./scripts/build-sea.sh
 #
 # Environment variables:
-#   CLI_NAME         — binary name (default: security-scan)
+#   CLI_NAME         — binary name (default: deep-health)
 #   TARGET_SUFFIX    — platform suffix appended to binary (e.g. linux-x64, win-x64)
 #   VERSION          — optional version string (e.g. 1.2.0 or v1.2.0); when set,
 #                      included in the output filename between CLI_NAME and TARGET_SUFFIX
@@ -19,7 +19,7 @@
 #
 # Prerequisites:
 #   - Node.js 26+
-#   - dist-sea/security-scan.cjs  (built via: npm run build:sea-bundle)
+#   - dist-sea/deep-health.cjs  (built via: npm run build:sea-bundle)
 #   - npx postject (installed via postject in devDependencies or npx on demand)
 #
 # The postject fuse sentinel NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2
@@ -27,7 +27,7 @@
 
 set -e
 
-CLI_NAME="${CLI_NAME:-security-scan}"
+CLI_NAME="${CLI_NAME:-deep-health}"
 TARGET_SUFFIX="${TARGET_SUFFIX:-linux-x64}"
 VERSION="${VERSION:-}"
 BUILD_TIMESTAMP="${BUILD_TIMESTAMP:-}"

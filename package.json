@@ -1,10 +1,10 @@
 {
-  "name": "security-scan",
+  "name": "deep-health",
   "version": "0.1.9",
   "description": "CLI tool for automated vulnerability scanning and safe dependency updates",
   "type": "module",
   "bin": {
-    "security-scan": "./dist/security-scan.js"
+    "deep-health": "./dist/deep-health.js"
   },
   "exports": {
     ".": "./dist/index.js"
@@ -13,7 +13,7 @@
     "dist"
   ],
   "scripts": {
-    "dev": "tsx bin/security-scan.ts",
+    "dev": "tsx bin/deep-health.ts",
     "build": "tsup",
     "build:sea": "tsup --config tsup.config.ts && node --experimental-sea-config sea-config.json",
     "test": "vitest run --reporter=dot --silent tests/unit tests/integration",

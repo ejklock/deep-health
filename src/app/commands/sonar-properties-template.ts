@@ -1,7 +1,7 @@
 /**
  * Template generator for sonar-project.properties.
  *
- * Called by `security-scan init` when the user enables SonarQube and the project
+ * Called by `deep-health init` when the user enables SonarQube and the project
  * root does not already have a `sonar-project.properties` file. The generated
  * file contains project-level analysis configuration only — NO credentials,
  * NO host URL, NO token. Those are CLI-managed (managed mode) or env-var-based
