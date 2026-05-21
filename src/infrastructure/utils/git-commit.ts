@@ -96,7 +96,7 @@ export async function createBranchAndCommit(
  * Generate a branch name from a prefix and the current timestamp.
  * Timestamp uses ISO format with colons replaced by hyphens for filesystem safety.
  *
- * Example: 'fix/deep-health-' → 'fix/deep-health-2026-04-25T23-20-00'
+ * Example: 'fix/security-scan-' → 'fix/security-scan-2026-04-25T23-20-00'
  */
 export function buildBranchName(prefix: string): string {
   const ts = new Date().toISOString().replace(/:/g, '-').replace(/\..+/, '');

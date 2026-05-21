@@ -31,7 +31,7 @@ describe('generateConfigYaml', () => {
 
   it('includes a header comment', () => {
     const yaml = generateConfigYaml();
-    expect(yaml).toContain('# deep-health');
+    expect(yaml).toContain('# security-scan');
   });
 
   it('generates valid YAML with custom PHP version reflected in ecosystems via ecosystemConfigs', () => {
@@ -89,7 +89,7 @@ describe('generateConfigYaml', () => {
   it('includes markdown in outputs.formats when enableSonarQube and ecosystemConfigs provided', () => {
     const yaml = generateConfigYaml({
       enableSonarQube: true,
-      outputs: { formats: ['markdown'], dir: '.deep-health/reports' },
+      outputs: { formats: ['markdown'], dir: '.security-scan/reports' },
       ecosystemConfigs: [{ id: 'npm', fixerStrategy: 'npm-audit' }],
     });
     const parsed = parse(yaml) as { outputs?: { formats?: string[] } };

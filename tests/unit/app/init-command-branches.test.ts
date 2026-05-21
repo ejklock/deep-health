@@ -471,6 +471,6 @@ describe('runInitCommand() — branch coverage top-up', () => {
     });
 
     stdoutSpy.mockRestore();
-    // If no error thrown, fallback '.deep-health/reports' was used
+    // If no error thrown, fallback '.security-scan/reports' was used
   });
 });

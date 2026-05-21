@@ -1,43 +1,38 @@
 /**
  * Brand constants for the CLI.
  *
- * All values are evaluated at module load time.  For compiled SEA binaries,
- * esbuild define at bundle time bakes the value in (tsup `define` option).
- * For Node.js execution (dev / test), values fall back to the `deep-health` defaults.
+ * Hardcoded to 'security-scan'. No whitelabel support.
  */
 
-/** The CLI binary name (e.g. 'deep-health' or 'security-scan'). Controls all user-visible references. */
-export const CLI_NAME: string = process.env['CLI_NAME'] ?? 'deep-health';
+/** The CLI binary name. */
+export const CLI_NAME = 'security-scan';
 
 /** Default sub-directory for report files relative to the project root. */
-export const DEFAULT_REPORTS_SUBDIR: string = `.${CLI_NAME}/reports`;
+export const DEFAULT_REPORTS_SUBDIR = `.${CLI_NAME}/reports`;
 
 /** Default sub-directory for audit trail files relative to the project root. */
-export const DEFAULT_AUDIT_SUBDIR: string = `.${CLI_NAME}`;
+export const DEFAULT_AUDIT_SUBDIR = `.${CLI_NAME}`;
 
 /** Default git branch name prefix for fix branches. */
-export const DEFAULT_BRANCH_PREFIX: string = `fix/${CLI_NAME}-`;
+export const DEFAULT_BRANCH_PREFIX = `fix/${CLI_NAME}-`;
 
 /** Default dotfile name for the sanitized SonarQube properties copy inside cwd. */
-export const DEFAULT_SONAR_DOTFILE: string = `.${CLI_NAME}-sonar-project.properties`;
+export const DEFAULT_SONAR_DOTFILE = `.${CLI_NAME}-sonar-project.properties`;
 
 /** Default prefix for the OS temp directory used for sanitized SonarQube properties. */
-export const DEFAULT_SONAR_TEMPDIR_PREFIX: string = `${CLI_NAME}-sonar-`;
+export const DEFAULT_SONAR_TEMPDIR_PREFIX = `${CLI_NAME}-sonar-`;
 
 /** Google Drive config directory name (relative to $XDG_CONFIG_HOME / ~/.config). */
-export const DEFAULT_GDRIVE_CONFIG_DIR: string = CLI_NAME;
+export const DEFAULT_GDRIVE_CONFIG_DIR = CLI_NAME;
 
 /**
  * Environment variable name that activates the kill-switch (skip all automated fixes).
- * Example: CLI_NAME='deep-health' → 'DEEP_HEALTH_NO_AUTO_FIX'
- *          CLI_NAME='security-scan' → 'SECURITY_SCAN_NO_AUTO_FIX'
+ * 'SECURITY_SCAN_NO_AUTO_FIX'
  */
-export const KILL_SWITCH_VAR: string =
-  `${CLI_NAME.toUpperCase().replace(/-/g, '_')}_NO_AUTO_FIX`;
+export const KILL_SWITCH_VAR = 'SECURITY_SCAN_NO_AUTO_FIX';
 
 /**
  * Default npm fixer strategy.
- * Overridable via NPM_DEFAULT_FIXER env var or esbuild define at bundle time.
  * Valid values: 'osv' | 'npm-audit' | 'osv-then-audit'
  */
-export const NPM_DEFAULT_FIXER: string = process.env['NPM_DEFAULT_FIXER'] ?? 'osv-then-audit';
+export const NPM_DEFAULT_FIXER = 'osv-then-audit';

@@ -1,6 +1,6 @@
 # CONTEXT
 
-Domain vocabulary for `osv-security-cli` (deep-health). Terms here should be used consistently across code, comments, commits, PRs, and architectural discussion.
+Domain vocabulary for `osv-security-cli` (security-scan). Terms here should be used consistently across code, comments, commits, PRs, and architectural discussion.
 
 When a new domain concept stabilizes during design work, add it here. When a term gets sharpened, update the entry rather than creating synonyms.
 
@@ -108,7 +108,7 @@ When a new domain concept stabilizes during design work, add it here. When a ter
 
 ## Config & Workflow
 
-**Project Config** — `deep-health.config.json` / `project-config.yml`. Loaded and validated by `src/infrastructure/config/loader.ts`.
+**Project Config** — `security-scan.config.json` / `project-config.yml`. Loaded and validated by `src/infrastructure/config/loader.ts`.
 
 **Config Version** — `config_version: '1'`. Future incompatible schema changes bump this.
 
@@ -116,6 +116,6 @@ When a new domain concept stabilizes during design work, add it here. When a ter
 
 **Language Version** — field `runners.<id>.language_version` (renamed from `runtime_version`). Version hint used by the ephemeral image resolver to select the appropriate Node/Python/PHP base image (e.g. `"20"`, `"3.11"`, `"8.2"`). Canonical runtime hint for npm container execution; also used by pip and composer resolvers.
 
-**Kill Switch** — `DEEP_HEALTH_NO_AUTO_FIX` env var. When set, the orchestrator runs the scan but skips all automated fixes and writes no files.
+**Kill Switch** — `SECURITY_SCAN_NO_AUTO_FIX` env var. When set, the orchestrator runs the scan but skips all automated fixes and writes no files.
 
 **Git/PR Workflow** — `--create-branch` + optional `--open-pr` orchestrate a branch creation, fix run, commit, push, and `gh pr create`. Lives in `src/infrastructure/utils/git-commit.ts`.

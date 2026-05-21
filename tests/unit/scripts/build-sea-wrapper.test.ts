@@ -21,7 +21,7 @@ function runBuildSea(
   tmpDir: string,
   opts: { cliName?: string; targetSuffix: string },
 ): ReturnType<typeof spawnSync> {
-  const { cliName = 'deep-health', targetSuffix } = opts;
+  const { cliName = 'security-scan', targetSuffix } = opts;
   const distBin = path.join(tmpDir, 'dist-bin');
   const distSea = path.join(tmpDir, 'dist-sea');
   fs.mkdirSync(distBin, { recursive: true });
@@ -84,54 +84,54 @@ describe('build-sea.sh — Linux wrapper generation', () => {
 
       it('renames the SEA binary to <name>-<suffix>.bin', () => {
         runBuildSea(tmpDir, { targetSuffix: target });
-        const realBin = path.join(tmpDir, 'dist-bin', `deep-health-${target}.bin`);
+        const realBin = path.join(tmpDir, 'dist-bin', `security-scan-${target}.bin`);
         expect(fs.existsSync(realBin), `expected ${realBin} to exist`).toBe(true);
       });
 
       it('the renamed .bin file is executable', () => {
         runBuildSea(tmpDir, { targetSuffix: target });
-        const realBin = path.join(tmpDir, 'dist-bin', `deep-health-${target}.bin`);
+        const realBin = path.join(tmpDir, 'dist-bin', `security-scan-${target}.bin`);
         const mode = fs.statSync(realBin).mode;
         expect(mode & 0o111, '.bin must be executable').toBeGreaterThan(0);
       });
 
       it('creates a wrapper script at <name>-<suffix> (no .bin extension)', () => {
         runBuildSea(tmpDir, { targetSuffix: target });
-        const wrapper = path.join(tmpDir, 'dist-bin', `deep-health-${target}`);
+        const wrapper = path.join(tmpDir, 'dist-bin', `security-scan-${target}`);
         expect(fs.existsSync(wrapper), `expected wrapper at ${wrapper}`).toBe(true);
       });
 
       it('the wrapper script is executable', () => {
         runBuildSea(tmpDir, { targetSuffix: target });
-        const wrapper = path.join(tmpDir, 'dist-bin', `deep-health-${target}`);
+        const wrapper = path.join(tmpDir, 'dist-bin', `security-scan-${target}`);
         const mode = fs.statSync(wrapper).mode;
         expect(mode & 0o111, 'wrapper must be executable').toBeGreaterThan(0);
       });
 
       it('wrapper has a valid sh shebang', () => {
         runBuildSea(tmpDir, { targetSuffix: target });
-        const wrapper = path.join(tmpDir, 'dist-bin', `deep-health-${target}`);
+        const wrapper = path.join(tmpDir, 'dist-bin', `security-scan-${target}`);
         const content = fs.readFileSync(wrapper, 'utf8');
         expect(content.startsWith('#!/usr/bin/env sh')).toBe(true);
       });
 
       it('wrapper references the correct .bin filename', () => {
         runBuildSea(tmpDir, { targetSuffix: target });
-        const wrapper = path.join(tmpDir, 'dist-bin', `deep-health-${target}`);
+        const wrapper = path.join(tmpDir, 'dist-bin', `security-scan-${target}`);
         const content = fs.readFileSync(wrapper, 'utf8');
-        expect(content).toContain(`deep-health-${target}.bin`);
+        expect(content).toContain(`security-scan-${target}.bin`);
       });
 
       it('wrapper uses exec to pass all arguments through', () => {
         runBuildSea(tmpDir, { targetSuffix: target });
-        const wrapper = path.join(tmpDir, 'dist-bin', `deep-health-${target}`);
+        const wrapper = path.join(tmpDir, 'dist-bin', `security-scan-${target}`);
         const content = fs.readFileSync(wrapper, 'utf8');
         expect(content).toContain('exec "${REAL_BIN}" "$@"');
       });
 
       it('wrapper uses ldd to detect missing shared libraries', () => {
         runBuildSea(tmpDir, { targetSuffix: target });
-        const wrapper = path.join(tmpDir, 'dist-bin', `deep-health-${target}`);
+        const wrapper = path.join(tmpDir, 'dist-bin', `security-scan-${target}`);
         const content = fs.readFileSync(wrapper, 'utf8');
         expect(content).toContain('command -v ldd');
         expect(content).toContain("ldd \"${REAL_BIN}\"");
@@ -139,14 +139,14 @@ describe('build-sea.sh — Linux wrapper generation', () => {
 
       it('wrapper greps ldd output for "not found" lines', () => {
         runBuildSea(tmpDir, { targetSuffix: target });
-        const wrapper = path.join(tmpDir, 'dist-bin', `deep-health-${target}`);
+        const wrapper = path.join(tmpDir, 'dist-bin', `security-scan-${target}`);
         const content = fs.readFileSync(wrapper, 'utf8');
         expect(content).toContain("grep 'not found'");
       });
 
       it('wrapper falls back gracefully when ldd is not available', () => {
         runBuildSea(tmpDir, { targetSuffix: target });
-        const wrapper = path.join(tmpDir, 'dist-bin', `deep-health-${target}`);
+        const wrapper = path.join(tmpDir, 'dist-bin', `security-scan-${target}`);
         const content = fs.readFileSync(wrapper, 'utf8');
         // The ldd check is inside an if block — if ldd absent the exec runs directly
         expect(content).toMatch(/command -v ldd.*>/);
@@ -158,7 +158,7 @@ describe('build-sea.sh — Linux wrapper generation', () => {
 
       it('wrapper error message mentions Debian/Ubuntu apt-cache search hint', () => {
         runBuildSea(tmpDir, { targetSuffix: target });
-        const wrapper = path.join(tmpDir, 'dist-bin', `deep-health-${target}`);
+        const wrapper = path.join(tmpDir, 'dist-bin', `security-scan-${target}`);
         const content = fs.readFileSync(wrapper, 'utf8');
         expect(content).toContain('apt-cache search');
         expect(content).toContain('apt-get install');
@@ -166,7 +166,7 @@ describe('build-sea.sh — Linux wrapper generation', () => {
 
       it('wrapper error message mentions Fedora/RHEL dnf provides hint', () => {
         runBuildSea(tmpDir, { targetSuffix: target });
-        const wrapper = path.join(tmpDir, 'dist-bin', `deep-health-${target}`);
+        const wrapper = path.join(tmpDir, 'dist-bin', `security-scan-${target}`);
         const content = fs.readFileSync(wrapper, 'utf8');
         expect(content).toContain('dnf provides');
         expect(content).toContain('dnf install');
@@ -174,7 +174,7 @@ describe('build-sea.sh — Linux wrapper generation', () => {
 
       it('wrapper exits with code 1 when missing libs are detected', () => {
         runBuildSea(tmpDir, { targetSuffix: target });
-        const wrapper = path.join(tmpDir, 'dist-bin', `deep-health-${target}`);
+        const wrapper = path.join(tmpDir, 'dist-bin', `security-scan-${target}`);
         const content = fs.readFileSync(wrapper, 'utf8');
         expect(content).toContain('exit 1');
       });
@@ -189,7 +189,7 @@ describe('build-sea.sh — Linux wrapper generation', () => {
 
       it('no leftover .tmp file remains after build', () => {
         runBuildSea(tmpDir, { targetSuffix: target });
-        const tmp = path.join(tmpDir, 'dist-bin', `deep-health-${target}.tmp`);
+        const tmp = path.join(tmpDir, 'dist-bin', `security-scan-${target}.tmp`);
         expect(fs.existsSync(tmp), 'temp file should be cleaned up').toBe(false);
       });
     });
@@ -210,29 +210,29 @@ describe('build-sea.sh — non-Linux targets (no wrapper)', () => {
   it('macos-arm64: exits with code 0 and produces no .bin file', () => {
     const result = runBuildSea(tmpDir, { targetSuffix: 'macos-arm64' });
     expect(result.status, result.stderr).toBe(0);
-    const realBin = path.join(tmpDir, 'dist-bin', 'deep-health-macos-arm64.bin');
+    const realBin = path.join(tmpDir, 'dist-bin', 'security-scan-macos-arm64.bin');
     expect(fs.existsSync(realBin), '.bin must NOT exist for macOS target').toBe(false);
   });
 
   it('macos-arm64: the binary itself is at the expected path (no rename)', () => {
     runBuildSea(tmpDir, { targetSuffix: 'macos-arm64' });
-    const bin = path.join(tmpDir, 'dist-bin', 'deep-health-macos-arm64');
+    const bin = path.join(tmpDir, 'dist-bin', 'security-scan-macos-arm64');
     expect(fs.existsSync(bin), 'binary should exist at plain path for macOS').toBe(true);
   });
 
   it('win-x64: exits with code 0 and produces no .bin file', () => {
     const result = runBuildSea(tmpDir, { targetSuffix: 'win-x64' });
     expect(result.status, result.stderr).toBe(0);
-    const realBin = path.join(tmpDir, 'dist-bin', 'deep-health-win-x64.bin');
+    const realBin = path.join(tmpDir, 'dist-bin', 'security-scan-win-x64.bin');
     expect(fs.existsSync(realBin), '.bin must NOT exist for Windows target').toBe(false);
   });
 
   it('win-x64: the binary uses .exe extension and wrapper is not created', () => {
     runBuildSea(tmpDir, { targetSuffix: 'win-x64' });
-    const bin = path.join(tmpDir, 'dist-bin', 'deep-health-win-x64.exe');
+    const bin = path.join(tmpDir, 'dist-bin', 'security-scan-win-x64.exe');
     expect(fs.existsSync(bin), '.exe binary should exist for Windows target').toBe(true);
     // No wrapper without .exe extension
-    const wrapper = path.join(tmpDir, 'dist-bin', 'deep-health-win-x64');
+    const wrapper = path.join(tmpDir, 'dist-bin', 'security-scan-win-x64');
     expect(fs.existsSync(wrapper), 'wrapper must NOT exist for Windows target').toBe(false);
   });
 });
@@ -252,8 +252,8 @@ describe('build-sea.sh — wrapper runtime behaviour (simulated)', () => {
     // Build the wrapper via the script
     runBuildSea(tmpDir, { targetSuffix: 'linux-x64' });
 
-    const wrapper = path.join(tmpDir, 'dist-bin', 'deep-health-linux-x64');
-    const realBin = path.join(tmpDir, 'dist-bin', 'deep-health-linux-x64.bin');
+    const wrapper = path.join(tmpDir, 'dist-bin', 'security-scan-linux-x64');
+    const realBin = path.join(tmpDir, 'dist-bin', 'security-scan-linux-x64.bin');
 
     // Replace the .bin with a small shell script that echoes args
     fs.writeFileSync(realBin, '#!/usr/bin/env sh\necho "ARGS: $@"\n');
@@ -280,7 +280,7 @@ describe('build-sea.sh — wrapper runtime behaviour (simulated)', () => {
   it('wrapper exits 1 and lists ALL missing libs when ldd reports multiple not found', () => {
     runBuildSea(tmpDir, { targetSuffix: 'linux-x64' });
 
-    const wrapper = path.join(tmpDir, 'dist-bin', 'deep-health-linux-x64');
+    const wrapper = path.join(tmpDir, 'dist-bin', 'security-scan-linux-x64');
 
     // Fake ldd that reports two missing libraries
     const fakeLdd = path.join(tmpDir, 'ldd');
@@ -310,7 +310,7 @@ describe('build-sea.sh — wrapper runtime behaviour (simulated)', () => {
   it('wrapper exits 1 when ldd reports a single missing lib', () => {
     runBuildSea(tmpDir, { targetSuffix: 'linux-x64' });
 
-    const wrapper = path.join(tmpDir, 'dist-bin', 'deep-health-linux-x64');
+    const wrapper = path.join(tmpDir, 'dist-bin', 'security-scan-linux-x64');
 
     // Fake ldd that reports one missing library
     const fakeLdd = path.join(tmpDir, 'ldd');
@@ -333,8 +333,8 @@ describe('build-sea.sh — wrapper runtime behaviour (simulated)', () => {
   it('wrapper execs the binary directly when ldd is not available (no pre-check)', () => {
     runBuildSea(tmpDir, { targetSuffix: 'linux-x64' });
 
-    const wrapper = path.join(tmpDir, 'dist-bin', 'deep-health-linux-x64');
-    const realBin = path.join(tmpDir, 'dist-bin', 'deep-health-linux-x64.bin');
+    const wrapper = path.join(tmpDir, 'dist-bin', 'security-scan-linux-x64');
+    const realBin = path.join(tmpDir, 'dist-bin', 'security-scan-linux-x64.bin');
 
     // Real binary echoes success
     fs.writeFileSync(realBin, '#!/usr/bin/env sh\necho "EXECUTED"\n');

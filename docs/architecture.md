@@ -1,10 +1,10 @@
-# Architecture — deep-health
+# Architecture — security-scan
 
 ## High-Level Architecture
 
 ```mermaid
 graph TD
-    CLI["CLI binary<br/>(bin/deep-health)"]
+    CLI["CLI binary<br/>(bin/security-scan)"]
 
     subgraph app["app/ — Commands & I/O"]
         FIX["fix.ts"]
@@ -125,7 +125,7 @@ flowchart TD
     GATE_A -- fail --> GATE_ERR([throw GateValidationError])
     GATE_A -- pass --> KILL_SW
 
-    KILL_SW{"DEEP_HEALTH_NO_AUTO_FIX\nenv var set?"}
+    KILL_SW{"SECURITY_SCAN_NO_AUTO_FIX\nenv var set?"}
     KILL_SW -- yes --> RETURN_SCAN([return scan result only])
     KILL_SW -- no --> PLUGINS
 
@@ -854,7 +854,7 @@ defaultScannerRegistry.register(new SnykEngine());
 
 ### Setting the engine as primary
 
-In your project's `deep-health.config.json`:
+In your project's `security-scan.config.json`:
 
 ```json
 {
@@ -877,7 +877,7 @@ flowchart TD
     START([fix --create-branch called]) --> DETECT
     DETECT["detectGitBranch()\nRecord original branch"]
     DETECT --> CREATE_BR
-    CREATE_BR["git checkout -b fix/deep-health-<timestamp>\n(runArgs — no shell)"]
+    CREATE_BR["git checkout -b fix/security-scan-<timestamp>\n(runArgs — no shell)"]
     CREATE_BR --> PIPELINE
     PIPELINE["runFixPipeline()\nScan + update + report"]
     PIPELINE -- success --> COMMIT
@@ -913,8 +913,8 @@ Retry triggers only on transient Docker errors (`docker pull`, `network timeout`
 `config_version: '1'` is an optional field in `project-config.yml`. Unsupported versions produce a user-friendly error:
 
 ```
-Unsupported config_version "2". This version of deep-health supports config_version "1".
-Run "deep-health init --force" to regenerate a compatible config.
+Unsupported config_version "2". This version of security-scan supports config_version "1".
+Run "security-scan init --force" to regenerate a compatible config.
 ```
 
 ### Optional googleapis

@@ -67,7 +67,7 @@ describe('runInitCommand — non-interactive', () => {
           expect.objectContaining({ id: 'composer' }),
           expect.objectContaining({ id: 'npm' }),
         ]),
-        outputs: { formats: ['markdown'], dir: '.deep-health/reports' },
+        outputs: { formats: ['markdown'], dir: '.security-scan/reports' },
       }),
     );
 

@@ -1,4 +1,4 @@
-# Testing Guide — deep-health
+# Testing Guide — security-scan
 
 ## Test Structure
 

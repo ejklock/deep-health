@@ -1,4 +1,4 @@
-# JSON Schema Reference — deep-health
+# JSON Schema Reference — security-scan
 
 When `--json` is passed to `scan` or `fix`, the output conforms to the schemas described here. These are also the contracts enforced by Gate A and the ecosystem gates.
 
@@ -6,7 +6,7 @@ When `--json` is passed to `scan` or `fix`, the output conforms to the schemas d
 
 ## ScanResultJson
 
-Produced by `deep-health scan --json` and available in `OrchestratorResult.scan`.
+Produced by `security-scan scan --json` and available in `OrchestratorResult.scan`.
 
 **Schema identifier:** `osv-scan-result/v1`
 
@@ -166,7 +166,7 @@ Produced per ecosystem by `plugin.runUpdater()`. Available in `OrchestratorResul
 
 ## OrchestratorResult (full fix run)
 
-The object returned by `runOrchestrator()` and written to stdout when `deep-health fix --json` is used.
+The object returned by `runOrchestrator()` and written to stdout when `security-scan fix --json` is used.
 
 ```jsonc
 {
@@ -221,7 +221,7 @@ These are separate signals and should not be conflated:
 | `"error"` | `*` | Pipeline crashed or updater failed |
 | `"skipped"` | `false` | No phases ran |
 
-`deep-health fix` exits `1` for both `overallStatus === "error"` **and** `hasPendingVulns === true`. Both produce exit code `1` — checking `overallStatus` alone is not sufficient for CI.
+`security-scan fix` exits `1` for both `overallStatus === "error"` **and** `hasPendingVulns === true`. Both produce exit code `1` — checking `overallStatus` alone is not sufficient for CI.
 
 ### `residualVerification`
 
@@ -235,9 +235,9 @@ A best-effort post-update OSV re-scan to confirm CVEs were actually resolved.
 
 ---
 
-## Audit Trail (`.deep-health/runs/<timestamp>.json`)
+## Audit Trail (`.security-scan/runs/<timestamp>.json`)
 
-Written after every `fix` run to `.deep-health/runs/` in the project directory. Never blocks the pipeline — failures are logged as warnings only.
+Written after every `fix` run to `.security-scan/runs/` in the project directory. Never blocks the pipeline — failures are logged as warnings only.
 
 ```jsonc
 {
@@ -254,9 +254,9 @@ Written after every `fix` run to `.deep-health/runs/` in the project directory. 
 ```
 
 File name: `<timestamp-with-colons-replaced-by-hyphens>.json`
-Example: `.deep-health/runs/2026-04-24T10-00-00.000Z.json`
+Example: `.security-scan/runs/2026-04-24T10-00-00.000Z.json`
 
-Add `.deep-health/runs/` to `.gitignore` to prevent committing run history.
+Add `.security-scan/runs/` to `.gitignore` to prevent committing run history.
 
 ---
 
@@ -264,7 +264,7 @@ Add `.deep-health/runs/` to `.gitignore` to prevent committing run history.
 
 ```bash
 # Capture JSON output
-deep-health fix --json --output fix-result.json
+security-scan fix --json --output fix-result.json
 
 # Read fields with jq
 jq '.hasPendingVulns'            fix-result.json    # true/false

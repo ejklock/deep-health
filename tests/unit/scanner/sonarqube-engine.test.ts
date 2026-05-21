@@ -178,7 +178,7 @@ function stubFetchForManagedMode(
 ) {
   const tokenResp = opts.tokenGenerationFails
     ? { ok: false, status: 500, statusText: 'Internal Server Error', json: async () => ({}) }
-    : { ok: true, status: 200, json: async () => ({ token: 'ephemeral-tok', name: 'deep-health-scan' }) };
+    : { ok: true, status: 200, json: async () => ({ token: 'ephemeral-tok', name: 'security-scan-scan' }) };
 
   vi.stubGlobal(
     'fetch',

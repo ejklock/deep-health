@@ -24,9 +24,9 @@ import { buildSonarQubeExport } from '@reporting/sonarqube-export';
 import type { ScanResultJson } from '@core/types/scan';
 
 describe('resolveReportsDir()', () => {
-  it('resolves to default .deep-health/reports when configReportsDir is undefined', () => {
+  it('resolves to default .security-scan/reports when configReportsDir is undefined', () => {
     const result = resolveReportsDir('/project', undefined);
-    expect(result).toContain('.deep-health/reports');
+    expect(result).toContain('.security-scan/reports');
   });
 
   it('resolves to the provided dir relative to cwd', () => {

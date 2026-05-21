@@ -74,7 +74,7 @@ describe('loadConfig', () => {
     const result = await loadConfig('nonexistent.yml', fixturesDir);
     expect(result.ok).toBe(false);
     expect(result.error).toBeInstanceOf(ConfigLoadError);
-    expect((result.error as ConfigLoadError).message).toMatch(/deep-health init/i);
+    expect((result.error as ConfigLoadError).message).toMatch(/security-scan init/i);
   });
 
   it('returns Err with ConfigLoadError for missing required fields', async () => {
@@ -466,7 +466,7 @@ describe('strict schema enforcement — unknown keys', () => {
       'cloud_storage:',
       '  provider: google_drive',
       '  folder_id: abc123',
-      '  credentials: .deep-health/gdrive-service-account.json',
+      '  credentials: .security-scan/gdrive-service-account.json',
     ].join('\n') + '\n';
 
     await withTempConfig(yaml, async (absPath, filename) => {

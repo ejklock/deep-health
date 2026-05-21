@@ -55,7 +55,7 @@ const config: ProjectConfig = {
     require_authorization_for_constraint_change: true,
   },
   conflict_resolution: 'stop_and_ask',
-  outputs: { formats: ['markdown'], dir: '.deep-health/reports' },
+  outputs: { formats: ['markdown'], dir: '.security-scan/reports' },
 } as unknown as ProjectConfig;
 
 const scanResult = {
@@ -338,7 +338,7 @@ describe('runFixCommand() — branch coverage top-up', () => {
     const ctx: RunContext = {
       config: {
         ...config,
-        outputs: { formats: ['markdown'], dir: '.deep-health/reports', sub_folders: true },
+        outputs: { formats: ['markdown'], dir: '.security-scan/reports', sub_folders: true },
       },
       runner: { environment: 'local' as const, run: vi.fn(), runArgs: vi.fn(), dryRun: false },
     };
@@ -409,7 +409,7 @@ describe('runFixCommand() — branch coverage top-up', () => {
     const ctx: RunContext = {
       config: {
         ...config,
-        outputs: { dir: '.deep-health/reports' } as any, // no formats
+        outputs: { dir: '.security-scan/reports' } as any, // no formats
       },
       runner: { environment: 'local' as const, run: vi.fn(), runArgs: vi.fn(), dryRun: false },
     };
@@ -526,12 +526,12 @@ describe('createBranchAndCommit()', () => {
 
 describe('buildBranchName()', () => {
   it('returns a string starting with the given prefix', () => {
-    const name = buildBranchName('fix/deep-health-');
-    expect(name.startsWith('fix/deep-health-')).toBe(true);
+    const name = buildBranchName('fix/security-scan-');
+    expect(name.startsWith('fix/security-scan-')).toBe(true);
   });
 
   it('replaces colons in the timestamp for filesystem safety', () => {
-    const name = buildBranchName('fix/deep-health-');
+    const name = buildBranchName('fix/security-scan-');
     expect(name).not.toContain(':');
   });
 });

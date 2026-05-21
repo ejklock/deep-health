@@ -194,18 +194,18 @@ function npmScanWithAutoSafe(): string {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe("runOrchestrator — DEEP_HEALTH_NO_AUTO_FIX kill-switch", () => {
+describe("runOrchestrator — SECURITY_SCAN_NO_AUTO_FIX kill-switch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete process.env["DEEP_HEALTH_NO_AUTO_FIX"];
+    delete process.env["SECURITY_SCAN_NO_AUTO_FIX"];
   });
 
   afterEach(() => {
-    delete process.env["DEEP_HEALTH_NO_AUTO_FIX"];
+    delete process.env["SECURITY_SCAN_NO_AUTO_FIX"];
   });
 
-  it("skips all plugin updaters and logs a warning when DEEP_HEALTH_NO_AUTO_FIX is set", async () => {
-    process.env["DEEP_HEALTH_NO_AUTO_FIX"] = "1";
+  it("skips all plugin updaters and logs a warning when SECURITY_SCAN_NO_AUTO_FIX is set", async () => {
+    process.env["SECURITY_SCAN_NO_AUTO_FIX"] = "1";
 
     const runUpdaterSpy = vi.spyOn(npmPlugin, "runUpdater");
 
@@ -230,17 +230,17 @@ describe("runOrchestrator — DEEP_HEALTH_NO_AUTO_FIX kill-switch", () => {
     expect(result.updates).toEqual({});
     expect(
       (logger.warn as ReturnType<typeof vi.fn>).mock.calls.some(
-        (c: unknown[]) => String(c[0]).includes("DEEP_HEALTH_NO_AUTO_FIX"),
+        (c: unknown[]) => String(c[0]).includes("SECURITY_SCAN_NO_AUTO_FIX"),
       ),
     ).toBe(true);
 
     runUpdaterSpy.mockRestore();
   });
 
-  it("calls plugin updater normally when DEEP_HEALTH_NO_AUTO_FIX is not set", async () => {
+  it("calls plugin updater normally when SECURITY_SCAN_NO_AUTO_FIX is not set", async () => {
     const runUpdaterSpy = vi.spyOn(npmPlugin, "runUpdater").mockResolvedValue({
       $schema: "osv-update-result/v1",
-      agent: "deep-health/test",
+      agent: "security-scan/test",
       status: "success",
       packages_updated: [],
       packages_skipped: [],
@@ -282,7 +282,7 @@ describe("runOrchestrator — lockfileVersion 1 warning (lines 783-789)", () => 
 
     const runUpdaterSpy = vi.spyOn(npmPlugin, 'runUpdater').mockResolvedValue({
       $schema: 'osv-update-result/v1',
-      agent: 'deep-health/test',
+      agent: 'security-scan/test',
       status: 'success',
       packages_updated: [],
       packages_skipped: [],

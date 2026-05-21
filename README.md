@@ -1,4 +1,4 @@
-# deep-health
+# security-scan
 
 One command that scans for vulnerabilities, applies safe dependency updates, runs your tests to confirm nothing broke, reverts if it did, and generates an executive report — all inside isolated Docker containers, with no local tool installation required beyond Docker itself.
 
@@ -17,7 +17,7 @@ Every month, I had to do the same thing for every client project:
 
 It took hours. It was boring. And because it was boring, it sometimes didn't happen.
 
-So I built `deep-health` to do all of it in one command.
+So I built `security-scan` to do all of it in one command.
 
 Now it runs in CI, opens a PR with safe fixes already validated against the test suite, and delivers the executive report automatically. What used to take an afternoon takes about 15 minutes — most of which is waiting for tests to run.
 
@@ -49,13 +49,13 @@ Docker is used to run OSV Scanner (and optionally SonarQube) in ephemeral contai
 ## Installation
 
 ```bash
-npm install -g deep-health
+npm install -g security-scan
 ```
 
 Or run without installing:
 
 ```bash
-npx deep-health --help
+npx security-scan --help
 ```
 
 ---
@@ -65,7 +65,7 @@ npx deep-health --help
 **1. Generate a config file**
 
 ```bash
-deep-health init
+security-scan init
 ```
 
 This creates a `project-config.yml` in the current directory with sane defaults based on your runtime environment.
@@ -73,13 +73,13 @@ This creates a `project-config.yml` in the current directory with sane defaults 
 **2. Scan for vulnerabilities**
 
 ```bash
-deep-health scan
+security-scan scan
 ```
 
 **3. Scan and apply safe updates**
 
 ```bash
-deep-health fix
+security-scan fix
 ```
 
 That's it. Results are printed to stdout. Pass `--output report.html` to save the report to a file.
@@ -93,7 +93,7 @@ That's it. Results are printed to stdout. Pass `--output report.html` to save th
 Generate a `project-config.yml` template.
 
 ```bash
-deep-health init [options]
+security-scan init [options]
 
 Options:
   --project-name <name>   Project name
@@ -107,7 +107,7 @@ Options:
 Run the vulnerability scan only (no updates applied).
 
 ```bash
-deep-health scan [options]
+security-scan scan [options]
 
 Options:
   -c, --config <path>     Path to project-config.yml (default: ./project-config.yml)
@@ -124,7 +124,7 @@ Options:
 Full workflow: scan → apply safe updates → generate executive report.
 
 ```bash
-deep-health fix [options]
+security-scan fix [options]
 
 Options:
   -c, --config <path>             Path to project-config.yml
@@ -138,7 +138,7 @@ Options:
   --json                          Output results as JSON
   -o, --output <path>             Write report to file
   --create-branch                 Create a git branch before applying fixes, commit on success
-  --branch-prefix <prefix>        Branch name prefix (default: fix/deep-health-)
+  --branch-prefix <prefix>        Branch name prefix (default: fix/security-scan-)
   --open-pr                       Open a GitHub PR after fix (implies --create-branch; requires gh CLI)
   --pr-title <title>              Pull request title (default: auto-generated)
 ```
@@ -148,7 +148,7 @@ Options:
 Generate an executive HTML report from the last scan results.
 
 ```bash
-deep-health executive-report [options]
+security-scan executive-report [options]
 
 Options:
   --client <name>     Client name (overrides project-config.yml)
@@ -161,14 +161,14 @@ Options:
 Interactive Google Drive folder picker — saves the selected folder ID to `project-config.yml` for automatic report distribution.
 
 ```bash
-deep-health cloud-setup
+security-scan cloud-setup
 ```
 
 ---
 
 ## Configuration
 
-`deep-health init` generates a starter `project-config.yml`. Here is a full annotated example:
+`security-scan init` generates a starter `project-config.yml`. Here is a full annotated example:
 
 ```yaml
 config_version: '1'
@@ -255,31 +255,31 @@ cloud_storage:
 | `2` | Gate validation failure or scanner error |
 | `3` | Configuration error |
 
-These codes make `deep-health` suitable for use in CI/CD pipelines.
+These codes make `security-scan` suitable for use in CI/CD pipelines.
 
 ---
 
 ## Git/PR Workflow
 
-By default, `deep-health fix` mutates the working tree directly. Use `--create-branch` to wrap the fix in a reviewable Git branch:
+By default, `security-scan fix` mutates the working tree directly. Use `--create-branch` to wrap the fix in a reviewable Git branch:
 
 ```bash
 # Create a branch, apply fixes, commit on success
-deep-health fix --create-branch
+security-scan fix --create-branch
 
 # Create a branch AND open a GitHub PR (requires gh auth login)
-deep-health fix --open-pr
+security-scan fix --open-pr
 
 # Custom branch prefix
-deep-health fix --create-branch --branch-prefix deps/security-fix-
+security-scan fix --create-branch --branch-prefix deps/security-fix-
 ```
 
 **Branch lifecycle:**
-- Branch is created BEFORE any mutation: `fix/deep-health-<ISO-timestamp>`
-- On success: changes are staged and committed as `fix: apply safe dependency updates [deep-health]`
+- Branch is created BEFORE any mutation: `fix/security-scan-<ISO-timestamp>`
+- On success: changes are staged and committed as `fix: apply safe dependency updates [security-scan]`
 - On failure: original branch is restored; no commit is made
 
-**`--open-pr` prerequisites:** [GitHub CLI](https://cli.github.com/) installed and authenticated (`gh auth login`). The PR body includes ecosystem summary and deep-health version attribution.
+**`--open-pr` prerequisites:** [GitHub CLI](https://cli.github.com/) installed and authenticated (`gh auth login`). The PR body includes ecosystem summary and security-scan version attribution.
 
 ---
 
@@ -307,10 +307,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm install -g deep-health
-      - run: deep-health scan --json --output scan-results.json
+      - run: npm install -g security-scan
+      - run: security-scan scan --json --output scan-results.json
       # To apply fixes and open a PR automatically (requires GITHUB_TOKEN and gh CLI):
-      # - run: deep-health fix --open-pr
+      # - run: security-scan fix --open-pr
       - uses: actions/upload-artifact@v4
         with:
           name: scan-results
@@ -322,8 +322,8 @@ jobs:
 ## Development
 
 ```bash
-git clone https://github.com/your-org/deep-health.git
-cd deep-health/osv-security-cli
+git clone https://github.com/your-org/security-scan.git
+cd security-scan/osv-security-cli
 npm install
 npm run dev -- --help
 ```
@@ -385,7 +385,7 @@ Ecosystem plugins and scanner engines are registered at runtime, making it strai
 
 **OAuth browser opener** (`cloud-setup`): the Google OAuth URL is opened via `execFile` with `shell: false`, passing the URL as a discrete `argv` element. Shell metacharacters in the URL cannot cause command injection because no shell is involved in the spawn.
 
-> If you use `deep-health` in a context where `project-config.yml` is written by untrusted parties, treat those command strings as untrusted input and review them before running the tool.
+> If you use `security-scan` in a context where `project-config.yml` is written by untrusted parties, treat those command strings as untrusted input and review them before running the tool.
 
 ---
 

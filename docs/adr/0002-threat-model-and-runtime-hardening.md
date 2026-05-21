@@ -6,7 +6,7 @@ Accepted — 2026-04-25
 
 ## Context
 
-`deep-health` executes user-authored shell commands from `project-config.yml`:
+`security-scan` executes user-authored shell commands from `project-config.yml`:
 
 - `ecosystems[].validationCommands[].command` (e.g. `npm test`, `php artisan test --compact`, `pytest -x`)
 - `ecosystems[].advisors[].command` (e.g. `npm audit --json`)

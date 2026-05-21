@@ -1,4 +1,4 @@
-# deep-health — Complete Usage Guide
+# security-scan — Complete Usage Guide
 
 > Version 0.1.3 | Node.js ≥ 26 | Docker required
 
@@ -53,7 +53,7 @@
 
 ## Overview
 
-`deep-health` is a CLI tool that automates the full vulnerability management workflow for multi-ecosystem projects. In a single command it can:
+`security-scan` is a CLI tool that automates the full vulnerability management workflow for multi-ecosystem projects. In a single command it can:
 
 1. Scan all lockfiles (`composer.lock`, `package-lock.json`, `requirements.txt`, `Pipfile.lock`) using [OSV Scanner](https://google.github.io/osv-scanner/)
 2. Classify vulnerabilities as safe-to-update or requiring manual authorization
@@ -86,20 +86,20 @@ The `gh` CLI is required only if you use `--open-pr`. Install it from [cli.githu
 Install globally with npm:
 
 ```bash
-npm install -g deep-health
+npm install -g security-scan
 ```
 
 Verify the installation:
 
 ```bash
-deep-health --version
-# deep-health/0.1.3
+security-scan --version
+# security-scan/0.1.3
 ```
 
 Run without installing (useful for one-off scans):
 
 ```bash
-npx deep-health --help
+npx security-scan --help
 ```
 
 ---
@@ -109,7 +109,7 @@ npx deep-health --help
 **Step 1: Generate a config file**
 
 ```bash
-deep-health init
+security-scan init
 ```
 
 This starts an interactive wizard that detects your ecosystems (npm, composer, pip), asks you to confirm or adjust the configuration, and writes a `project-config.yml` to the current directory.
@@ -117,7 +117,7 @@ This starts an interactive wizard that detects your ecosystems (npm, composer, p
 **Step 2: Scan for vulnerabilities**
 
 ```bash
-deep-health scan
+security-scan scan
 ```
 
 Prints a summary of all vulnerabilities found. No files are modified.
@@ -125,7 +125,7 @@ Prints a summary of all vulnerabilities found. No files are modified.
 **Step 3: Apply safe fixes**
 
 ```bash
-deep-health fix
+security-scan fix
 ```
 
 Runs the full pipeline: scan → apply safe updates → validate → revert if broken → generate executive report.
@@ -133,7 +133,7 @@ Runs the full pipeline: scan → apply safe updates → validate → revert if b
 **Step 4: Apply safe fixes and open a PR**
 
 ```bash
-deep-health fix --open-pr
+security-scan fix --open-pr
 ```
 
 Same as above, plus creates a git branch, commits the changes, pushes, and opens a GitHub pull request.
@@ -147,7 +147,7 @@ Same as above, plus creates a git branch, commits the changes, pushes, and opens
 Generates a `project-config.yml` template for the current project.
 
 ```
-deep-health init [options]
+security-scan init [options]
 ```
 
 | Option | Type | Default | Description |
@@ -182,7 +182,7 @@ deep-health init [options]
 **Example — non-interactive (CI-friendly):**
 
 ```bash
-deep-health init \
+security-scan init \
   --project-name "My App" \
   --client "Acme Corp" \
   --force
@@ -199,7 +199,7 @@ In non-interactive mode (when stdin is not a TTY), `init` auto-selects all detec
 Runs the vulnerability scan only. No files are modified.
 
 ```
-deep-health scan [options]
+security-scan scan [options]
 ```
 
 | Option | Type | Default | Description |
@@ -225,22 +225,22 @@ deep-health scan [options]
 
 ```bash
 # Basic scan
-deep-health scan
+security-scan scan
 
 # Scan a project in a different directory
-deep-health scan --cwd /path/to/project
+security-scan scan --cwd /path/to/project
 
 # Save JSON results to a file (useful for CI artifacts)
-deep-health scan --json --output scan-results.json
+security-scan scan --json --output scan-results.json
 
 # Quiet mode: only print the final summary
-deep-health scan --quiet
+security-scan scan --quiet
 ```
 
 **Sample output:**
 
 ```
-deep-health scan summary
+security-scan scan summary
 ========================
 npm        2 vulnerabilities  (1 auto-safe, 1 breaking)
 composer   0 vulnerabilities
@@ -265,7 +265,7 @@ Exit code: 1 (breaking vulnerabilities found)
 Full workflow: scan → apply safe updates per ecosystem → validate → revert if broken → generate executive report.
 
 ```
-deep-health fix [options]
+security-scan fix [options]
 ```
 
 | Option | Type | Default | Description |
@@ -281,7 +281,7 @@ deep-health fix [options]
 | `--json` | boolean | `false` | Output results as JSON |
 | `-o, --output <path>` | string | stdout | Write report to file |
 | `--create-branch` | boolean | `false` | Create a git branch before applying fixes and commit changes on success |
-| `--branch-prefix <prefix>` | string | `fix/deep-health-` | Branch name prefix |
+| `--branch-prefix <prefix>` | string | `fix/security-scan-` | Branch name prefix |
 | `--open-pr` | boolean | `false` | Create a GitHub pull request after fix (implies `--create-branch`; requires `gh` CLI) |
 | `--pr-title <title>` | string | auto-generated | Pull request title |
 
@@ -299,20 +299,20 @@ Use `--phases` to run only a subset:
 
 ```bash
 # Run scan and npm phases only
-deep-health fix --phases scan,npm
+security-scan fix --phases scan,npm
 
 # Run all phases except the report
-deep-health fix --no-report
+security-scan fix --no-report
 ```
 
 **Authorizing breaking changes:**
 
 ```bash
 # Allow composer packages to be updated to breaking versions
-deep-health fix --authorize-breaking composer
+security-scan fix --authorize-breaking composer
 
 # Allow both npm and composer breaking updates
-deep-health fix --authorize-breaking npm composer
+security-scan fix --authorize-breaking npm composer
 ```
 
 Authorization is per-run and is never persisted to the config file.
@@ -321,7 +321,7 @@ Authorization is per-run and is never persisted to the config file.
 
 ```bash
 # Skip all automated fixes after the scan phase
-DEEP_HEALTH_NO_AUTO_FIX=1 deep-health fix
+SECURITY_SCAN_NO_AUTO_FIX=1 security-scan fix
 ```
 
 This is useful in CI pipelines where you want the scan result logged but no files mutated.
@@ -330,16 +330,16 @@ This is useful in CI pipelines where you want the scan result logged but no file
 
 ```bash
 # Create a branch, apply fixes, commit on success
-deep-health fix --create-branch
+security-scan fix --create-branch
 
 # Create a branch AND open a GitHub PR
-deep-health fix --open-pr
+security-scan fix --open-pr
 
 # Custom branch prefix
-deep-health fix --create-branch --branch-prefix deps/security-fix-
+security-scan fix --create-branch --branch-prefix deps/security-fix-
 
 # Custom PR title
-deep-health fix --open-pr --pr-title "chore: security dependency updates"
+security-scan fix --open-pr --pr-title "chore: security dependency updates"
 ```
 
 **Exit codes:**
@@ -373,7 +373,7 @@ On validation failure: reverts all changes to that ecosystem and continues with 
 Generates an executive HTML report from the last scan results.
 
 ```
-deep-health executive-report [options]
+security-scan executive-report [options]
 ```
 
 | Option | Type | Default | Description |
@@ -402,7 +402,7 @@ The report language is controlled by `report_language` in `project-config.yml` (
 
 ```bash
 # Generate report with a custom client name
-deep-health executive-report --client "Acme Corp" --output report.html
+security-scan executive-report --client "Acme Corp" --output report.html
 ```
 
 ---
@@ -412,7 +412,7 @@ deep-health executive-report --client "Acme Corp" --output report.html
 Interactive Google Drive folder picker. Saves the chosen folder ID to `project-config.yml` so that future `fix` and `executive-report` runs automatically upload their reports.
 
 ```
-deep-health cloud-setup [options]
+security-scan cloud-setup [options]
 ```
 
 | Option | Type | Default | Description |
@@ -446,10 +446,10 @@ To obtain credentials:
 
 ```bash
 # Set up Google Drive integration
-deep-health cloud-setup
+security-scan cloud-setup
 
 # After setup, fix runs will upload the report automatically
-deep-health fix
+security-scan fix
 
 # To require upload success (fail CI if upload fails)
 # Set in project-config.yml:
@@ -461,7 +461,7 @@ deep-health fix
 
 ## Configuration Reference
 
-`project-config.yml` is the single source of truth for all deep-health behavior. Below is a fully annotated reference covering every field.
+`project-config.yml` is the single source of truth for all security-scan behavior. Below is a fully annotated reference covering every field.
 
 ### `project`
 
@@ -700,7 +700,7 @@ Controls report output location and formats.
 
 ```yaml
 outputs:
-  dir: './reports'            # output directory; default: .deep-health/reports
+  dir: './reports'            # output directory; default: .security-scan/reports
   sub_folders: false          # when true, engine reports go into sub-folders (sonarqube/)
   formats:
     - 'markdown'              # HTML is always generated; markdown is opt-in
@@ -720,7 +720,7 @@ cloud_storage:
   require_upload: false            # if true, exit 1 when upload fails
 ```
 
-Run `deep-health cloud-setup` to authenticate and select the folder interactively.
+Run `security-scan cloud-setup` to authenticate and select the folder interactively.
 
 ### `workflow`
 
@@ -730,7 +730,7 @@ Git/PR workflow configuration. CLI flags always override these values.
 workflow:
   create_branch: false              # create a git branch before applying fixes
   open_pr: false                    # push branch and open a GitHub PR on success
-  branch_prefix: 'fix/deep-health-' # prefix for auto-generated branch names
+  branch_prefix: 'fix/security-scan-' # prefix for auto-generated branch names
   pr_title: ''                      # custom PR title; auto-generated when absent
 ```
 
@@ -742,7 +742,7 @@ CLI flags (`--create-branch`, `--open-pr`, `--branch-prefix`, `--pr-title`) take
 
 All ecosystem CLIs (npm, composer, pip) and scanners (osv-scanner) run inside ephemeral Docker containers by default. This means:
 
-- No local Node.js, PHP, or Python installation is needed beyond the deep-health CLI itself.
+- No local Node.js, PHP, or Python installation is needed beyond the security-scan CLI itself.
 - Each run gets a clean, isolated environment.
 - Container versions match the project's declared runtime (inferred or configured).
 - Containers are removed automatically after each run (`--rm`).
@@ -971,7 +971,7 @@ The protected packages and safe update policy mechanisms work together to preven
 
 3. To apply a breaking update to a protected package:
    ```bash
-   deep-health fix --authorize-breaking npm
+   security-scan fix --authorize-breaking npm
    ```
    This authorizes all breaking updates for npm in this run. Authorization is not persisted.
 
@@ -991,24 +991,24 @@ With the defaults above:
 
 ## Git Branch and PR Workflow
 
-By default, `deep-health fix` mutates the working tree directly (in-place). Use `--create-branch` to wrap the fix in a reviewable git branch.
+By default, `security-scan fix` mutates the working tree directly (in-place). Use `--create-branch` to wrap the fix in a reviewable git branch.
 
 ### Branch Lifecycle
 
 ```bash
-deep-health fix --create-branch
+security-scan fix --create-branch
 ```
 
 1. Detects the current git branch.
-2. Creates a new branch: `fix/deep-health-<ISO-timestamp>` (e.g. `fix/deep-health-2026-05-06T14:30:00.000Z`).
+2. Creates a new branch: `fix/security-scan-<ISO-timestamp>` (e.g. `fix/security-scan-2026-05-06T14:30:00.000Z`).
 3. Runs the full fix pipeline on the new branch.
-4. On success: stages all changes and commits with message: `fix: apply safe dependency updates [deep-health]`
+4. On success: stages all changes and commits with message: `fix: apply safe dependency updates [security-scan]`
 5. On failure: checks out the original branch and deletes the fix branch. No commit is made.
 
 ### PR Creation
 
 ```bash
-deep-health fix --open-pr
+security-scan fix --open-pr
 ```
 
 Implies `--create-branch`. After a successful commit:
@@ -1018,8 +1018,8 @@ Implies `--create-branch`. After a successful commit:
 
 The PR body includes:
 - Ecosystem summary (which ecosystems were updated)
-- deep-health version attribution
-- `Co-authored with deep-health v<version>`
+- security-scan version attribution
+- `Co-authored with security-scan v<version>`
 
 **Prerequisites:** `gh` CLI installed and authenticated (`gh auth login`).
 
@@ -1027,10 +1027,10 @@ The PR body includes:
 
 ```bash
 # Custom branch prefix
-deep-health fix --create-branch --branch-prefix deps/security-fix-
+security-scan fix --create-branch --branch-prefix deps/security-fix-
 
 # Custom PR title
-deep-health fix --open-pr --pr-title "chore: automated security dependency updates"
+security-scan fix --open-pr --pr-title "chore: automated security dependency updates"
 ```
 
 Or set in `project-config.yml` (CLI flags always override):
@@ -1075,11 +1075,11 @@ jobs:
         with:
           node-version: '26'
 
-      - name: Install deep-health
-        run: npm install -g deep-health
+      - name: Install security-scan
+        run: npm install -g security-scan
 
       - name: Run vulnerability scan
-        run: deep-health scan --json --output scan-results.json
+        run: security-scan scan --json --output scan-results.json
 
       - name: Upload scan results
         uses: actions/upload-artifact@v4
@@ -1116,13 +1116,13 @@ jobs:
         with:
           node-version: '26'
 
-      - name: Install deep-health
-        run: npm install -g deep-health
+      - name: Install security-scan
+        run: npm install -g security-scan
 
       - name: Apply safe fixes and open PR
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: deep-health fix --open-pr
+        run: security-scan fix --open-pr
 ```
 
 ### GitHub Actions — Scan Only (Kill-switch)
@@ -1131,20 +1131,20 @@ Use the kill-switch to get the scan result in CI without applying any fixes:
 
 ```yaml
 - name: Scan (no fixes)
-  run: DEEP_HEALTH_NO_AUTO_FIX=1 deep-health fix --json --output scan-results.json
+  run: SECURITY_SCAN_NO_AUTO_FIX=1 security-scan fix --json --output scan-results.json
 ```
 
 ### CI exit code handling
 
-deep-health exit codes integrate naturally with CI pipelines:
+security-scan exit codes integrate naturally with CI pipelines:
 
 ```bash
 # Fail the pipeline if vulnerabilities are found
-deep-health scan
+security-scan scan
 echo "Exit code: $?"
 
 # Allow exit 1 (vulnerabilities) but fail on config errors (3)
-deep-health scan || [ $? -le 1 ]
+security-scan scan || [ $? -le 1 ]
 ```
 
 ---
@@ -1153,9 +1153,9 @@ deep-health scan || [ $? -le 1 ]
 
 | Variable | Effect |
 |----------|--------|
-| `DEEP_HEALTH_NO_AUTO_FIX=1` | Skips all automated fixes after the scan phase. The scan still runs and the exit code still reflects vulnerability status. Useful in pipelines where you want the scan result without file mutations. |
+| `SECURITY_SCAN_NO_AUTO_FIX=1` | Skips all automated fixes after the scan phase. The scan still runs and the exit code still reflects vulnerability status. Useful in pipelines where you want the scan result without file mutations. |
 | `NPM_DEFAULT_FIXER` | Overrides the default npm fixer strategy. Valid values: `osv`, `npm-audit`, `osv-then-audit`. Default: `osv-then-audit`. |
-| `CLI_NAME` | Overrides the CLI binary name used in user-visible output and the kill-switch variable name. Default: `deep-health`. When set to `security-scan`, the kill-switch becomes `SECURITY_SCAN_NO_AUTO_FIX`. |
+| `CLI_NAME` | Overrides the CLI binary name used in user-visible output and the kill-switch variable name. Default: `security-scan`. When set to `security-scan`, the kill-switch becomes `SECURITY_SCAN_NO_AUTO_FIX`. |
 | `LOG_LEVEL=debug` | Enables debug-level logging for detailed internal output. |
 | `SONAR_TOKEN` | Authentication token for SonarQube in `external` mode. Required when SonarQube is enabled with `mode: external`. |
 | `GOOGLE_CLIENT_ID` | Google OAuth 2.0 client ID. Required for `cloud-setup` and Google Drive upload. |
@@ -1174,20 +1174,20 @@ All commands follow the same exit code convention:
 | `2` | Scanner/gate error | Gate validation failure, OSV error, or unexpected scanner failure |
 | `3` | Configuration error | `project-config.yml` not found, invalid schema, or `init` output path error |
 
-These codes make deep-health usable as a gate in CI/CD pipelines:
+These codes make security-scan usable as a gate in CI/CD pipelines:
 
 ```bash
-deep-health scan && echo "Clean!" || echo "Issues found (code $?)"
+security-scan scan && echo "Clean!" || echo "Issues found (code $?)"
 ```
 
 ---
 
 ## Troubleshooting
 
-### "deep-health requires Node.js >=26"
+### "security-scan requires Node.js >=26"
 
 ```
-deep-health requires Node.js >=26. Detected: v20.x.x
+security-scan requires Node.js >=26. Detected: v20.x.x
 Please upgrade Node.js and try again.
 ```
 
@@ -1202,19 +1202,19 @@ nvm use 26
 
 ```
 Config file not found: ./project-config.yml
-Run "deep-health init" first.
+Run "security-scan init" first.
 ```
 
 Generate a config file:
 
 ```bash
-deep-health init
+security-scan init
 ```
 
 Or specify the path explicitly:
 
 ```bash
-deep-health scan --config /path/to/project-config.yml
+security-scan scan --config /path/to/project-config.yml
 ```
 
 ### Docker not available
@@ -1240,7 +1240,7 @@ Use --force to overwrite.
 Use `--force` to regenerate the config:
 
 ```bash
-deep-health init --force
+security-scan init --force
 ```
 
 ### SonarQube "SONAR_TOKEN not set"
@@ -1253,7 +1253,7 @@ Set the token:
 
 ```bash
 export SONAR_TOKEN=your_token_here
-deep-health scan
+security-scan scan
 ```
 
 Or add it to your CI environment secrets.
@@ -1263,14 +1263,14 @@ Or add it to your CI environment secrets.
 This is expected behavior. Vulnerabilities classified as `breaking` require explicit authorization:
 
 ```bash
-deep-health fix --authorize-breaking npm composer
+security-scan fix --authorize-breaking npm composer
 ```
 
 Check the scan output for which packages need authorization.
 
 ### npm audit fix causes validation failure
 
-When using `osv-then-audit` strategy and `npm audit fix` breaks validation, deep-health automatically reverts the `npm audit fix` portion and re-validates against the OSV-only state. If the OSV-only state also fails validation, all npm changes are reverted.
+When using `osv-then-audit` strategy and `npm audit fix` breaks validation, security-scan automatically reverts the `npm audit fix` portion and re-validates against the OSV-only state. If the OSV-only state also fails validation, all npm changes are reverted.
 
 ### `gh` CLI not found for PR creation
 
@@ -1294,7 +1294,7 @@ gh auth login
 
 If `require_upload: false` (default), upload failures are non-fatal — a warning is printed to stderr. If `require_upload: true`, the command exits with code `1`.
 
-Run `deep-health cloud-setup` to re-authenticate if tokens have expired.
+Run `security-scan cloud-setup` to re-authenticate if tokens have expired.
 
 ### Validation commands time out
 
@@ -1313,15 +1313,15 @@ ecosystems:
 
 ## FAQ
 
-**Q: Does deep-health modify my lockfiles directly?**
+**Q: Does security-scan modify my lockfiles directly?**
 
-Yes. When you run `deep-health fix`, it modifies `package-lock.json`, `composer.lock`, and `requirements.txt` / `Pipfile.lock` inside ephemeral Docker containers. Use `--create-branch` to contain those changes to a reviewable branch, or `--dry-run` to see what would happen without making changes.
+Yes. When you run `security-scan fix`, it modifies `package-lock.json`, `composer.lock`, and `requirements.txt` / `Pipfile.lock` inside ephemeral Docker containers. Use `--create-branch` to contain those changes to a reviewable branch, or `--dry-run` to see what would happen without making changes.
 
 **Q: What happens if my test suite fails after an update?**
 
-deep-health automatically reverts all changes to that ecosystem and continues with others. The failed ecosystem is reported as "reverted" in the executive report.
+security-scan automatically reverts all changes to that ecosystem and continues with others. The failed ecosystem is reported as "reverted" in the executive report.
 
-**Q: Can I use deep-health with a monorepo?**
+**Q: Can I use security-scan with a monorepo?**
 
 Yes. Use `scan.paths` to specify which subdirectories to scan:
 
@@ -1333,11 +1333,11 @@ scan:
     - 'packages/backend/'
 ```
 
-**Q: Does deep-health support yarn or pnpm?**
+**Q: Does security-scan support yarn or pnpm?**
 
 Currently only npm (`package-lock.json`) and yarn v1 (`yarn.lock`, read-only scanning only) are supported. pnpm is not yet supported.
 
-**Q: Can I run deep-health without Docker?**
+**Q: Can I run security-scan without Docker?**
 
 Docker is required for running ecosystem CLIs (npm, composer, pip) in the fix phase. OSV Scanner also uses Docker by default, though it can be run locally with `runners.osv.runner: 'local'`. The `local` mode for ecosystem runners is available but not recommended and emits a warning.
 
@@ -1346,7 +1346,7 @@ Docker is required for running ecosystem CLIs (npm, composer, pip) in the fix ph
 It means the fix requires a major version bump (e.g. `v3` → `v4`) or a change to the declared constraint. This is never applied automatically. To authorize it:
 
 ```bash
-deep-health fix --authorize-breaking <ecosystem>
+security-scan fix --authorize-breaking <ecosystem>
 ```
 
 **Q: How do I add a new ecosystem to an existing config?**
@@ -1378,6 +1378,6 @@ scanners:
 
 Not in a single run. Set `report_language` to either `en` or `pt-br`. To generate both, run `executive-report` twice with different config files.
 
-**Q: Is deep-health open source?**
+**Q: Is security-scan open source?**
 
 Yes. Licensed under MIT.

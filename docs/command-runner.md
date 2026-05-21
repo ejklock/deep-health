@@ -170,7 +170,7 @@ interface CommandResult {
 
 ## SEC-004 — Trust Boundary Summary
 
-`deep-health` executes command strings that come from `project-config.yml`. The trust model is:
+`security-scan` executes command strings that come from `project-config.yml`. The trust model is:
 
 | Config field | Source | Shell method | Execution context | Risk |
 |---|---|---|---|---|
@@ -181,7 +181,7 @@ interface CommandResult {
 | Branch names (git operations) | git output | `runArgs()` — no shell | Host runner | External value; shell-safe by design |
 | Package names (scan result) | OSV JSON | `runArgs()` — no shell | Ecosystem container | External value; shell-safe by design |
 
-**The trust boundary is the repository owner.** An attacker who can modify `project-config.yml` already has write access to the repository (they could equally modify `package.json`, `.github/workflows/`, etc.). If you use `deep-health` in a context where `project-config.yml` is written by untrusted parties, treat those command strings as untrusted input and audit them before running the tool.
+**The trust boundary is the repository owner.** An attacker who can modify `project-config.yml` already has write access to the repository (they could equally modify `package.json`, `.github/workflows/`, etc.). If you use `security-scan` in a context where `project-config.yml` is written by untrusted parties, treat those command strings as untrusted input and audit them before running the tool.
 
 ### What Docker-only protects against (and what it doesn't)
 
@@ -202,7 +202,7 @@ After [ADR-0001](./adr/0001-docker-only-runtime.md) (docker-only) and [ADR-0002]
 - **Resource exhaustion** — no `--memory` or `--cpus` limits by default. Fork bombs and disk-fill are not blocked.
 - **Container escape via Docker daemon vulnerabilities** — keeping Docker on the host current is the best defense.
 
-**The container is defense in depth, not a sandbox.** If your threat model includes any of the "DOES NOT" items, do not run `deep-health` against untrusted configs. See [ADR-0002](./adr/0002-threat-model-and-runtime-hardening.md) for the full rationale and deferred-mitigations list.
+**The container is defense in depth, not a sandbox.** If your threat model includes any of the "DOES NOT" items, do not run `security-scan` against untrusted configs. See [ADR-0002](./adr/0002-threat-model-and-runtime-hardening.md) for the full rationale and deferred-mitigations list.
 
 ---
 

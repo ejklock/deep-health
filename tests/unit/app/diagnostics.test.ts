@@ -18,10 +18,10 @@ describe('formatCliError', () => {
 
     it('preserves the full error message including hints', () => {
       const msg =
-        'Cannot read config file: /foo/bar.yml\n  Hint: Run "deep-health init" to generate a starter config.';
+        'Cannot read config file: /foo/bar.yml\n  Hint: Run "security-scan init" to generate a starter config.';
       const err = new ConfigLoadError(msg, '/foo/bar.yml');
       const result = formatCliError(err);
-      expect(result.message).toContain('deep-health init');
+      expect(result.message).toContain('security-scan init');
     });
   });
 

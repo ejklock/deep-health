@@ -11,7 +11,7 @@ const { mockReadFile, mockWriteFile, mockUnlink, mockMkdtemp, mockRm } = vi.hois
   mockReadFile: vi.fn(),
   mockWriteFile: vi.fn().mockResolvedValue(undefined),
   mockUnlink: vi.fn().mockResolvedValue(undefined),
-  mockMkdtemp: vi.fn().mockResolvedValue('/tmp/deep-health-sonar-test-abc'),
+  mockMkdtemp: vi.fn().mockResolvedValue('/tmp/security-scan-sonar-test-abc'),
   mockRm: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -71,7 +71,7 @@ describe('sanitizeAndWriteProperties cleanup — error paths', () => {
 
   it('logs warning when os-tmpdir rm throws (lines 244-246)', async () => {
     mockReadFile.mockResolvedValue('sonar.projectKey=test\n');
-    mockMkdtemp.mockResolvedValue('/tmp/deep-health-sonar-test-abc');
+    mockMkdtemp.mockResolvedValue('/tmp/security-scan-sonar-test-abc');
 
     const sanitized = await sanitizeAndWriteProperties({ cwd: '/cwd', location: 'os-tmpdir' });
 

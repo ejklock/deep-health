@@ -6,8 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Identity
 
-**Package name:** `deep-health`
-**CLI binary:** `deep-health` (whitelabel-able via `CLI_NAME` env var)
+**Package name:** `security-scan`
+**CLI binary:** `security-scan` (whitelabel-able via `CLI_NAME` env var)
 **Language:** TypeScript (ESM, Node >= 26), built with `tsup`
 **Test framework:** Vitest
 **Domain vocabulary:** see `CONTEXT.md` for canonical terms (Pipeline, Ecosystem, Runtime, Scanner, etc.)
@@ -100,7 +100,7 @@ Run modes: `direct-exec` (npm) vs `shell-wrap` with optional preamble (pip, comp
 Canonical discriminated union in `core/types/result.ts`. Constructors: `ok(value)`, `err(error)`. Helpers: `isOk`, `isErr`, `map`, `flatMap`, `match`, `fromPromise`, `tryCatch`, `unwrap`, `unwrapOr`.
 
 ### Whitelabel / Brand System
-All user-visible names derive from `CLI_NAME` in `src/infrastructure/brand.ts`. For SEA builds, `tsup.config.ts` bakes the value via esbuild `define`. Never hardcode `'deep-health'` in user-facing strings — use the brand constants.
+All user-visible names derive from `CLI_NAME` in `src/infrastructure/brand.ts`. For SEA builds, `tsup.config.ts` bakes the value via esbuild `define`. Never hardcode `'security-scan'` in user-facing strings — use the brand constants.
 
 ---
 
@@ -108,7 +108,7 @@ All user-visible names derive from `CLI_NAME` in `src/infrastructure/brand.ts`. 
 
 - **OSV is always primary.** Gate A reads from the OSV engine result, regardless of registration order.
 - **SonarQube is always secondary** (`on_failure: warn` by default). It never blocks the pipeline.
-- **Kill switch:** `DEEP_HEALTH_NO_AUTO_FIX` env var skips all automated fixes after scan.
+- **Kill switch:** `SECURITY_SCAN_NO_AUTO_FIX` env var skips all automated fixes after scan.
 - **`preRunSnapshots`** are taken at orchestrator startup (before mutations) for dirty-tree detection. Do not take snapshots inside plugins.
 - **Advisors never block the pipeline.** Their errors are swallowed.
 - **`validations` array must never be empty** — gate schema enforces `min(1)`. Emit a `skipped` entry when tests are not run.

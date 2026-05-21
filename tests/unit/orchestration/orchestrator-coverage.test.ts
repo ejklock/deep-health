@@ -165,7 +165,7 @@ function pipScanWithAutoSafe(): string {
 
 const successUpdaterResult = {
   $schema: 'osv-update-result/v1',
-  agent: 'deep-health/test',
+  agent: 'security-scan/test',
   status: 'success' as const,
   packages_updated: [],
   packages_skipped: [],
@@ -982,7 +982,7 @@ describe('orchestrator — post-fix phase: SonarQube runs after ecosystem fixers
       status: 'error',
       updateResult: {
         $schema: 'osv-update-result/v1',
-        agent: 'deep-health/test',
+        agent: 'security-scan/test',
         status: 'error',
         packages_updated: [],
         packages_skipped: [],

@@ -1175,7 +1175,7 @@ security-scan scan || [ $? -le 1 ]
 |----------|--------|
 | `SECURITY_SCAN_NO_AUTO_FIX=1` | Ignora todas as correções automatizadas após a fase de scan. O scan ainda é executado e o código de saída ainda reflete o status de vulnerabilidades. Útil em pipelines onde você quer o resultado do scan registrado sem mutações em arquivos. |
 | `NPM_DEFAULT_FIXER` | Sobrescreve a estratégia padrão de fix para npm. Valores válidos: `osv`, `npm-audit`, `osv-then-audit`. Padrão: `osv-then-audit`. |
-| `CLI_NAME` | Sobrescreve o nome do binário da CLI usado na saída visível ao usuário e no nome da variável kill-switch. Padrão: `deep-health`. Quando definido como `security-scan`, o kill-switch passa a ser `SECURITY_SCAN_NO_AUTO_FIX`. |
+| `CLI_NAME` | Sobrescreve o nome do binário da CLI usado na saída visível ao usuário e no nome da variável kill-switch. Padrão: `security-scan`. Quando definido como `security-scan`, o kill-switch passa a ser `SECURITY_SCAN_NO_AUTO_FIX`. |
 | `LOG_LEVEL=debug` | Ativa o logging no nível debug para saída interna detalhada. |
 | `SONAR_TOKEN` | Token de autenticação para SonarQube no modo `external`. Obrigatório quando SonarQube está ativado com `mode: external`. |
 | `GOOGLE_CLIENT_ID` | Client ID OAuth 2.0 do Google. Obrigatório para `cloud-setup` e upload no Google Drive. |

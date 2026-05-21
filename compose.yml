@@ -9,7 +9,7 @@ services:
       - /app/node_modules
       # Docker socket so the CLI can spin up ephemeral scanner containers
       - /var/run/docker.sock:/var/run/docker.sock
-    entrypoint: ["node", "./dist/deep-health.js"]
+    entrypoint: ["node", "./dist/security-scan.js"]
     # Override entrypoint at runtime, e.g.:
     #   docker compose run dev npm test
-    #   docker compose run dev deep-health scan
+    #   docker compose run dev security-scan scan

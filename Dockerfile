@@ -1,6 +1,6 @@
 FROM node:26-alpine
 
-LABEL org.opencontainers.image.title="deep-health" \
+LABEL org.opencontainers.image.title="security-scan" \
       org.opencontainers.image.description="CLI tool for automated vulnerability scanning and safe dependency updates" \
       org.opencontainers.image.source="https://github.com/klock-tecnologia/osv-security-cli"
 
@@ -14,4 +14,4 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-ENTRYPOINT ["node", "./dist/deep-health.js"]
+ENTRYPOINT ["node", "./dist/security-scan.js"]

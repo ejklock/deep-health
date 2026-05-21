@@ -1,9 +1,9 @@
-# CLI Reference — deep-health
+# CLI Reference — security-scan
 
 ## Overview
 
 ```
-deep-health <command> [options]
+security-scan <command> [options]
 ```
 
 All commands require Node ≥ 22 and Docker. See [ADR-0001](./adr/0001-docker-only-runtime.md) for why Docker is required — no local mode is supported for ecosystem CLIs.
@@ -17,7 +17,7 @@ All commands require Node ≥ 22 and Docker. See [ADR-0001](./adr/0001-docker-on
 Generates a `project-config.yml` starter template in the current directory.
 
 ```bash
-deep-health init [options]
+security-scan init [options]
 
 Options:
   --project-name <name>   Project name written into config
@@ -41,7 +41,7 @@ Options:
 Runs the vulnerability scan only. No files are modified.
 
 ```bash
-deep-health scan [options]
+security-scan scan [options]
 
 Options:
   -c, --config <path>   Path to project-config.yml (default: ./project-config.yml)
@@ -75,7 +75,7 @@ Options:
 Full workflow: scan → apply safe updates per ecosystem → generate executive report.
 
 ```bash
-deep-health fix [options]
+security-scan fix [options]
 
 Options:
   -c, --config <path>             Path to project-config.yml
@@ -108,12 +108,12 @@ See the [Orchestrator Pipeline Flow](./architecture.md#orchestrator-pipeline-flo
    g. Runs post-update OSV residual verification.
    h. Validates update result against ecosystem gate (Zod schema).
 5. Generates and saves the executive report (HTML + optionally Markdown).
-6. Writes `.deep-health-audit.json` audit trail.
+6. Writes `.security-scan-audit.json` audit trail.
 
 **Environment variable kill-switch:**
 
 ```bash
-DEEP_HEALTH_NO_AUTO_FIX=1 deep-health fix
+SECURITY_SCAN_NO_AUTO_FIX=1 security-scan fix
 ```
 
 Skips all automated fixes after the scan phase. Useful in CI pipelines where you want the scan result without any file mutations.
@@ -121,7 +121,7 @@ Skips all automated fixes after the scan phase. Useful in CI pipelines where you
 **Breaking-change authorization:**
 
 ```bash
-deep-health fix --authorize-breaking composer npm
+security-scan fix --authorize-breaking composer npm
 ```
 
 Breaking packages (`classification: 'breaking'`) are skipped unless their ecosystem is explicitly authorized. Authorization is per-run and never persisted.
@@ -142,7 +142,7 @@ Breaking packages (`classification: 'breaking'`) are skipped unless their ecosys
 Generates an executive HTML report from the last scan results stored on disk.
 
 ```bash
-deep-health executive-report [options]
+security-scan executive-report [options]
 
 Options:
   --client <name>     Client name (overrides project-config.yml)
@@ -161,7 +161,7 @@ Reads the most recent scan JSON outputs from the reports directory and renders t
 Interactive Google Drive folder picker. Saves the chosen folder ID to `project-config.yml`.
 
 ```bash
-deep-health cloud-setup
+security-scan cloud-setup
 ```
 
 **What it does:**
@@ -170,7 +170,7 @@ deep-health cloud-setup
 2. Lists your Google Drive folders interactively.
 3. Writes the selected folder ID to `cloud_storage.google_drive.folder_id` in `project-config.yml`.
 
-Once configured, `deep-health fix` automatically uploads the executive report to that Drive folder after each run.
+Once configured, `security-scan fix` automatically uploads the executive report to that Drive folder after each run.
 
 ---
 
@@ -286,7 +286,7 @@ cloud_storage:
 | `2` | Gate validation failure or scanner error |
 | `3` | Configuration error |
 
-These codes make `deep-health` suitable for CI/CD pipelines. A non-zero exit from `scan` or `fix` will fail the pipeline step.
+These codes make `security-scan` suitable for CI/CD pipelines. A non-zero exit from `scan` or `fix` will fail the pipeline step.
 
 ---
 
@@ -313,8 +313,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm install -g deep-health
-      - run: deep-health scan --json --output scan-results.json
+      - run: npm install -g security-scan
+      - run: security-scan scan --json --output scan-results.json
       - uses: actions/upload-artifact@v4
         with:
           name: scan-results
@@ -327,5 +327,5 @@ jobs:
 
 | Variable | Effect |
 |---|---|
-| `DEEP_HEALTH_NO_AUTO_FIX=1` | Skips all automated fixes after the scan phase |
+| `SECURITY_SCAN_NO_AUTO_FIX=1` | Skips all automated fixes after the scan phase |
 | `LOG_LEVEL=debug` | Enables debug-level logging |

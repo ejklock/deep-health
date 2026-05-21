@@ -40,10 +40,10 @@ describe('OAUTH_SCOPES', () => {
 describe('getTokensPath()', () => {
   afterEach(() => { delete process.env['XDG_CONFIG_HOME']; });
 
-  it('returns path under ~/.config/deep-health when XDG_CONFIG_HOME is not set', () => {
+  it('returns path under ~/.config/security-scan when XDG_CONFIG_HOME is not set', () => {
     delete process.env['XDG_CONFIG_HOME'];
     const p = getTokensPath();
-    expect(p).toContain('deep-health');
+    expect(p).toContain('security-scan');
     expect(p).toContain('tokens.json');
   });
 

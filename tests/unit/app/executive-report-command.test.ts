@@ -91,7 +91,7 @@ describe('runExecutiveReportCommand', () => {
     });
 
     const ctx: RunContext = {
-      config: { ...baseConfig, outputs: { formats: [], dir: '.deep-health/reports' } },
+      config: { ...baseConfig, outputs: { formats: [], dir: '.security-scan/reports' } },
       runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
     };
 
@@ -120,7 +120,7 @@ describe('runExecutiveReportCommand', () => {
     const ctx: RunContext = {
       config: {
         ...baseConfig,
-        outputs: { formats: ['markdown'], dir: '.deep-health/reports' },
+        outputs: { formats: ['markdown'], dir: '.security-scan/reports' },
       },
       runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
     };
@@ -161,7 +161,7 @@ describe('runExecutiveReportCommand', () => {
     const ctx: RunContext = {
       config: {
         ...baseConfig,
-        outputs: { formats: ['markdown'], dir: '.deep-health/reports' },
+        outputs: { formats: ['markdown'], dir: '.security-scan/reports' },
       },
       runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
     };
@@ -202,7 +202,7 @@ describe('runExecutiveReportCommand', () => {
     const ctx: RunContext = {
       config: {
         ...baseConfig,
-        outputs: { formats: ['markdown'], dir: '.deep-health/reports' },
+        outputs: { formats: ['markdown'], dir: '.security-scan/reports' },
       },
       runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
     };
@@ -241,7 +241,7 @@ describe('runExecutiveReportCommand', () => {
     const ctx: RunContext = {
       config: {
         ...baseConfig,
-        outputs: { formats: ['markdown'], dir: '.deep-health/reports' },
+        outputs: { formats: ['markdown'], dir: '.security-scan/reports' },
       },
       runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
     };
@@ -279,7 +279,7 @@ describe('runExecutiveReportCommand', () => {
     const ctx: RunContext = {
       config: {
         ...baseConfig,
-        outputs: { formats: ['markdown'], dir: '.deep-health/reports' },
+        outputs: { formats: ['markdown'], dir: '.security-scan/reports' },
         cloud_storage: { provider: 'google_drive', folder_id: 'abc123', require_upload: true },
       },
       runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
@@ -335,7 +335,7 @@ describe('runExecutiveReportCommand', () => {
     const ctx: RunContext = {
       config: {
         ...baseConfig,
-        outputs: { formats: ['markdown'], dir: '.deep-health/reports' },
+        outputs: { formats: ['markdown'], dir: '.security-scan/reports' },
         cloud_storage: { provider: 'google_drive', folder_id: 'abc123', require_upload: true },
       },
       runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
@@ -376,7 +376,7 @@ describe('runExecutiveReportCommand', () => {
     const ctx: RunContext = {
       config: {
         ...baseConfig,
-        outputs: { formats: ['markdown'], dir: '.deep-health/reports' },
+        outputs: { formats: ['markdown'], dir: '.security-scan/reports' },
         cloud_storage: { provider: 'google_drive', folder_id: 'abc123', require_upload: false },
       },
       runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
@@ -408,7 +408,7 @@ describe('runExecutiveReportCommand', () => {
     const ctx: RunContext = {
       config: {
         ...baseConfig,
-        outputs: { formats: ['markdown'], dir: '.deep-health/reports' },
+        outputs: { formats: ['markdown'], dir: '.security-scan/reports' },
       },
       runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
     };
@@ -463,7 +463,7 @@ describe('runExecutiveReportCommand — branch coverage top-up', () => {
     const ctx: RunContext = {
       config: {
         ...baseConfig,
-        outputs: { formats: ['markdown'], dir: '.deep-health/reports', sub_folders: true },
+        outputs: { formats: ['markdown'], dir: '.security-scan/reports', sub_folders: true },
       },
       runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
     };
