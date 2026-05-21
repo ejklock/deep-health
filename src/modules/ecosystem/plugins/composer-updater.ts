@@ -1,13 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { CommandRunner } from '@core/types/common';
-import type { ProjectConfig, ValidationCommandConfig } from '@core/types/config';
+import type { ProjectConfig, ValidationCommandConfig, FixerStrategyId } from '@core/types/config';
 import type { UpdateResultJson } from '@core/types/update';
 import type { ScanResultJson } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
 import { logger } from '@infra/utils/logger';
 import { runEcosystemEnvironmentProbe } from '../utils/environment-probe';
 import { runUpdaterLifecycle } from '../utils/updater-lifecycle';
+import { parseComposerAuditJson } from './composer-audit-parser';
 
 const COMPOSER_FILES = ['composer.json', 'composer.lock'];
 
@@ -94,6 +95,14 @@ function buildComposerAutomationArgs(runner: CommandRunner, config: ProjectConfi
   ];
 }
 
+/**
+ * The typed fixer result flowing through applyFix → derivePackagesUpdated.
+ * auditPackageNames: additional packages discovered via `composer audit` (osv-then-audit strategy).
+ */
+interface ComposerFixerResult {
+  auditPackageNames: string[];
+}
+
 export async function runComposerUpdater(
   runner: CommandRunner,
   config: ProjectConfig,
@@ -101,6 +110,7 @@ export async function runComposerUpdater(
   cwd: string,
   authorizeBreaking = false,
   validationCommands: ValidationCommandConfig[] = [],
+  fixerStrategy: FixerStrategyId | undefined = undefined,
 ): Promise<UpdateResultJson> {
   logger.info('Running Composer safe updates...');
 
@@ -119,7 +129,7 @@ export async function runComposerUpdater(
   // Populated before applyFix runs (at backup time) via a separate backup call.
   let beforeLockText = '';
 
-  return runUpdaterLifecycle(
+  return runUpdaterLifecycle<ComposerFixerResult>(
     {
       agentName: 'composer-safe-update',
       ecosystemKey: 'composer',
@@ -208,15 +218,94 @@ export async function runComposerUpdater(
           return { ok: false, error: `composer update failed: ${updateResult.stderr}` };
         }
 
-        return { ok: true, value: undefined as void };
+        // ── osv-then-audit step ───────────────────────────────────────────────────
+        let auditPackageNames: string[] = [];
+
+        if (fixerStrategy === 'osv-then-audit') {
+          try {
+            logger.tagged('composer', 'audit-fix', 'Running composer audit to find additional vulnerabilities...');
+            // SEC: use runArgs (shell: false)
+            const auditResult = await ctx.runner.runArgs(
+              'composer',
+              ['audit', '--format=json'],
+              { cwd: ctx.cwd },
+            );
+
+            const rawAudit = auditResult.stdout ?? '';
+            const auditFindings = parseComposerAuditJson(rawAudit);
+
+            // Filter out packages already targeted by the OSV update
+            const newAuditPackages = auditFindings.filter(
+              (name) => !packageNamesToUpdate.includes(name),
+            );
+
+            if (newAuditPackages.length > 0) {
+              logger.tagged(
+                'composer',
+                'audit-fix',
+                `Found ${newAuditPackages.length} additional package(s) from audit: ${newAuditPackages.join(', ')}`,
+              );
+              // SEC: use runArgs (shell: false) — package names from audit output are variable data
+              const auditUpdateResult = await ctx.runner.runArgs(
+                'composer',
+                ['update', ...newAuditPackages, '--with-all-dependencies', ...automationArgs],
+                { cwd: ctx.cwd, stream: true },
+              );
+
+              if (auditUpdateResult.exitCode !== 0) {
+                logger.tagged(
+                  'composer',
+                  'audit-fix',
+                  `composer update for audit packages failed (exit ${auditUpdateResult.exitCode}) — continuing with OSV results only`,
+                  'warn',
+                );
+              } else {
+                auditPackageNames = newAuditPackages;
+              }
+            } else {
+              logger.tagged('composer', 'audit-fix', 'No additional packages found by audit — continuing with OSV results only');
+            }
+
+            // Warn-level summary — always visible regardless of progressSink state
+            let auditSummary: string;
+            if (newAuditPackages.length > 0 && auditPackageNames.length > 0) {
+              auditSummary = `Audit step completed — fixed ${auditPackageNames.length} additional package(s): ${auditPackageNames.join(', ')}`;
+            } else if (newAuditPackages.length > 0 && auditPackageNames.length === 0) {
+              auditSummary = `Audit step completed — update failed for ${newAuditPackages.length} audit package(s), continuing with OSV results only`;
+            } else if (auditFindings.length > 0) {
+              auditSummary = `Audit step completed — ${auditFindings.length} finding(s) already covered by OSV update`;
+            } else {
+              auditSummary = 'Audit step completed — no additional vulnerabilities found after OSV update';
+            }
+            logger.tagged('composer', 'audit-fix', auditSummary, 'warn');
+          } catch (auditErr) {
+            // Audit step failure is non-blocking — log warning and continue with OSV results
+            logger.tagged(
+              'composer',
+              'audit-fix',
+              `composer audit step failed: ${auditErr instanceof Error ? auditErr.message : String(auditErr)} — continuing with OSV results only`,
+              'warn',
+            );
+          }
+        }
+
+        return { ok: true, value: { auditPackageNames } };
       },
 
-      async derivePackagesUpdated(ctx) {
+      async derivePackagesUpdated(ctx, fixerResult) {
         const beforeVersions = extractComposerLockVersions(beforeLockText);
         try {
           const afterLockText = await readFile(join(ctx.cwd, 'composer.lock'), 'utf-8');
           const afterVersions = extractComposerLockVersions(afterLockText);
-          return buildComposerPackagesUpdated(packageNamesToUpdate, beforeVersions, afterVersions);
+
+          // Merge OSV target list with audit-discovered packages (highest-version-wins
+          // is automatic: the final composer.lock reflects the last write, so the version
+          // in afterVersions is always >= any intermediate version).
+          const allTargetNames = [
+            ...new Set([...packageNamesToUpdate, ...fixerResult.auditPackageNames]),
+          ];
+
+          return buildComposerPackagesUpdated(allTargetNames, beforeVersions, afterVersions);
         } catch (readErr) {
           logger.warn(
             `composer-updater: could not read post-update composer.lock (${readErr instanceof Error ? readErr.message : String(readErr)}) — falling back to scan package list`,

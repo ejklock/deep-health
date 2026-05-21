@@ -66,8 +66,11 @@ export const composerPlugin: EcosystemPlugin = {
   /** Label used in executive report evidence tables */
   reportLabel: 'PHP/Composer',
 
-  /** Composer does not support osv-scanner fix; osv fixer used as best-effort only */
-  supportedFixers: [],
+  /**
+   * 'osv' (default): OSV-driven composer update only.
+   * 'osv-then-audit': OSV update first, then composer audit to find additional packages.
+   */
+  supportedFixers: ['osv', 'osv-then-audit'],
 
   postUpdateOsvVerify: 'always',
 
@@ -105,6 +108,7 @@ export const composerPlugin: EcosystemPlugin = {
       ctx.cwd,
       ctx.authorizeBreaking,
       ctx.validationCommands ?? [],
+      ctx.fixerStrategy,
     );
   },
 
