@@ -71,6 +71,7 @@ describe('composerPlugin.runUpdater — validationCommands ?? [] branch', () => 
       ctx.cwd,
       ctx.authorizeBreaking,
       [], // ?? [] result
+      undefined, // fixerStrategy
     );
   });
 
@@ -84,6 +85,21 @@ describe('composerPlugin.runUpdater — validationCommands ?? [] branch', () => 
       ctx.cwd,
       ctx.authorizeBreaking,
       ['php artisan'],
+      undefined, // fixerStrategy
+    );
+  });
+
+  it('calls runComposerUpdater with fixerStrategy when provided in ctx', async () => {
+    const ctx = makeCtx({ fixerStrategy: 'osv-then-audit' });
+    await composerPlugin.runUpdater!(ctx);
+    expect(mockRunComposerUpdater).toHaveBeenCalledWith(
+      ctx.runner,
+      ctx.config,
+      ctx.scanResult,
+      ctx.cwd,
+      ctx.authorizeBreaking,
+      [],
+      'osv-then-audit',
     );
   });
 });

@@ -159,6 +159,7 @@ export async function runEcosystemFix(
     logDryRunPreview(plugin.id, ecosystemResult, authorizeBreaking);
   }
 
+  logger.tagged(plugin.id, 'fixer', `Strategy: ${fixerStrategy} (config: ${ecoConfigEntry?.fixer ?? 'undefined'}, supportedFixers[0]: ${plugin.supportedFixers[0] ?? 'undefined'}, hasResolveEffectiveFixer: ${!!plugin.resolveEffectiveFixer})`);
   setProgressSink(makeProgressSink());
   let updateResult: Awaited<ReturnType<typeof plugin.runUpdater>>;
   try {
