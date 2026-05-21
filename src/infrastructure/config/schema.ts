@@ -166,8 +166,8 @@ const NpmRunnerConfigSchema = z
     }
   });
 
-/** Output format — markdown for reports */
-const OutputFormatSchema = z.enum(["markdown"]);
+/** Output format — markdown or docx for reports */
+const OutputFormatSchema = z.enum(["markdown", "docx"]);
 
 /** Outputs config block */
 const OutputsConfigSchema = z

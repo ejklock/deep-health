@@ -17,7 +17,7 @@ export interface ProtectedPackage {
 export type FixerStrategyId = "osv" | "npm-audit" | "osv-then-audit";
 
 /** Output format for generated reports */
-export type OutputFormat = "markdown";
+export type OutputFormat = "markdown" | "docx";
 
 /** Per-ecosystem advisor configuration */
 export interface AdvisorConfig {

@@ -35,7 +35,7 @@ export interface SaveReportOutcome {
  */
 export async function saveReport(
   filename: string,
-  content: string,
+  content: string | Buffer,
   reportsDir: string,
   cloudStorageConfig: CloudStorageConfig | undefined,
   cwd: string,

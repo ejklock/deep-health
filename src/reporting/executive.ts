@@ -110,7 +110,7 @@ function pendingStatus(vuln: VulnerabilityEntry, locale: Locale): string {
 
 // ── context builder ──────────────────────────────────────────────────────────
 
-export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
+export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Record<string, unknown> {
   const locale = getLocale(opts.locale);
   const now = new Date();
 
@@ -162,6 +162,7 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
     return {
       ecoLabel: plugin?.reportLabel ?? v.ecosystem,
       ghsaLink: ghsaLink(v.ghsaId),
+      ghsaId: v.ghsaId,
       cvss: v.cvss,
       package: v.package,
       affectedVersions: v.affectedVersions.join(', '),
@@ -182,6 +183,7 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
     return {
       ecoLabel: plugin?.reportLabel ?? v.ecosystem,
       ghsaLink: ghsaLink(v.ghsaId),
+      ghsaId: v.ghsaId,
       cvss: v.cvss,
       package: v.package,
       affectedVersions: v.affectedVersions.join(', '),
@@ -327,7 +329,7 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
   // Build advisor section (graceful: absent when advisorResults not provided)
   const advisorSection = buildAdvisorExecSection(opts.advisorResults, locale.exec);
 
-  const context: Record<string, unknown> = {
+  return {
     t: locale.exec,
     client: opts.client,
     project: opts.project,
@@ -359,7 +361,10 @@ export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
     sonarSection,
     advisorSection,
   };
+}
 
+export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
+  const context = buildExecutiveReportContext(opts);
   return render(executiveTemplate, context);
 }
 

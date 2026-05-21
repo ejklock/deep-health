@@ -1,6 +1,7 @@
 import { CLI_NAME } from '@infra/brand';
 import { runScanner } from '@modules/scanner/index';
 import { generateExecutiveReport, executiveReportFilename } from '@reporting/executive';
+import { generateExecutiveReportDocx, executiveReportDocxFilename } from '@reporting/docx-executive';
 import { generateSonarQubeHtmlReport, sonarqubeHtmlReportFilename } from '@reporting/sonarqube-report';
 import { saveReport, resolveReportsDir, resolveEngineReportsDir } from '@app/report-saver';
 import type { ProjectConfig } from '@core/types/config';
@@ -50,8 +51,11 @@ export async function generateAndSaveReportArtifacts(
   const project = input.project ?? config.project.name;
   const outputsConfig = config.outputs;
 
-  const markdownEnabled = (outputsConfig?.formats ?? []).includes('markdown');
-  if (!markdownEnabled) return 0;
+  const formats = outputsConfig?.formats ?? [];
+  const markdownEnabled = formats.includes('markdown');
+  const docxEnabled = formats.includes('docx');
+
+  if (!markdownEnabled && !docxEnabled) return 0;
 
   const reportsDir = resolveReportsDir(cwd, outputsConfig?.dir);
   const subFoldersEnabled = outputsConfig?.sub_folders ?? false;
@@ -60,30 +64,43 @@ export async function generateAndSaveReportArtifacts(
     subFoldersEnabled ? 'sonarqube' : undefined,
   );
 
-  const scanAfter = await runScanner(runner, config, cwd);
-
-  const execReport = generateExecutiveReport({
+  const reportOpts = {
     client,
     project,
     scanBefore,
-    scanAfter,
+    scanAfter: await runScanner(runner, config, cwd),
     updates,
     engineResults,
     locale: config.report_language,
     advisorResults,
     residualVerification,
-  });
+  };
 
-  const filename = executiveReportFilename(client, project);
-  const outcome = await saveReport(filename, execReport, reportsDir, config.cloud_storage, cwd);
-  if (outcome.cloudError && config.cloud_storage?.require_upload) {
-    process.stderr.write(
-      `[${CLI_NAME}] Cloud upload required but failed: ${outcome.cloudError}\n`,
-    );
-    return 1;
+  if (markdownEnabled) {
+    const execReport = generateExecutiveReport(reportOpts);
+    const filename = executiveReportFilename(client, project);
+    const outcome = await saveReport(filename, execReport, reportsDir, config.cloud_storage, cwd);
+    if (outcome.cloudError && config.cloud_storage?.require_upload) {
+      process.stderr.write(
+        `[${CLI_NAME}] Cloud upload required but failed: ${outcome.cloudError}\n`,
+      );
+      return 1;
+    }
   }
 
-  // Standalone SonarQube HTML artifact
+  if (docxEnabled) {
+    const docxBuffer = await generateExecutiveReportDocx(reportOpts);
+    const docxFilename = executiveReportDocxFilename(client, project);
+    const docxOutcome = await saveReport(docxFilename, docxBuffer, reportsDir, config.cloud_storage, cwd);
+    if (docxOutcome.cloudError && config.cloud_storage?.require_upload) {
+      process.stderr.write(
+        `[${CLI_NAME}] Cloud upload required but failed (DOCX): ${docxOutcome.cloudError}\n`,
+      );
+      return 1;
+    }
+  }
+
+  // Standalone SonarQube HTML artifact — only when at least one format is enabled
   const sonarHtml = generateSonarQubeHtmlReport(engineResults, client, project);
   if (sonarHtml) {
     const htmlFilename = sonarqubeHtmlReportFilename(client, project);
