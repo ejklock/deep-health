@@ -1876,6 +1876,86 @@ describe('SonarQubeEngine — waitForCeTask branches (lines 129, 140-142, 146-14
 
     expect(result.status).toBe('success');
   });
+
+  it('AC1/AC3: stops CE polling immediately on 403 and proceeds to quality gate fetch with ceTaskOutcome=failed', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfig(true);
+    stubReportTaskFile('task-auth-403');
+
+    const fetchMock = vi.fn()
+      // NOTE: fetch call order — (1) fetchNcloc pre-scan, (2) CE poll → 403, then quality gate, measures, issues
+      .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }) // ncloc (no prior analysis)
+      // CE poll → 403 (must NOT retry)
+      .mockResolvedValueOnce({ ok: false, status: 403, statusText: 'Forbidden', json: async () => ({}) })
+      // quality gate — reached because engine proceeds after failed CE wait
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ projectStatus: { status: 'OK', conditions: [] } }) })
+      // measures
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ component: { measures: [] } }) })
+      // issues
+      .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) });
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    const resultPromise = engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+
+    // (a) No retry: only 1 CE poll call (the 403 one); total fetch calls = ncloc + ce + qg + measures + issues = 5
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+
+    // (b) Scan still completes (quality gate fetch happened)
+    expect(result.status).toBeDefined();
+
+    // (c) ceTaskOutcome is 'failed'
+    expect(result.metadata?.ceTaskOutcome).toBe('failed');
+
+    // warn message mentions token permissions and SONAR_TOKEN
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      expect.stringContaining('SONAR_TOKEN'),
+    );
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      expect.stringContaining('permission'),
+    );
+  });
+
+  it('AC1: stops CE polling immediately on 401 and returns ceTaskOutcome=failed', async () => {
+    const runner = new MockRunner({
+      '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
+      'sonar-scanner': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
+    });
+    const config = makeConfig(true);
+    stubReportTaskFile('task-auth-401');
+
+    const fetchMock = vi.fn()
+      // NOTE: fetch call order — (1) fetchNcloc, (2) CE poll → 401, then quality gate, measures, issues
+      .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) }) // ncloc
+      // CE poll → 401 (must NOT retry)
+      .mockResolvedValueOnce({ ok: false, status: 401, statusText: 'Unauthorized', json: async () => ({}) })
+      // quality gate
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ projectStatus: { status: 'OK', conditions: [] } }) })
+      // measures
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ component: { measures: [] } }) })
+      // issues
+      .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) });
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    const resultPromise = engine.scan({ runner, config, cwd: '/tmp/test', ecosystemRegistry: {} as EcosystemRegistry, branch: null });
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+
+    // No retry: 5 total calls (ncloc + ce(401) + qg + measures + issues)
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+
+    expect(result.metadata?.ceTaskOutcome).toBe('failed');
+
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      expect.stringContaining('SONAR_TOKEN'),
+    );
+  });
 });
 
 // ─── Coverage gap: fetchSonarQualityGate / fetchSonarMetrics non-ok ─────────────
