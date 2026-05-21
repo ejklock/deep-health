@@ -38,12 +38,14 @@ import { runComposerUpdater, extractComposerLockVersions, buildComposerPackagesU
 
 // ── composer-audit-parser mock (used in osv-then-audit tests) ────────────────
 
-const { mockParseComposerAuditJson } = vi.hoisted(() => ({
+const { mockParseComposerAuditJson, mockParseComposerAuditAdvisories } = vi.hoisted(() => ({
   mockParseComposerAuditJson: vi.fn(),
+  mockParseComposerAuditAdvisories: vi.fn(),
 }));
 
 vi.mock('@modules/ecosystem/plugins/composer-audit-parser.js', () => ({
   parseComposerAuditJson: mockParseComposerAuditJson,
+  parseComposerAuditAdvisories: mockParseComposerAuditAdvisories,
 }));
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -722,6 +724,7 @@ describe("runComposerUpdater — osv-then-audit strategy", () => {
     vi.clearAllMocks();
     // Default: clean audit (no findings)
     mockParseComposerAuditJson.mockReturnValue([]);
+    mockParseComposerAuditAdvisories.mockReturnValue([]);
   });
 
   it('(AC3 happy path) audit finds additional packages, second update runs, merged packages_updated includes both OSV and audit packages', async () => {
@@ -1072,6 +1075,7 @@ describe('runComposerUpdater — osv-then-audit warn-level summary (AC2)', () =>
   beforeEach(() => {
     vi.clearAllMocks();
     mockParseComposerAuditJson.mockReturnValue([]);
+    mockParseComposerAuditAdvisories.mockReturnValue([]);
   });
 
   async function setupLocks(preLockPkgs: Array<{ name: string; version: string }>, postLockPkgs: Array<{ name: string; version: string }>) {
@@ -1268,5 +1272,160 @@ describe('runComposerUpdater — osv-then-audit warn-level summary (AC2)', () =>
       (c) => c[1] === 'audit-fix' && String(c[3] ?? 'info') === 'warn' && String(c[2]).startsWith('Audit step completed'),
     );
     expect(summaryCall).toBeUndefined();
+  });
+});
+
+// ── AC6: audit_findings in UpdateResultJson ──────────────────────────────────
+
+describe('runComposerUpdater — audit_findings in result (AC6)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockParseComposerAuditJson.mockReturnValue([]);
+    mockParseComposerAuditAdvisories.mockReturnValue([]);
+  });
+
+  it('(AC6-a) audit_findings is populated in UpdateResultJson when audit discovers additional packages', async () => {
+    const { backupFiles } = await import('@infra/utils/fs-backup.js');
+    const { readFile } = await import('node:fs/promises');
+
+    const preLock = makeLockJson([
+      { name: 'vendor/osv-pkg', version: '1.0.0' },
+      { name: 'vendor/audit-pkg', version: '2.0.0' },
+    ]);
+    const postLock = makeLockJson([
+      { name: 'vendor/osv-pkg', version: '1.1.0' },
+      { name: 'vendor/audit-pkg', version: '2.1.0' },
+    ]);
+
+    (backupFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Map([['composer.lock', preLock]]),
+    );
+    (readFile as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(preLock)
+      .mockResolvedValueOnce(postLock);
+
+    mockParseComposerAuditJson.mockReturnValue(['vendor/audit-pkg']);
+    mockParseComposerAuditAdvisories.mockReturnValue([
+      {
+        package: 'vendor/audit-pkg',
+        advisoryId: 'GHSA-audit-001',
+        title: 'SQL injection vulnerability',
+        cve: 'CVE-2024-9999',
+        affectedVersions: '>=2.0.0 <2.1.0',
+      },
+    ]);
+
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(ok())  // composer install (env-check)
+      .mockResolvedValueOnce(ok())  // composer outdated --direct
+      .mockResolvedValueOnce(ok())  // composer update (OSV packages)
+      .mockResolvedValueOnce(ok())  // composer audit --format=json
+      .mockResolvedValueOnce(ok()); // composer update (audit packages)
+
+    const runner = makeRunner({ runArgs: runArgsMock });
+    const scan = baseScan(['vendor/osv-pkg@1.0.0']);
+
+    const result = await runComposerUpdater(
+      runner,
+      baseConfig(),
+      scan,
+      '/tmp/project',
+      false,
+      [],
+      'osv-then-audit',
+    );
+
+    expect(result.status).toBe('success');
+    expect(result.audit_findings).toBeDefined();
+    expect(result.audit_findings).toHaveLength(1);
+    expect(result.audit_findings![0]!.package).toBe('vendor/audit-pkg');
+    expect(result.audit_findings![0]!.advisoryId).toBe('GHSA-audit-001');
+    expect(result.audit_findings![0]!.title).toBe('SQL injection vulnerability');
+    expect(result.audit_findings![0]!.cve).toBe('CVE-2024-9999');
+    expect(result.audit_findings![0]!.affectedVersions).toBe('>=2.0.0 <2.1.0');
+    expect(result.audit_findings![0]!.ecosystem).toBe('composer');
+  });
+
+  it('(AC6-b) audit_findings is undefined when fixerStrategy is not osv-then-audit', async () => {
+    const { backupFiles } = await import('@infra/utils/fs-backup.js');
+    const { readFile } = await import('node:fs/promises');
+
+    const preLock = makeLockJson([{ name: 'vendor/osv-pkg', version: '1.0.0' }]);
+    const postLock = makeLockJson([{ name: 'vendor/osv-pkg', version: '1.1.0' }]);
+
+    (backupFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Map([['composer.lock', preLock]]),
+    );
+    (readFile as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(preLock)
+      .mockResolvedValueOnce(postLock);
+
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(ok())  // composer install (env-check)
+      .mockResolvedValueOnce(ok())  // composer outdated --direct
+      .mockResolvedValueOnce(ok()); // composer update (OSV)
+
+    const runner = makeRunner({ runArgs: runArgsMock });
+    const scan = baseScan(['vendor/osv-pkg@1.0.0']);
+
+    // No fixerStrategy — defaults to osv (no audit step)
+    const result = await runComposerUpdater(runner, baseConfig(), scan, '/tmp/project');
+
+    expect(result.status).toBe('success');
+    expect(result.audit_findings).toBeUndefined();
+    // parseComposerAuditAdvisories should not be called
+    expect(mockParseComposerAuditAdvisories).not.toHaveBeenCalled();
+  });
+
+  it('(AC6-c) audit_findings is undefined when audit finds packages already in OSV list (no new packages)', async () => {
+    const { backupFiles } = await import('@infra/utils/fs-backup.js');
+    const { readFile } = await import('node:fs/promises');
+
+    const preLock = makeLockJson([{ name: 'vendor/shared-pkg', version: '1.0.0' }]);
+    const postLock = makeLockJson([{ name: 'vendor/shared-pkg', version: '1.1.0' }]);
+
+    (backupFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Map([['composer.lock', preLock]]),
+    );
+    (readFile as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(preLock)
+      .mockResolvedValueOnce(postLock);
+
+    // Audit finds shared-pkg which is already in OSV list → no new packages, no second update
+    mockParseComposerAuditJson.mockReturnValue(['vendor/shared-pkg']);
+    // Advisories returned but auditPackageNames will be [] since all are already in OSV list
+    mockParseComposerAuditAdvisories.mockReturnValue([
+      {
+        package: 'vendor/shared-pkg',
+        advisoryId: 'GHSA-shared-001',
+        title: 'Some issue',
+        cve: null,
+        affectedVersions: '<1.1.0',
+      },
+    ]);
+
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(ok())  // composer install (env-check)
+      .mockResolvedValueOnce(ok())  // composer outdated --direct
+      .mockResolvedValueOnce(ok())  // composer update (OSV)
+      .mockResolvedValueOnce(ok()); // composer audit --format=json
+
+    const runner = makeRunner({ runArgs: runArgsMock });
+    // OSV already includes vendor/shared-pkg
+    const scan = baseScan(['vendor/shared-pkg@1.0.0']);
+
+    const result = await runComposerUpdater(
+      runner,
+      baseConfig(),
+      scan,
+      '/tmp/project',
+      false,
+      [],
+      'osv-then-audit',
+    );
+
+    expect(result.status).toBe('success');
+    // No new audit packages were actually fixed → audit_findings should be undefined
+    expect(result.audit_findings).toBeUndefined();
   });
 });

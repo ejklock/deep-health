@@ -814,3 +814,201 @@ describe('generateExecutiveReport() — pendingByPkg and allVulnsBefore branch c
     expect(typeof result).toBe('string');
   });
 });
+
+// ── AC7: audit_findings integration in executive report ──────────────────────
+
+describe('generateExecutiveReport() — audit_findings injection (AC7)', () => {
+  // Helper to extract all table rows from the report
+  function allTableRows(report: string): string[] {
+    return report.split('\n').filter((l) => l.startsWith('|') && !l.includes('---'));
+  }
+
+  // Minimal scan with no vulnerabilities (audit findings come from updater, not OSV)
+  const cleanScan: ScanResultJson = {
+    agent: 'osv-scanner',
+    status: 'success',
+    environment: 'local',
+    ecosystems: {
+      composer: {
+        vulnerabilities_total: 0,
+        auto_safe: 0,
+        breaking: 0,
+        manual: 0,
+        auto_safe_packages: [],
+        breaking_packages: [],
+        manual_packages: [],
+        vulnerabilities: [],
+      },
+    },
+    error: null,
+  };
+
+  it('(AC7-a) when updates["composer"] has audit_findings with 2 entries and those package names are in packages_updated, the report contains those packages in the fixed vulns table', () => {
+    const result = generateExecutiveReport({
+      ...baseOpts,
+      scanBefore: cleanScan,
+      scanAfter: cleanScan,
+      updates: {
+        composer: {
+          $schema: 'osv-update-result/v1',
+          agent: 'composer-safe-update',
+          status: 'success',
+          packages_updated: ['vendor/audit-pkg-a@1.1.0', 'vendor/audit-pkg-b@2.1.0'],
+          packages_skipped: [],
+          packages_pending_breaking: [],
+          validations: [{ name: 'validation', status: 'pass', detail: 'ok' }],
+          error: null,
+          audit_findings: [
+            {
+              ecosystem: 'composer',
+              package: 'vendor/audit-pkg-a',
+              advisoryId: 'GHSA-audit-001',
+              title: 'SQL injection',
+              cve: 'CVE-2024-1111',
+              affectedVersions: '>=1.0.0 <1.1.0',
+            },
+            {
+              ecosystem: 'composer',
+              package: 'vendor/audit-pkg-b',
+              advisoryId: 'GHSA-audit-002',
+              title: 'XSS vulnerability',
+              cve: null,
+              affectedVersions: '>=2.0.0 <2.1.0',
+            },
+          ],
+        },
+      },
+    });
+
+    expect(typeof result).toBe('string');
+
+    // Both audit-discovered packages should appear in the table rows (fixed vulns section)
+    const rows = allTableRows(result);
+    const pkgARows = rows.filter((r) => r.includes('vendor/audit-pkg-a'));
+    const pkgBRows = rows.filter((r) => r.includes('vendor/audit-pkg-b'));
+    expect(pkgARows.length).toBeGreaterThanOrEqual(1);
+    expect(pkgBRows.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('(AC7-b) when audit_findings is absent/undefined, the report generates identically to when it is not present (regression)', () => {
+    const optsWithoutFindings = {
+      ...baseOpts,
+      scanBefore: cleanScan,
+      scanAfter: cleanScan,
+      updates: {
+        composer: {
+          $schema: 'osv-update-result/v1' as const,
+          agent: 'composer-safe-update',
+          status: 'success' as const,
+          packages_updated: [],
+          packages_skipped: [],
+          packages_pending_breaking: [],
+          validations: [{ name: 'validation', status: 'skipped' as const, detail: 'nothing to do' }],
+          error: null,
+          // No audit_findings field
+        },
+      },
+    };
+
+    const optsWithEmptyFindings = {
+      ...optsWithoutFindings,
+      updates: {
+        composer: {
+          ...optsWithoutFindings.updates.composer,
+          audit_findings: undefined,
+        },
+      },
+    };
+
+    const reportWithout = generateExecutiveReport(optsWithoutFindings);
+    const reportWithEmpty = generateExecutiveReport(optsWithEmptyFindings);
+
+    // Reports should be identical
+    expect(reportWithout).toBe(reportWithEmpty);
+  });
+
+  it('(AC7-c) audit findings for packages NOT in packages_updated appear as pending (not fixed)', () => {
+    // Audit found 2 packages but only 1 was successfully updated
+    const result = generateExecutiveReport({
+      ...baseOpts,
+      scanBefore: cleanScan,
+      scanAfter: cleanScan,
+      updates: {
+        composer: {
+          $schema: 'osv-update-result/v1',
+          agent: 'composer-safe-update',
+          status: 'success',
+          packages_updated: ['vendor/audit-pkg-a@1.1.0'],  // only pkg-a was updated
+          packages_skipped: [],
+          packages_pending_breaking: [],
+          validations: [{ name: 'validation', status: 'pass', detail: 'ok' }],
+          error: null,
+          audit_findings: [
+            {
+              ecosystem: 'composer',
+              package: 'vendor/audit-pkg-a',
+              advisoryId: 'GHSA-audit-001',
+              title: 'SQL injection',
+              cve: 'CVE-2024-1111',
+              affectedVersions: '>=1.0.0 <1.1.0',
+            },
+            {
+              ecosystem: 'composer',
+              package: 'vendor/audit-pkg-b',
+              advisoryId: 'GHSA-audit-002',
+              title: 'XSS vulnerability',
+              cve: null,
+              affectedVersions: '>=2.0.0 <2.1.0',
+            },
+          ],
+        },
+      },
+    });
+
+    expect(typeof result).toBe('string');
+
+    const rows = allTableRows(result);
+    // pkg-a is in packages_updated → should appear in fixed section
+    const pkgARows = rows.filter((r) => r.includes('vendor/audit-pkg-a'));
+    expect(pkgARows.length).toBeGreaterThanOrEqual(1);
+
+    // pkg-b is NOT in packages_updated → should appear in pending section
+    const pkgBRows = rows.filter((r) => r.includes('vendor/audit-pkg-b'));
+    expect(pkgBRows.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('(AC7-d) original scanBefore is not mutated after report generation', () => {
+    const originalVulnsLength = cleanScan.ecosystems['composer']?.vulnerabilities?.length ?? 0;
+
+    generateExecutiveReport({
+      ...baseOpts,
+      scanBefore: cleanScan,
+      scanAfter: cleanScan,
+      updates: {
+        composer: {
+          $schema: 'osv-update-result/v1',
+          agent: 'composer-safe-update',
+          status: 'success',
+          packages_updated: ['vendor/audit-pkg@1.1.0'],
+          packages_skipped: [],
+          packages_pending_breaking: [],
+          validations: [{ name: 'validation', status: 'pass', detail: 'ok' }],
+          error: null,
+          audit_findings: [
+            {
+              ecosystem: 'composer',
+              package: 'vendor/audit-pkg',
+              advisoryId: 'GHSA-audit-001',
+              title: 'SQL injection',
+              cve: null,
+              affectedVersions: '<1.1.0',
+            },
+          ],
+        },
+      },
+    });
+
+    // The original scanBefore must not have been mutated
+    expect(cleanScan.ecosystems['composer']?.vulnerabilities?.length).toBe(originalVulnsLength);
+  });
+});
