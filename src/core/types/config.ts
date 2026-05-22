@@ -364,13 +364,6 @@ export interface ComposerRunnerConfig {
    */
   dockerfile_path?: string;
   /**
-   * When true, passes `--ignore-platform-reqs` to all composer commands.
-   * Defaults to true when mode is 'docker' (the Docker container is not the
-   * production environment — platform extension checks are irrelevant there).
-   * Set to false to enforce strict platform checks even in Docker mode.
-   */
-  ignore_platform_reqs?: boolean;
-  /**
    * OS-level packages to install via apt-get before running composer commands.
    * Useful when a PHP extension requires system libraries not present in the
    * base php:*-cli image (e.g. imagemagick for ext-imagick).

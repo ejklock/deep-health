@@ -50,13 +50,13 @@ vi.mock('@modules/ecosystem/plugins/composer-audit-parser.js', () => ({
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function makeRunner(overrides: { dryRun?: boolean; run?: ReturnType<typeof vi.fn>; runArgs?: ReturnType<typeof vi.fn> } = {}): CommandRunner {
-  const { dryRun = false, run, runArgs } = overrides;
+function makeRunner(overrides: { dryRun?: boolean; run?: ReturnType<typeof vi.fn>; runArgs?: ReturnType<typeof vi.fn>; environment?: 'local' | 'docker' } = {}): CommandRunner {
+  const { dryRun = false, run, runArgs, environment = 'local' } = overrides;
   return {
     run: run ?? vi.fn().mockResolvedValue(ok()),
     runArgs: runArgs ?? vi.fn().mockResolvedValue(ok()),
     dryRun,
-    environment: 'local',
+    environment,
   } as unknown as CommandRunner;
 }
 
@@ -612,6 +612,8 @@ describe('extractComposerLockVersions', () => {
 });
 
 // ── buildComposerPackagesUpdated unit tests ──────────────────────────────────
+// Note: the targetNames parameter is ignored — the function now diffs ALL packages
+// in afterVersions against beforeVersions to capture transitive dependency changes.
 
 describe('buildComposerPackagesUpdated', () => {
   it('emits name@versionTo for changed packages', () => {
@@ -628,9 +630,10 @@ describe('buildComposerPackagesUpdated', () => {
     expect(result).toEqual([]);
   });
 
-  it('package absent in afterVersions is filtered', () => {
+  it('package absent in afterVersions is omitted (iterates afterVersions)', () => {
     const before = new Map([['vendor/pkg', '1.0.0']]);
     const after = new Map<string, string>();
+    // afterVersions is empty — nothing to iterate, result is []
     const result = buildComposerPackagesUpdated(['vendor/pkg'], before, after);
     expect(result).toEqual([]);
   });
@@ -642,10 +645,21 @@ describe('buildComposerPackagesUpdated', () => {
     expect(result).toEqual(['vendor/new@2.0.0']);
   });
 
-  it('handles empty target list', () => {
+  it('diffs ALL packages in afterVersions regardless of targetNames — transitive deps included', () => {
+    // targetNames only lists one package, but afterVersions has two changed packages
+    const before = new Map([['vendor/direct', '1.0.0'], ['vendor/transitive', '2.0.0']]);
+    const after = new Map([['vendor/direct', '1.1.0'], ['vendor/transitive', '2.1.0']]);
+    // targetNames intentionally omits vendor/transitive — it should still appear
+    const result = buildComposerPackagesUpdated(['vendor/direct'], before, after);
+    expect(result).toContain('vendor/direct@1.1.0');
+    expect(result).toContain('vendor/transitive@2.1.0');
+    expect(result).toHaveLength(2);
+  });
+
+  it('empty afterVersions produces empty result regardless of targetNames', () => {
     const before = new Map([['vendor/pkg', '1.0.0']]);
-    const after = new Map([['vendor/pkg', '1.0.1']]);
-    const result = buildComposerPackagesUpdated([], before, after);
+    const after = new Map<string, string>();
+    const result = buildComposerPackagesUpdated(['vendor/pkg'], before, after);
     expect(result).toEqual([]);
   });
 });
@@ -1427,5 +1441,235 @@ describe('runComposerUpdater — audit_findings in result (AC6)', () => {
     expect(result.status).toBe('success');
     // No new audit packages were actually fixed → audit_findings should be undefined
     expect(result.audit_findings).toBeUndefined();
+  });
+});
+
+// ── Platform ignore flags (AC1, AC4) ─────────────────────────────────────────
+
+/**
+ * Build a ProjectConfig that includes a runners.composer block with the given image_source.
+ * Used to test platform-ignore flag logic.
+ */
+function baseConfigWithImageSource(imageSource?: 'pull' | 'dockerfile'): ProjectConfig {
+  return {
+    project: { name: 'test-project', client: 'test-client' },
+    ecosystems: [{ id: 'composer' }],
+    protected_packages: { composer: [], npm: [] },
+    safe_update_policy: {
+      allow_patch_and_minor_within_constraints: true,
+      require_authorization_for_constraint_change: false,
+    },
+    conflict_resolution: 'fail',
+    runners: imageSource !== undefined ? { composer: { image_source: imageSource } } : undefined,
+  };
+}
+
+describe('buildComposerAutomationArgs — platform ignore flags (AC1, AC4)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('(AC4-a) Docker + image_source=pull emits --ignore-platform-req=ext-* and --ignore-platform-req=lib-*', async () => {
+    const { backupFiles } = await import('@infra/utils/fs-backup.js');
+    const { readFile } = await import('node:fs/promises');
+
+    const preLock = makeLockJson([{ name: 'vendor/pkg', version: '1.0.0' }]);
+    const postLock = makeLockJson([{ name: 'vendor/pkg', version: '1.1.0' }]);
+
+    (backupFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Map([['composer.lock', preLock]]),
+    );
+    (readFile as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(preLock)
+      .mockResolvedValueOnce(postLock);
+
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(ok())  // composer install (env-check)
+      .mockResolvedValueOnce(ok())  // composer outdated --direct
+      .mockResolvedValueOnce(ok()); // composer update
+
+    const runner = makeRunner({ runArgs: runArgsMock, environment: 'docker' });
+    const config = baseConfigWithImageSource('pull');
+
+    await runComposerUpdater(runner, config, baseScan(['vendor/pkg@1.0.0']), '/tmp/project');
+
+    // Verify that --ignore-platform-req=ext-* and --ignore-platform-req=lib-* appear in runArgs calls
+    const allArgs = runArgsMock.mock.calls.flatMap((c: unknown[]) => c[1] as string[]);
+    expect(allArgs).toContain('--ignore-platform-req=ext-*');
+    expect(allArgs).toContain('--ignore-platform-req=lib-*');
+    // NEVER emit the nuclear flag
+    expect(allArgs).not.toContain('--ignore-platform-reqs');
+  });
+
+  it('(AC4-a) Docker + no image_source (defaults to pull) emits granular flags', async () => {
+    const { backupFiles } = await import('@infra/utils/fs-backup.js');
+    const { readFile } = await import('node:fs/promises');
+
+    const preLock = makeLockJson([{ name: 'vendor/pkg', version: '1.0.0' }]);
+    const postLock = makeLockJson([{ name: 'vendor/pkg', version: '1.1.0' }]);
+
+    (backupFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Map([['composer.lock', preLock]]),
+    );
+    (readFile as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(preLock)
+      .mockResolvedValueOnce(postLock);
+
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(ok())  // composer install (env-check)
+      .mockResolvedValueOnce(ok())  // composer outdated --direct
+      .mockResolvedValueOnce(ok()); // composer update
+
+    // No image_source in config → defaults to 'pull'
+    const runner = makeRunner({ runArgs: runArgsMock, environment: 'docker' });
+    const config = baseConfig(); // no runners config → image_source defaults to 'pull'
+
+    await runComposerUpdater(runner, config, baseScan(['vendor/pkg@1.0.0']), '/tmp/project');
+
+    const allArgs = runArgsMock.mock.calls.flatMap((c: unknown[]) => c[1] as string[]);
+    expect(allArgs).toContain('--ignore-platform-req=ext-*');
+    expect(allArgs).toContain('--ignore-platform-req=lib-*');
+    expect(allArgs).not.toContain('--ignore-platform-reqs');
+  });
+
+  it('(AC4-b) Docker + image_source=dockerfile emits NO platform ignore flags', async () => {
+    const { backupFiles } = await import('@infra/utils/fs-backup.js');
+    const { readFile } = await import('node:fs/promises');
+
+    const preLock = makeLockJson([{ name: 'vendor/pkg', version: '1.0.0' }]);
+    const postLock = makeLockJson([{ name: 'vendor/pkg', version: '1.1.0' }]);
+
+    (backupFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Map([['composer.lock', preLock]]),
+    );
+    (readFile as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(preLock)
+      .mockResolvedValueOnce(postLock);
+
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(ok())  // composer install (env-check)
+      .mockResolvedValueOnce(ok())  // composer outdated --direct
+      .mockResolvedValueOnce(ok()); // composer update
+
+    const runner = makeRunner({ runArgs: runArgsMock, environment: 'docker' });
+    const config = baseConfigWithImageSource('dockerfile');
+
+    await runComposerUpdater(runner, config, baseScan(['vendor/pkg@1.0.0']), '/tmp/project');
+
+    const allArgs = runArgsMock.mock.calls.flatMap((c: unknown[]) => c[1] as string[]);
+    expect(allArgs).not.toContain('--ignore-platform-req=ext-*');
+    expect(allArgs).not.toContain('--ignore-platform-req=lib-*');
+    expect(allArgs).not.toContain('--ignore-platform-reqs');
+  });
+
+  it('(AC4-c) local runner emits NO platform ignore flags regardless of image_source', async () => {
+    const { backupFiles } = await import('@infra/utils/fs-backup.js');
+    const { readFile } = await import('node:fs/promises');
+
+    const preLock = makeLockJson([{ name: 'vendor/pkg', version: '1.0.0' }]);
+    const postLock = makeLockJson([{ name: 'vendor/pkg', version: '1.1.0' }]);
+
+    (backupFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Map([['composer.lock', preLock]]),
+    );
+    (readFile as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(preLock)
+      .mockResolvedValueOnce(postLock);
+
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(ok())  // composer install (env-check)
+      .mockResolvedValueOnce(ok())  // composer outdated --direct
+      .mockResolvedValueOnce(ok()); // composer update
+
+    // environment='local' (default makeRunner)
+    const runner = makeRunner({ runArgs: runArgsMock });
+    // Even with image_source='pull', local runner must not emit platform flags
+    const config = baseConfigWithImageSource('pull');
+
+    await runComposerUpdater(runner, config, baseScan(['vendor/pkg@1.0.0']), '/tmp/project');
+
+    const allArgs = runArgsMock.mock.calls.flatMap((c: unknown[]) => c[1] as string[]);
+    expect(allArgs).not.toContain('--ignore-platform-req=ext-*');
+    expect(allArgs).not.toContain('--ignore-platform-req=lib-*');
+    expect(allArgs).not.toContain('--ignore-platform-reqs');
+  });
+});
+
+// ── Transitive dependency diff tracking (AC3, AC4-d) ─────────────────────────
+
+describe('derivePackagesUpdated — full lock diff including transitive deps (AC3, AC4-d)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('(AC4-d) transitive dep version change in composer.lock appears in packages_updated even if not in target list', async () => {
+    const { backupFiles } = await import('@infra/utils/fs-backup.js');
+    const { readFile } = await import('node:fs/promises');
+
+    // preLock: direct target + transitive dep at old versions
+    const preLock = makeLockJson([
+      { name: 'vendor/direct-pkg', version: '1.0.0' },
+      { name: 'vendor/transitive-dep', version: '3.0.0' },
+    ]);
+    // postLock: both changed — transitive dep was pulled up by --with-all-dependencies
+    const postLock = makeLockJson([
+      { name: 'vendor/direct-pkg', version: '1.1.0' },
+      { name: 'vendor/transitive-dep', version: '3.1.0' },
+    ]);
+
+    (backupFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Map([['composer.lock', preLock]]),
+    );
+    (readFile as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(preLock)   // applyFix: before-lock
+      .mockResolvedValueOnce(postLock); // derivePackagesUpdated: after-lock
+
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(ok())  // composer install (env-check)
+      .mockResolvedValueOnce(ok())  // composer outdated --direct
+      .mockResolvedValueOnce(ok()); // composer update
+
+    const runner = makeRunner({ runArgs: runArgsMock });
+    // OSV scan only lists vendor/direct-pkg — transitive dep is NOT in the scan list
+    const scan = baseScan(['vendor/direct-pkg@1.0.0']);
+
+    const result = await runComposerUpdater(runner, baseConfig(), scan, '/tmp/project');
+
+    expect(result.status).toBe('success');
+    // Both packages must appear — the full lock diff captures transitive changes
+    expect(result.packages_updated).toContain('vendor/direct-pkg@1.1.0');
+    expect(result.packages_updated).toContain('vendor/transitive-dep@3.1.0');
+  });
+
+  it('(AC3) package unchanged in lock does NOT appear in packages_updated', async () => {
+    const { backupFiles } = await import('@infra/utils/fs-backup.js');
+    const { readFile } = await import('node:fs/promises');
+
+    const preLock = makeLockJson([
+      { name: 'vendor/changed', version: '1.0.0' },
+      { name: 'vendor/unchanged', version: '5.0.0' },
+    ]);
+    const postLock = makeLockJson([
+      { name: 'vendor/changed', version: '1.1.0' },
+      { name: 'vendor/unchanged', version: '5.0.0' }, // same version
+    ]);
+
+    (backupFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Map([['composer.lock', preLock]]),
+    );
+    (readFile as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(preLock)
+      .mockResolvedValueOnce(postLock);
+
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(ok())  // composer install (env-check)
+      .mockResolvedValueOnce(ok())  // composer outdated --direct
+      .mockResolvedValueOnce(ok()); // composer update
+
+    const runner = makeRunner({ runArgs: runArgsMock });
+    const scan = baseScan(['vendor/changed@1.0.0']);
+
+    const result = await runComposerUpdater(runner, baseConfig(), scan, '/tmp/project');
+
+    expect(result.status).toBe('success');
+    expect(result.packages_updated).toContain('vendor/changed@1.1.0');
+    // unchanged package must NOT appear
+    expect(result.packages_updated).not.toContain('vendor/unchanged@5.0.0');
   });
 });
