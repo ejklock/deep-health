@@ -61,6 +61,15 @@ function dedupVulns(entries: VulnerabilityEntry[]): AggregatedVulnEntry[] {
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
+/**
+ * Escape pipe characters in a string so it renders safely inside a markdown
+ * table cell. A literal `|` would break the column boundary, so we replace
+ * every occurrence with `\|`.
+ */
+export function escapeMdTableCell(text: string): string {
+  return text.replace(/\|/g, '\\|');
+}
+
 function monthName(date: Date): string {
   return date.toLocaleString('en-US', { month: 'long' });
 }
@@ -144,10 +153,10 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
       const syntheticEntry: VulnerabilityEntry = {
         ecosystem: plugin.id,
         package: finding.package,
-        ghsaId: finding.advisoryId,
+        ghsaId: finding.cve ?? finding.advisoryId,
         cvss: '—',
         risk: finding.title,
-        currentVersion: finding.affectedVersions,
+        currentVersion: finding.installedVersion ?? finding.affectedVersions,
         safeVersion: null,
         classification: 'auto_safe',
         reason: '',
@@ -205,7 +214,7 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
       ghsaId: v.ghsaId,
       cvss: v.cvss,
       package: v.package,
-      affectedVersions: v.affectedVersions.join(', '),
+      affectedVersions: escapeMdTableCell(v.affectedVersions.join(', ')),
       safeVersion: installedVersionsByEco.get(v.ecosystem)?.get(v.package) ?? v.safeVersion ?? '—',
       risk: v.risk,
       residualWarning,
@@ -226,7 +235,7 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
       ghsaId: v.ghsaId,
       cvss: v.cvss,
       package: v.package,
-      affectedVersions: v.affectedVersions.join(', '),
+      affectedVersions: escapeMdTableCell(v.affectedVersions.join(', ')),
       motivoPt: motivoStr(v, locale),
     };
   });
@@ -273,7 +282,7 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
     }
     const vulnsAfter = [...afterGroups.values()].map((group) => {
       const first = group[0]!;
-      const affectedVersions = [...new Set(group.map((r) => r.currentVersion))].join(', ');
+      const affectedVersions = escapeMdTableCell([...new Set(group.map((r) => r.currentVersion))].join(', '));
       return {
         ghsaId: first.ghsaId,
         cvss: first.cvss,
@@ -388,7 +397,7 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
         ghsaId: v.ghsaId,
         cvss: v.cvss,
         package: v.package,
-        affectedVersions: v.affectedVersions.join(', '),
+        affectedVersions: escapeMdTableCell(v.affectedVersions.join(', ')),
         risk: v.risk,
       };
     }),

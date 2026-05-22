@@ -26,6 +26,12 @@ export interface AuditFinding {
   title: string;
   cve: string | null;
   affectedVersions: string;
+  /**
+   * The actual installed version of this package from composer.lock before any update ran.
+   * Populated by updaters that have access to the pre-update lock file (e.g. composer osv-then-audit).
+   * Optional for backward compatibility with existing AuditFinding objects that don't set it.
+   */
+  installedVersion?: string | null;
 }
 
 export interface UpdateResultJson {
