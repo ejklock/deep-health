@@ -1,5 +1,5 @@
 import type { ExecutiveReportOptions, ResidualVerification } from '@core/types/report';
-import type { VulnerabilityEntry } from '@core/types/scan';
+import type { VulnerabilityEntry, ScanResultJson } from '@core/types/scan';
 import type { Locale } from './i18n/index';
 import { defaultRegistry } from '@modules/ecosystem/index';
 import { getLocale } from './i18n/index';
@@ -61,6 +61,15 @@ function dedupVulns(entries: VulnerabilityEntry[]): AggregatedVulnEntry[] {
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
+/**
+ * Escape pipe characters in a string so it renders safely inside a markdown
+ * table cell. A literal `|` would break the column boundary, so we replace
+ * every occurrence with `\|`.
+ */
+export function escapeMdTableCell(text: string): string {
+  return text.replace(/\|/g, '\\|');
+}
+
 function monthName(date: Date): string {
   return date.toLocaleString('en-US', { month: 'long' });
 }
@@ -120,6 +129,46 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
   // Build per-ecosystem update name sets (for determining fixed vs pending)
   const plugins = defaultRegistry.getAll();
 
+  // Clone the top-level scanBefore so we never mutate the original. For each plugin
+  // that carries audit_findings, deep-clone its ecosystem entry and push synthetic
+  // entries so the existing fixedVulns/pendingVulns filters naturally include them.
+  let effectiveScanBefore: ScanResultJson = opts.scanBefore;
+
+  for (const plugin of plugins) {
+    const auditFindings = opts.updates[plugin.id]?.audit_findings;
+    if (!auditFindings || auditFindings.length === 0) continue;
+
+    // Clone the top-level object (shallow) plus the ecosystems map on first mutation.
+    if (effectiveScanBefore === opts.scanBefore) {
+      effectiveScanBefore = { ...opts.scanBefore, ecosystems: { ...opts.scanBefore.ecosystems } };
+    }
+
+    // Deep-clone the specific ecosystem entry we need to mutate.
+    const existingEco = effectiveScanBefore.ecosystems[plugin.id];
+    const clonedEco = existingEco
+      ? structuredClone(existingEco)
+      : { vulnerabilities_total: 0, auto_safe: 0, breaking: 0, manual: 0, auto_safe_packages: [], breaking_packages: [], manual_packages: [], vulnerabilities: [] };
+
+    for (const finding of auditFindings) {
+      const syntheticEntry: VulnerabilityEntry = {
+        ecosystem: plugin.id,
+        package: finding.package,
+        ghsaId: finding.cve ?? finding.advisoryId,
+        cvss: '—',
+        risk: finding.title,
+        currentVersion: finding.installedVersion ?? finding.affectedVersions,
+        safeVersion: null,
+        classification: 'auto_safe',
+        reason: '',
+      };
+      clonedEco.vulnerabilities.push(syntheticEntry);
+      clonedEco.vulnerabilities_total += 1;
+      clonedEco.auto_safe += 1;
+    }
+
+    effectiveScanBefore.ecosystems[plugin.id] = clonedEco;
+  }
+
   // Map: ecosystemId -> Set of updated package names
   const updatedNamesByEco = new Map<string, Set<string>>();
   for (const plugin of plugins) {
@@ -142,7 +191,7 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
   }
 
   const allVulnsBefore = [
-    ...Object.values(opts.scanBefore.ecosystems).flatMap((e) => e.vulnerabilities),
+    ...Object.values(effectiveScanBefore.ecosystems).flatMap((e) => e.vulnerabilities),
   ];
 
   // Fixed vulns: auto_safe and in the updated set for their ecosystem
@@ -165,7 +214,7 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
       ghsaId: v.ghsaId,
       cvss: v.cvss,
       package: v.package,
-      affectedVersions: v.affectedVersions.join(', '),
+      affectedVersions: escapeMdTableCell(v.affectedVersions.join(', ')),
       safeVersion: installedVersionsByEco.get(v.ecosystem)?.get(v.package) ?? v.safeVersion ?? '—',
       risk: v.risk,
       residualWarning,
@@ -186,14 +235,14 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
       ghsaId: v.ghsaId,
       cvss: v.cvss,
       package: v.package,
-      affectedVersions: v.affectedVersions.join(', '),
+      affectedVersions: escapeMdTableCell(v.affectedVersions.join(', ')),
       motivoPt: motivoStr(v, locale),
     };
   });
 
   // Per-plugin evidence sections
   const evidenceSections = plugins.map((plugin) => {
-    const ecoScan = opts.scanBefore.ecosystems[plugin.id];
+    const ecoScan = effectiveScanBefore.ecosystems[plugin.id];
     const update = opts.updates[plugin.id] ?? null;
     const updatedNames = updatedNamesByEco.get(plugin.id) ?? new Set();
 
@@ -233,7 +282,7 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
     }
     const vulnsAfter = [...afterGroups.values()].map((group) => {
       const first = group[0]!;
-      const affectedVersions = [...new Set(group.map((r) => r.currentVersion))].join(', ');
+      const affectedVersions = escapeMdTableCell([...new Set(group.map((r) => r.currentVersion))].join(', '));
       return {
         ghsaId: first.ghsaId,
         cvss: first.cvss,
@@ -271,7 +320,7 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
   // Summary: per-ecosystem before/after labels
   const ecoBeforeLabels = plugins
     .map((plugin) => {
-      const eco = opts.scanBefore.ecosystems[plugin.id];
+      const eco = effectiveScanBefore.ecosystems[plugin.id];
       const total = eco?.vulnerabilities_total ?? 0;
       const pkgCount = uniqueCount(eco?.vulnerabilities ?? []);
       return locale.pkg_count(total, pkgCount, plugin.reportLabel);
@@ -348,7 +397,7 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
         ghsaId: v.ghsaId,
         cvss: v.cvss,
         package: v.package,
-        affectedVersions: v.affectedVersions.join(', '),
+        affectedVersions: escapeMdTableCell(v.affectedVersions.join(', ')),
         risk: v.risk,
       };
     }),

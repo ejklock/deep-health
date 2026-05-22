@@ -8,7 +8,9 @@ import { emptyEcosystem } from '@core/types/scan';
 import { logger } from '@infra/utils/logger';
 import { runEcosystemEnvironmentProbe } from '../utils/environment-probe';
 import { runUpdaterLifecycle } from '../utils/updater-lifecycle';
-import { parseComposerAuditJson } from './composer-audit-parser';
+import { parseComposerAuditJson, parseComposerAuditAdvisories } from './composer-audit-parser';
+import type { ComposerAuditAdvisory } from './composer-audit-parser';
+import type { AuditFinding } from '@core/types/update';
 
 const COMPOSER_FILES = ['composer.json', 'composer.lock'];
 
@@ -44,20 +46,27 @@ export function extractComposerLockVersions(lockJsonText: string): Map<string, s
 /**
  * Build `packages_updated` array from pre/post lock version maps.
  *
- * For each target package name:
- * - Skip if the post-update version is absent (package not in new lockfile).
+ * Iterates ALL packages present in afterVersions and emits `name@<postVersion>`
+ * for any package whose version differs from beforeVersions (including packages
+ * that are new — absent in beforeVersions). This captures transitive dependency
+ * changes from --with-all-dependencies, not just the explicitly targeted packages.
+ *
  * - Skip if pre-update version equals post-update version (no real change).
- * - Otherwise emit `name@<postVersion>`.
+ * - Emit `name@<postVersion>` for any version that changed or was newly added.
+ *
+ * The `targetNames` parameter is kept for API compatibility but is no longer used
+ * as a filter — pass an empty array or the full target list; all changed packages
+ * in afterVersions will be returned regardless.
+ *
+ * @deprecated The targetNames parameter is ignored. Pass [] or omit filtering logic.
  */
 export function buildComposerPackagesUpdated(
-  targetNames: string[],
+  _targetNames: string[],
   beforeVersions: Map<string, string>,
   afterVersions: Map<string, string>,
 ): string[] {
   const updated: string[] = [];
-  for (const name of targetNames) {
-    const versionTo = afterVersions.get(name);
-    if (versionTo === undefined) continue;
+  for (const [name, versionTo] of afterVersions) {
     const versionFrom = beforeVersions.get(name);
     if (versionFrom === versionTo) continue;
     updated.push(`${name}@${versionTo}`);
@@ -74,33 +83,42 @@ export function extractPackageNames(packageRefs: string[]): string[] {
 
 /**
  * Build shared composer flags for all write-path commands (array form for runArgs).
- * --no-interaction      : no prompts (CI context)
- * --no-scripts          : skip post-install-cmd, post-autoload-dump, post-update-cmd, etc.
- *                         Framework hooks (e.g. Laravel's `artisan package:discover`)
- *                         bootstrap app state that depends on runtime services (db, cache, queue)
- *                         — not available inside a dependency-upgrade flow.
- * --ignore-platform-reqs: (Docker mode only, unless overridden) skips PHP extension checks.
- *                         The Docker container is a CI runner, not the production environment.
- *                         Production has ext-intl, ext-gd, ext-exif, etc.; the container does not.
+ * --no-interaction          : no prompts (CI context)
+ * --no-scripts              : skip post-install-cmd, post-autoload-dump, post-update-cmd, etc.
+ *                             Framework hooks (e.g. Laravel's `artisan package:discover`)
+ *                             bootstrap app state that depends on runtime services (db, cache, queue)
+ *                             — not available inside a dependency-upgrade flow.
+ * --ignore-platform-req=ext-*
+ * --ignore-platform-req=lib-*: (Docker + pull mode only) skip extension and library checks.
+ *                             Applied only when running inside a stock pulled Docker image
+ *                             (image_source='pull', which is the default). The stock container
+ *                             is a CI runner, not the production environment — production has
+ *                             ext-intl, ext-gd, ext-exif, etc.; the container does not.
+ *                             NOT applied when using a custom Dockerfile (image_source='dockerfile'),
+ *                             because that image is owned by the project and should match production.
+ *                             NOT applied in local mode, because local PHP IS the production PHP.
  */
 function buildComposerAutomationArgs(runner: CommandRunner, config: ProjectConfig): string[] {
-  const composerConfig = config.runners?.composer;
-  const ignorePlatformReqs =
-    composerConfig?.ignore_platform_reqs ?? runner.environment === 'docker';
+  const imageSource = config.runners?.composer?.image_source ?? 'pull';
+  const useGranularIgnores = runner.environment === 'docker' && imageSource === 'pull';
 
   return [
     '--no-interaction',
     '--no-scripts',
-    ...(ignorePlatformReqs ? ['--ignore-platform-reqs'] : []),
+    ...(useGranularIgnores
+      ? ['--ignore-platform-req=ext-*', '--ignore-platform-req=lib-*']
+      : []),
   ];
 }
 
 /**
  * The typed fixer result flowing through applyFix → derivePackagesUpdated.
  * auditPackageNames: additional packages discovered via `composer audit` (osv-then-audit strategy).
+ * auditAdvisories: structured advisory data for packages that were successfully fixed by the audit step.
  */
 interface ComposerFixerResult {
   auditPackageNames: string[];
+  auditAdvisories: ComposerAuditAdvisory[];
 }
 
 export async function runComposerUpdater(
@@ -220,6 +238,7 @@ export async function runComposerUpdater(
 
         // ── osv-then-audit step ───────────────────────────────────────────────────
         let auditPackageNames: string[] = [];
+        let auditAdvisories: ComposerAuditAdvisory[] = [];
 
         if (fixerStrategy === 'osv-then-audit') {
           try {
@@ -233,6 +252,7 @@ export async function runComposerUpdater(
 
             const rawAudit = auditResult.stdout ?? '';
             const auditFindings = parseComposerAuditJson(rawAudit);
+            const allAdvisories = parseComposerAuditAdvisories(rawAudit);
 
             // Filter out packages already targeted by the OSV update
             const newAuditPackages = auditFindings.filter(
@@ -261,6 +281,8 @@ export async function runComposerUpdater(
                 );
               } else {
                 auditPackageNames = newAuditPackages;
+                // Store structured advisories only for the packages that were actually fixed.
+                auditAdvisories = allAdvisories.filter((a) => auditPackageNames.includes(a.package));
               }
             } else {
               logger.tagged('composer', 'audit-fix', 'No additional packages found by audit — continuing with OSV results only');
@@ -289,29 +311,39 @@ export async function runComposerUpdater(
           }
         }
 
-        return { ok: true, value: { auditPackageNames } };
+        return { ok: true, value: { auditPackageNames, auditAdvisories } };
       },
 
-      async derivePackagesUpdated(ctx, fixerResult) {
+      async derivePackagesUpdated(ctx, _fixerResult) {
         const beforeVersions = extractComposerLockVersions(beforeLockText);
         try {
           const afterLockText = await readFile(join(ctx.cwd, 'composer.lock'), 'utf-8');
           const afterVersions = extractComposerLockVersions(afterLockText);
 
-          // Merge OSV target list with audit-discovered packages (highest-version-wins
-          // is automatic: the final composer.lock reflects the last write, so the version
-          // in afterVersions is always >= any intermediate version).
-          const allTargetNames = [
-            ...new Set([...packageNamesToUpdate, ...fixerResult.auditPackageNames]),
-          ];
-
-          return buildComposerPackagesUpdated(allTargetNames, beforeVersions, afterVersions);
+          // Diff ALL packages in composer.lock (before vs after) so transitive dependency
+          // changes from --with-all-dependencies are captured automatically. The targetNames
+          // parameter is ignored by buildComposerPackagesUpdated — pass [] as a no-op.
+          return buildComposerPackagesUpdated([], beforeVersions, afterVersions);
         } catch (readErr) {
           logger.warn(
             `composer-updater: could not read post-update composer.lock (${readErr instanceof Error ? readErr.message : String(readErr)}) — falling back to scan package list`,
           );
           return composerEcosystem.auto_safe_packages;
         }
+      },
+
+      async deriveAuditFindings(_ctx, fixerResult): Promise<AuditFinding[] | undefined> {
+        if (fixerResult.auditAdvisories.length === 0) return undefined;
+        const beforeVersions = extractComposerLockVersions(beforeLockText);
+        return fixerResult.auditAdvisories.map((advisory) => ({
+          ecosystem: 'composer',
+          package: advisory.package,
+          advisoryId: advisory.advisoryId,
+          title: advisory.title,
+          cve: advisory.cve,
+          affectedVersions: advisory.affectedVersions,
+          installedVersion: beforeVersions.get(advisory.package) ?? null,
+        }));
       },
     },
     { runner, cwd, scanResult, ecosystemId: 'composer', validationCommands, authorizeBreaking },

@@ -13,7 +13,7 @@ vi.mock('@infra/utils/logger.js', () => ({
   },
 }));
 
-import { parseComposerAuditJson } from '@modules/ecosystem/plugins/composer-audit-parser';
+import { parseComposerAuditJson, parseComposerAuditAdvisories } from '@modules/ecosystem/plugins/composer-audit-parser';
 import { logger } from '@infra/utils/logger.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -199,5 +199,160 @@ describe('parseComposerAuditJson — advisories with complex advisory structures
     expect(result).toHaveLength(2);
     expect(result).toContain('symfony/http-kernel');
     expect(result).toContain('laravel/framework');
+  });
+});
+
+// ── parseComposerAuditAdvisories tests (AC5) ─────────────────────────────────
+
+describe('parseComposerAuditAdvisories — happy path with multiple advisories', () => {
+  it('returns structured advisory objects with all fields populated', () => {
+    const raw = buildAuditJson({
+      'symfony/http-kernel': [
+        {
+          advisoryId: 'symfony/http-kernel/2024-001.yaml',
+          packageName: 'symfony/http-kernel',
+          affectedVersions: '<6.4.4|>=7.0,<7.0.4',
+          title: 'Session fixation in some configurations',
+          cve: 'CVE-2024-28858',
+        },
+      ],
+      'laravel/framework': [
+        {
+          advisoryId: 'laravel/framework/2024-002.yaml',
+          packageName: 'laravel/framework',
+          affectedVersions: '<10.48.0',
+          title: 'Header injection vulnerability',
+          cve: null,
+        },
+      ],
+    });
+
+    const result = parseComposerAuditAdvisories(raw);
+
+    expect(result).toHaveLength(2);
+
+    const symfony = result.find((a) => a.package === 'symfony/http-kernel');
+    expect(symfony).toBeDefined();
+    expect(symfony!.advisoryId).toBe('symfony/http-kernel/2024-001.yaml');
+    expect(symfony!.title).toBe('Session fixation in some configurations');
+    expect(symfony!.cve).toBe('CVE-2024-28858');
+    expect(symfony!.affectedVersions).toBe('<6.4.4|>=7.0,<7.0.4');
+
+    const laravel = result.find((a) => a.package === 'laravel/framework');
+    expect(laravel).toBeDefined();
+    expect(laravel!.cve).toBeNull();
+  });
+
+  it('returns one advisory per package when multiple advisories exist for the same package key (takes first)', () => {
+    const raw = buildAuditJson({
+      'vendor/pkg': [
+        { advisoryId: 'ADV-001', title: 'First issue', cve: 'CVE-2024-001', affectedVersions: '<1.0.0' },
+        { advisoryId: 'ADV-002', title: 'Second issue', cve: 'CVE-2024-002', affectedVersions: '<2.0.0' },
+      ],
+    });
+
+    const result = parseComposerAuditAdvisories(raw);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.package).toBe('vendor/pkg');
+    // Takes first advisory entry
+    expect(result[0]!.advisoryId).toBe('ADV-001');
+    expect(result[0]!.title).toBe('First issue');
+    expect(result[0]!.cve).toBe('CVE-2024-001');
+  });
+});
+
+describe('parseComposerAuditAdvisories — advisory with null CVE', () => {
+  it('returns cve as null when advisory has cve: null', () => {
+    const raw = buildAuditJson({
+      'acme/lib': [
+        { advisoryId: 'GHSA-xxxx', title: 'Some issue', cve: null, affectedVersions: '<2.0.0' },
+      ],
+    });
+
+    const result = parseComposerAuditAdvisories(raw);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.cve).toBeNull();
+  });
+
+  it('returns cve as null when advisory has no cve field', () => {
+    const raw = buildAuditJson({
+      'acme/lib': [
+        { advisoryId: 'GHSA-yyyy', title: 'Another issue', affectedVersions: '>=1.0.0 <1.5.0' },
+      ],
+    });
+
+    const result = parseComposerAuditAdvisories(raw);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.cve).toBeNull();
+  });
+});
+
+describe('parseComposerAuditAdvisories — empty and malformed input returns []', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns [] for empty string', () => {
+    const result = parseComposerAuditAdvisories('');
+    expect(result).toEqual([]);
+  });
+
+  it('returns [] for whitespace-only string', () => {
+    const result = parseComposerAuditAdvisories('   \n  ');
+    expect(result).toEqual([]);
+  });
+
+  it('returns [] when advisories is an empty object {}', () => {
+    const result = parseComposerAuditAdvisories(JSON.stringify({ advisories: {} }));
+    expect(result).toEqual([]);
+  });
+
+  it('returns [] when advisories is an array (clean audit output)', () => {
+    const result = parseComposerAuditAdvisories(JSON.stringify({ advisories: [] }));
+    expect(result).toEqual([]);
+  });
+
+  it('returns [] and logs a warning for invalid JSON input', () => {
+    const result = parseComposerAuditAdvisories('{ not valid json !!');
+    expect(result).toEqual([]);
+    const warnCalls = (logger.tagged as ReturnType<typeof vi.fn>).mock.calls;
+    expect(warnCalls.some((c) => String(c[2]).toLowerCase().includes('failed to parse'))).toBe(true);
+  });
+
+  it('returns [] for completely non-JSON input', () => {
+    const result = parseComposerAuditAdvisories('this is not json at all');
+    expect(result).toEqual([]);
+  });
+
+  it('returns [] when advisories key is absent', () => {
+    const result = parseComposerAuditAdvisories(JSON.stringify({ packages: [] }));
+    expect(result).toEqual([]);
+  });
+});
+
+describe('parseComposerAuditAdvisories — advisory list with empty array entry', () => {
+  it('returns entry with empty fields when advisory list is empty for a package', () => {
+    const raw = JSON.stringify({ advisories: { 'vendor/pkg': [] } });
+    const result = parseComposerAuditAdvisories(raw);
+    // Package key exists but no advisory entries → still returns one entry with empty fields
+    expect(result).toHaveLength(1);
+    expect(result[0]!.package).toBe('vendor/pkg');
+    expect(result[0]!.advisoryId).toBe('');
+    expect(result[0]!.title).toBe('');
+    expect(result[0]!.cve).toBeNull();
+    expect(result[0]!.affectedVersions).toBe('');
+  });
+});
+
+describe('parseComposerAuditAdvisories — existing parseComposerAuditJson tests still pass', () => {
+  it('parseComposerAuditJson still returns package names (unchanged behaviour)', () => {
+    const raw = buildAuditJson({
+      'vendor/pkg-a': [{ advisoryId: 'CVE-001', packageName: 'vendor/pkg-a', title: 'Issue' }],
+    });
+    const result = parseComposerAuditJson(raw);
+    expect(result).toEqual(['vendor/pkg-a']);
   });
 });

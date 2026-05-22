@@ -13,6 +13,27 @@ export interface ValidationEntry {
   detail?: string;
 }
 
+/**
+ * A structured audit finding carried from an ecosystem updater to the executive report.
+ * Populated by updaters that run a secondary audit step (e.g. composer osv-then-audit).
+ * The report injects these as synthetic VulnerabilityEntry objects so fixed/pending
+ * logic naturally includes audit-discovered packages.
+ */
+export interface AuditFinding {
+  ecosystem: string;
+  package: string;
+  advisoryId: string;
+  title: string;
+  cve: string | null;
+  affectedVersions: string;
+  /**
+   * The actual installed version of this package from composer.lock before any update ran.
+   * Populated by updaters that have access to the pre-update lock file (e.g. composer osv-then-audit).
+   * Optional for backward compatibility with existing AuditFinding objects that don't set it.
+   */
+  installedVersion?: string | null;
+}
+
 export interface UpdateResultJson {
   $schema: 'osv-update-result/v1';
   agent: string;
@@ -35,4 +56,11 @@ export interface UpdateResultJson {
    */
   validations: ValidationEntry[];
   error: string | null;
+  /**
+   * Structured audit findings from a secondary audit step (e.g. composer osv-then-audit).
+   * Optional — only populated by updaters that discover packages outside the OSV scan.
+   * The executive report injects these as synthetic VulnerabilityEntry objects so
+   * audit-discovered packages appear correctly in the fixed/pending sections.
+   */
+  audit_findings?: AuditFinding[];
 }
