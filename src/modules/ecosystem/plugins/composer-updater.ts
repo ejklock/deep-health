@@ -334,6 +334,7 @@ export async function runComposerUpdater(
 
       async deriveAuditFindings(_ctx, fixerResult): Promise<AuditFinding[] | undefined> {
         if (fixerResult.auditAdvisories.length === 0) return undefined;
+        const beforeVersions = extractComposerLockVersions(beforeLockText);
         return fixerResult.auditAdvisories.map((advisory) => ({
           ecosystem: 'composer',
           package: advisory.package,
@@ -341,6 +342,7 @@ export async function runComposerUpdater(
           title: advisory.title,
           cve: advisory.cve,
           affectedVersions: advisory.affectedVersions,
+          installedVersion: beforeVersions.get(advisory.package) ?? null,
         }));
       },
     },
