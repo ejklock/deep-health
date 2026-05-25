@@ -64,10 +64,6 @@ export interface RawLocale {
     advisors_title: string;
     /** vars: name — advisor name, e.g. "audit" */
     advisor_header: string;            // vars: name
-    /** @deprecated retained for backward compat; use advisor_clean/findings/error/skipped */
-    advisor_pass: string;
-    /** @deprecated retained for backward compat; use advisor_clean/findings/error/skipped */
-    advisor_fail: string;
     advisor_skipped: string;
     advisor_clean: string;
     advisor_findings: string;

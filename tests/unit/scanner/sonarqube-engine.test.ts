@@ -39,7 +39,6 @@ const { setSonarPropsFixture, readPropsMock, sanitizeMock } = vi.hoisted(() => {
 vi.mock('@modules/scanner/sonar-properties', () => ({
   readSonarProperties: readPropsMock,
   sanitizeAndWriteProperties: sanitizeMock,
-  DEPRECATED_AUTH_KEYS: ['sonar.login', 'sonar.password'],
   CLI_OWNED_KEYS: ['sonar.host.url', 'sonar.token'],
 }));
 
@@ -374,7 +373,7 @@ describe('SonarQubeEngine', () => {
       expect(scanCmd).toContain('props-token-value');
     });
 
-    it('falls back to sonar.login from properties when SONAR_TOKEN and sonar.token are both unset (AC2)', async () => {
+    it('throws EnvironmentError when only sonar.login is in properties (sonar.login is no longer a valid token source)', async () => {
       setSonarPropsFixture(new Map<string, string>([
         ['sonar.projectKey', 'my-project'],
         ['sonar.host.url', 'http://localhost:9000'],
@@ -389,13 +388,8 @@ describe('SonarQubeEngine', () => {
 
       vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
 
-      const result = await engine.scan(makeCtx(runner, config));
-
-      expect(result.status).toBe('success');
-
-      // The legacy login must be passed to sonar-scanner
-      const scanCmd = runner.calledCommands.find((c) => c.includes('-Dsonar.projectKey'));
-      expect(scanCmd).toContain('legacy-login-value');
+      // sonar.login is no longer accepted; both SONAR_TOKEN and sonar.token are absent
+      await expect(engine.scan(makeCtx(runner, config))).rejects.toThrow(EnvironmentError);
     });
 
     it('prefers SONAR_TOKEN env var over properties-file values when both exist (AC3)', async () => {
@@ -475,7 +469,7 @@ describe('SonarQubeEngine', () => {
       );
     });
 
-    it('logs a warning when using sonar.login fallback from properties (AC5)', async () => {
+    it('throws EnvironmentError when sonar.login is in properties but SONAR_TOKEN and sonar.token are absent (no sonar.login fallback)', async () => {
       setSonarPropsFixture(new Map<string, string>([
         ['sonar.projectKey', 'my-project'],
         ['sonar.host.url', 'http://localhost:9000'],
@@ -490,11 +484,8 @@ describe('SonarQubeEngine', () => {
 
       vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no network')));
 
-      await engine.scan(makeCtx(runner, config));
-
-      expect(mockLoggerWarn).toHaveBeenCalledWith(
-        expect.stringContaining('SONAR_TOKEN environment variable instead'),
-      );
+      // sonar.login is not a valid token source; expect a hard error
+      await expect(engine.scan(makeCtx(runner, config))).rejects.toThrow(EnvironmentError);
     });
   });
 

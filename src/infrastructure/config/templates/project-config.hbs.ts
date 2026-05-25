@@ -97,18 +97,6 @@ scanners:
     # NOTE: project_key, host_url, sources, exclusions, etc. live in sonar-project.properties.
     #       Run "${CLI_NAME} init" (with SonarQube enabled) to generate a template if missing.
 
-{{#if hasAnyRunnerConfig}}
-runners:
-{{> npm-runner-block}}
-{{> pip-runner-block}}
-{{> composer-runner-block}}
-{{/if}}
-{{else}}
-{{#if hasAnyRunnerConfig}}
-runners:
-{{> npm-runner-block}}
-{{> pip-runner-block}}
-{{> composer-runner-block}}
 {{else}}
 # scanners:                              # optional — additional scanner engines
 #   sonarqube:
@@ -123,31 +111,10 @@ runners:
 #     # scanner_image: 'sonarsource/sonar-scanner-cli:latest'  # optional — managed-mode container fallback
 #     # project_key, host_url, exclusions, etc. live in sonar-project.properties.
 #   osv:
-#     runner: 'docker'                   # 'docker' (default) | 'local' | 'auto'
+#     runner: 'docker'                   # 'docker' (default) | 'local'
 #                                        #   docker — always run via an ephemeral container (default)
 #                                        #   local  — require a locally installed osv-scanner binary ⚠ warns
-#                                        #   auto   — deprecated escape hatch ⚠ warns
 #     image: 'ghcr.io/google/osv-scanner:latest'  # optional — Docker image override
-# runners:                               # optional — ecosystem runner configuration
-#   npm:
-#     language_version: '20'            # optional — Node version for Docker image resolution
-#     image: 'node:20'                  # optional — override resolved Node image
-#     image_source: 'pull'              # optional — 'pull' (default) | 'dockerfile'
-#     dockerfile_path: 'Dockerfile'     # required when image_source='dockerfile'
-#     allow_build_context_escape: false # optional — allow build_context outside project boundary ⚠
-#   pip:
-#     language_version: '3.11'          # optional — Python version for Docker image resolution
-#     image: 'python:3.11-slim'         # optional — override resolved Python image
-#     image_source: 'pull'              # optional — 'pull' (default) | 'dockerfile'
-#     dockerfile_path: 'Dockerfile'     # required when image_source='dockerfile'
-#     allow_build_context_escape: false # optional — allow build_context outside project boundary ⚠
-#   composer:
-#     language_version: '8.2'           # optional — PHP version for Docker image resolution
-#     image: 'php:8.2-cli'              # optional — override resolved PHP image
-#     image_source: 'pull'              # optional — 'pull' (default) | 'dockerfile'
-#     dockerfile_path: 'Dockerfile'     # required when image_source='dockerfile'
-#     allow_build_context_escape: false # optional — allow build_context outside project boundary ⚠
-{{/if}}
 {{/if}}
 
 # scan:                                   # optional — explicit scan path configuration

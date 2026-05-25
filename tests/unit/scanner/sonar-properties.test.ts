@@ -14,7 +14,6 @@ import {
   serializePropertiesFile,
   readSonarProperties,
   sanitizeAndWriteProperties,
-  DEPRECATED_AUTH_KEYS,
   CLI_OWNED_KEYS,
 } from '@modules/scanner/sonar-properties';
 
@@ -130,7 +129,7 @@ describe('readSonarProperties + sanitizeAndWriteProperties', () => {
     expect(result!.get('sonar.projectKey')).toBe('test');
   });
 
-  it('sanitizeAndWriteProperties strips deprecated auth keys (sonar.login, sonar.password)', async () => {
+  it('sanitizeAndWriteProperties does NOT strip sonar.login or sonar.password (no longer handled)', async () => {
     await writeFile(
       join(workDir, 'sonar-project.properties'),
       [
@@ -144,13 +143,13 @@ describe('readSonarProperties + sanitizeAndWriteProperties', () => {
 
     const sanitized = await sanitizeAndWriteProperties({ cwd: workDir, location: 'os-tmpdir' });
     try {
-      expect(sanitized.strippedKeys).toContain('sonar.login');
-      expect(sanitized.strippedKeys).toContain('sonar.password');
+      expect(sanitized.strippedKeys).not.toContain('sonar.login');
+      expect(sanitized.strippedKeys).not.toContain('sonar.password');
 
       const content = await readFile(sanitized.path, 'utf-8');
-      expect(content).not.toContain('sonar.login');
-      expect(content).not.toContain('sonar.password');
-      // Non-deprecated keys survive
+      // sonar.login / sonar.password are user keys and pass through unchanged
+      expect(content).toContain('sonar.login=admin');
+      expect(content).toContain('sonar.password=secret');
       expect(content).toContain('sonar.projectKey=test');
       expect(content).toContain('sonar.sources=./');
     } finally {
@@ -253,8 +252,7 @@ describe('readSonarProperties + sanitizeAndWriteProperties', () => {
     await expect(sanitized.cleanup()).resolves.toBeUndefined();
   });
 
-  it('DEPRECATED_AUTH_KEYS and CLI_OWNED_KEYS are non-empty exports', () => {
-    expect(DEPRECATED_AUTH_KEYS.length).toBeGreaterThan(0);
+  it('CLI_OWNED_KEYS is a non-empty export', () => {
     expect(CLI_OWNED_KEYS.length).toBeGreaterThan(0);
   });
 

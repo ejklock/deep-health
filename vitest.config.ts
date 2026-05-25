@@ -18,6 +18,7 @@ export default defineConfig({
   },
   test: {
     globals: true,
+    silent: true,
     // Default run: all tests (preserves existing `pnpm test` behavior)
     include: ['tests/**/*.test.ts'],
     coverage: {
@@ -45,6 +46,7 @@ export default defineConfig({
         branches: 88,
       },
     },
+    reporters: ['default', 'vitest-llm-reporter'],
     // Named projects for targeted runs: pnpm test:unit, pnpm test:integration, pnpm test:smoke
     // NOTE: vitest 2.x inline-project mode does NOT support `--project <name>` CLI filtering
     // when projects are defined inline (not in a workspace file).

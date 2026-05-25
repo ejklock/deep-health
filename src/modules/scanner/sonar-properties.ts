@@ -8,14 +8,9 @@
  * for project analysis configuration — the CLI only controls the orchestration
  * layer (server URL, token, scan mode).
  *
- * Two problems this module solves:
- *   1. sonar-scanner ≥5 rejects ANY presence of `sonar.login` / `sonar.password`
- *      (the error says "no longer supported"). Users who migrated from older
- *      versions still have these lines in their files. The CLI strips them
- *      before handing the file to the scanner.
- *   2. In managed mode the CLI provisions an ephemeral SonarQube container and
- *      must force `sonar.host.url` + `sonar.token` regardless of what the
- *      user's file says. Those overrides also pass through the sanitizer.
+ * In managed mode the CLI provisions an ephemeral SonarQube container and
+ * must force `sonar.host.url` + `sonar.token` regardless of what the
+ * user's file says. Those overrides also pass through the sanitizer.
  *
  * To avoid mutating the user's repo, the sanitized copy is written to a
  * non-cwd temp directory (for local sonar-scanner) or to a unique hidden file
@@ -28,12 +23,6 @@ import { resolve, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { logger } from '@infra/utils/logger';
 import { CLI_NAME, DEFAULT_SONAR_DOTFILE, DEFAULT_SONAR_TEMPDIR_PREFIX } from '@infra/brand';
-
-/**
- * Keys that sonar-scanner 5+ rejects outright. Always stripped when preparing
- * the sanitized file.
- */
-export const DEPRECATED_AUTH_KEYS = ['sonar.login', 'sonar.password'] as const;
 
 /**
  * Keys the CLI owns — values in the user's file are ignored and the CLI
@@ -138,7 +127,7 @@ export interface SanitizeOptions {
    */
   overrides?: Record<string, string>;
   /**
-   * Keys to strip in addition to DEPRECATED_AUTH_KEYS + CLI_OWNED_KEYS.
+   * Keys to strip in addition to CLI_OWNED_KEYS.
    */
   extraStripKeys?: readonly string[];
 }
@@ -155,8 +144,8 @@ export interface SanitizedPropertiesFile {
 }
 
 /**
- * Read the user's `sonar-project.properties`, strip CLI-owned and deprecated
- * keys, apply overrides, write the result to a temp path, return the path +
+ * Read the user's `sonar-project.properties`, strip CLI-owned keys, apply
+ * overrides, write the result to a temp path, return the path +
  * cleanup function.
  *
  * When no user file exists, synthesizes one from the overrides alone — this
@@ -173,7 +162,6 @@ export async function sanitizeAndWriteProperties(
 
   // Union of all keys we always strip.
   const stripSet = new Set<string>([
-    ...DEPRECATED_AUTH_KEYS,
     ...CLI_OWNED_KEYS,
     ...extraStripKeys,
   ]);
@@ -191,19 +179,6 @@ export async function sanitizeAndWriteProperties(
   // Apply overrides (CLI-controlled values always win).
   for (const [key, value] of Object.entries(overrides)) {
     sanitized.set(key, value);
-  }
-
-  // Emit a warning when deprecated auth keys were present — user's file has
-  // legacy config worth cleaning up, even though we've worked around it.
-  const deprecatedPresent = strippedKeys.filter((k) =>
-    (DEPRECATED_AUTH_KEYS as readonly string[]).includes(k),
-  );
-  if (deprecatedPresent.length > 0) {
-    logger.warn(
-      `[SonarQube] sonar-project.properties contains deprecated keys: ${deprecatedPresent.join(', ')}. ` +
-      `sonar-scanner ≥5 rejects these outright. The CLI is running against a sanitized copy for this scan; ` +
-      `please remove those lines from the original file.`,
-    );
   }
 
   const { filePath, cleanup } = await writeSanitizedFile(cwd, location, sanitized);

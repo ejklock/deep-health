@@ -67,8 +67,6 @@
     },
     "advisors_title": "Análise de Advisors",
     "advisor_header": "### {{name}}",
-    "advisor_pass": "✅ limpo",
-    "advisor_fail": "⚠️ achados",
     "advisor_skipped": "— ignorado",
     "advisor_clean": "✅ limpo",
     "advisor_findings": "⚠️ achados",

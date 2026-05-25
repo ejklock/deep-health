@@ -87,8 +87,9 @@ export async function runEcosystemFix(
   logger.phase(plugin.id);
 
   // Resolve effective runner via the ecosystem runtime module
+  // Pass the per-ecosystem inline runner config from ecosystems[].runner (if any).
   const effectiveRunner: CommandRunner = plugin.runtimeSpec
-    ? await resolveEcosystemRuntime(plugin, hostRunner, config, cwd)
+    ? await resolveEcosystemRuntime(plugin, hostRunner, config, cwd, ecoConfigEntry?.runner)
     : hostRunner;
 
   // OSV staging-apply (generic, driven by plugin.osvFixSpec)

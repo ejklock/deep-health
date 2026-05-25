@@ -55,9 +55,8 @@ const OsvScannerConfigSchema = z
      * Runner selection (default: 'docker'):
      * - 'docker' (default): always use an ephemeral Docker container.
      * - 'local': require a locally installed osv-scanner binary. ⚠ Emits a warning.
-     * - 'auto': try local osv-scanner, fall back to Docker. ⚠ Deprecated escape hatch — emits a warning.
      */
-    runner: z.enum(["auto", "local", "docker"]).default("docker"),
+    runner: z.enum(["local", "docker"]).default("docker"),
     /**
      * Docker image for the OSV container (used when runner is 'docker').
      * Defaults to 'ghcr.io/google/osv-scanner:latest'.
@@ -181,16 +180,6 @@ const OutputsConfigSchema = z
      * Defaults to false.
      */
     sub_folders: z.boolean().optional(),
-  })
-  .strict();
-
-/** Declarative ecosystem config entry */
-const EcosystemConfigSchema = z
-  .object({
-    id: z.string(),
-    fixer: FixerStrategyIdSchema.optional(),
-    validationCommands: z.array(ValidationCommandConfigSchema).optional(),
-    advisors: z.array(AdvisorConfigSchema).optional(),
   })
   .strict();
 
@@ -416,19 +405,36 @@ const ComposerRunnerConfigSchema = z
     }
   });
 
+/**
+ * Union of all per-ecosystem runner configs.
+ * Used by EcosystemConfigSchema to type the optional inline runner field.
+ */
+const EcosystemRunnerConfigSchema = z.union([
+  NpmRunnerConfigSchema,
+  PipRunnerConfigSchema,
+  ComposerRunnerConfigSchema,
+]);
+
+/**
+ * Declarative ecosystem config entry.
+ * Each entry declares an ecosystem id plus optional inline runner, fixer,
+ * validation commands, and advisor commands.
+ */
+const EcosystemConfigSchema = z
+  .object({
+    id: z.string(),
+    fixer: FixerStrategyIdSchema.optional(),
+    validationCommands: z.array(ValidationCommandConfigSchema).optional(),
+    advisors: z.array(AdvisorConfigSchema).optional(),
+    runner: EcosystemRunnerConfigSchema.optional(),
+  })
+  .strict();
+
 const ScannersConfigSchema = z
   .object({
     sonarqube: SonarQubeConfigSchema.optional(),
     osv: OsvScannerConfigSchema.optional(),
     primary: z.string().optional(),
-  })
-  .strict();
-
-const RunnersConfigSchema = z
-  .object({
-    npm: NpmRunnerConfigSchema.optional(),
-    pip: PipRunnerConfigSchema.optional(),
-    composer: ComposerRunnerConfigSchema.optional(),
   })
   .strict();
 
@@ -543,7 +549,6 @@ export const ProjectConfigSchema = z
     cloud_storage: CloudStorageConfigSchema.optional(),
     scan: ScanPathsConfigSchema.optional(),
     scanners: ScannersConfigSchema.optional(),
-    runners: RunnersConfigSchema.optional(),
     outputs: OutputsConfigSchema.optional(),
     workflow: WorkflowConfigSchema.optional(),
   })

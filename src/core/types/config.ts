@@ -44,10 +44,7 @@ export interface ValidationCommandConfig {
 }
 
 /** Runner selection for OSV scanner */
-export type OsvRunnerMode = "auto" | "docker" | "local";
-
-/** Runner selection for npm commands */
-export type NpmRunnerMode = "auto" | "docker" | "local";
+export type OsvRunnerMode = "docker" | "local";
 
 /** OSV scanner engine configuration */
 export interface OsvScannerConfig {
@@ -57,7 +54,6 @@ export interface OsvScannerConfig {
    * Runner selection strategy (default: 'docker').
    * - 'docker': always run osv-scanner via an ephemeral Docker container. ← DEFAULT
    * - 'local':  always use the local osv-scanner binary; fail if not installed.
-   * - 'auto':   try local first; fall back to Docker if unavailable. ⚠ DEPRECATED escape hatch — emits a warning.
    */
   runner?: OsvRunnerMode;
   /**
@@ -78,13 +74,6 @@ export type ImageSource = 'pull' | 'dockerfile';
 
 /** npm runner configuration */
 export interface NpmRunnerConfig {
-  /**
-   * Runner selection strategy (default: 'docker').
-   * - 'docker': run npm via an ephemeral Node Docker container. ← DEFAULT
-   * - 'local':  use the locally installed npm binary. ⚠ emits a warning.
-   * - 'auto':   try local npm first; fall back to Docker. ⚠ DEPRECATED escape hatch — emits a warning.
-   */
-  mode?: NpmRunnerMode;
   /**
    * Docker image to use when mode is 'docker'.
    * When absent, the image is resolved from the inferred/configured Node version
@@ -183,6 +172,8 @@ export interface EcosystemConfig {
   validationCommands?: ValidationCommandConfig[];
   /** Advisor commands to run for this ecosystem */
   advisors?: AdvisorConfig[];
+  /** Per-ecosystem runner configuration (Docker image, version hint, native deps, etc.) */
+  runner?: RunnerConfig;
 }
 
 export interface CloudStorageConfig {
@@ -321,18 +312,8 @@ export interface SonarQubeConfig {
   scanner_jvm_opts?: string;
 }
 
-/** Runner selection for composer commands */
-export type ComposerRunnerMode = "auto" | "docker" | "local";
-
 /** Composer runner configuration */
 export interface ComposerRunnerConfig {
-  /**
-   * Runner selection strategy (default: 'docker').
-   * - 'docker': run composer via an ephemeral PHP Docker container. ← DEFAULT
-   * - 'local':  use the locally installed composer binary. ⚠ emits a warning.
-   * - 'auto':   try local composer first; fall back to Docker. ⚠ DEPRECATED escape hatch — emits a warning.
-   */
-  mode?: ComposerRunnerMode;
   /**
    * Docker image to use when mode is 'docker'.
    * When absent, the image is resolved from the inferred/configured PHP version
@@ -395,18 +376,8 @@ export interface ComposerRunnerConfig {
   allow_build_context_escape?: boolean;
 }
 
-/** Runner selection for pip commands */
-export type PipRunnerMode = "auto" | "docker" | "local";
-
 /** pip runner configuration */
 export interface PipRunnerConfig {
-  /**
-   * Runner selection strategy (default: 'docker').
-   * - 'docker': run pip via an ephemeral Python Docker container. ← DEFAULT
-   * - 'local':  use the locally installed pip binary. ⚠ emits a warning.
-   * - 'auto':   try local pip first; fall back to Docker. ⚠ DEPRECATED escape hatch — emits a warning.
-   */
-  mode?: PipRunnerMode;
   /**
    * Docker image to use when mode is 'docker'.
    * When absent, the image is resolved from the inferred/configured Python version.
@@ -474,11 +445,8 @@ export interface ScannersConfig {
   primary?: string;
 }
 
-export interface RunnersConfig {
-  npm?: NpmRunnerConfig;
-  pip?: PipRunnerConfig;
-  composer?: ComposerRunnerConfig;
-}
+/** Per-ecosystem runner configuration (inline, keyed by ecosystem id). */
+export type RunnerConfig = NpmRunnerConfig | ComposerRunnerConfig | PipRunnerConfig;
 
 export interface SafeUpdatePolicy {
   allow_patch_and_minor_within_constraints: boolean;
@@ -572,8 +540,6 @@ export interface ProjectConfig {
   /** Top-level scan path configuration — controls which paths osv-scanner inspects. */
   scan?: ScanPathsConfig;
   scanners?: ScannersConfig;
-  /** Ecosystem runner configurations (Docker image, version hint, native deps, etc.) */
-  runners?: RunnersConfig;
   outputs?: OutputsConfig;
   workflow?: WorkflowConfig;
 }

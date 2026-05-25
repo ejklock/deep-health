@@ -54,14 +54,8 @@ export function extractComposerLockVersions(lockJsonText: string): Map<string, s
  * - Skip if pre-update version equals post-update version (no real change).
  * - Emit `name@<postVersion>` for any version that changed or was newly added.
  *
- * The `targetNames` parameter is kept for API compatibility but is no longer used
- * as a filter — pass an empty array or the full target list; all changed packages
- * in afterVersions will be returned regardless.
- *
- * @deprecated The targetNames parameter is ignored. Pass [] or omit filtering logic.
  */
 export function buildComposerPackagesUpdated(
-  _targetNames: string[],
   beforeVersions: Map<string, string>,
   afterVersions: Map<string, string>,
 ): string[] {
@@ -99,7 +93,8 @@ export function extractPackageNames(packageRefs: string[]): string[] {
  *                             NOT applied in local mode, because local PHP IS the production PHP.
  */
 function buildComposerAutomationArgs(runner: CommandRunner, config: ProjectConfig): string[] {
-  const imageSource = config.runners?.composer?.image_source ?? 'pull';
+  const composerEcoEntry = config.ecosystems.find((e) => e.id === 'composer');
+  const imageSource = (composerEcoEntry?.runner as { image_source?: string } | undefined)?.image_source ?? 'pull';
   const useGranularIgnores = runner.environment === 'docker' && imageSource === 'pull';
 
   return [
@@ -321,9 +316,8 @@ export async function runComposerUpdater(
           const afterVersions = extractComposerLockVersions(afterLockText);
 
           // Diff ALL packages in composer.lock (before vs after) so transitive dependency
-          // changes from --with-all-dependencies are captured automatically. The targetNames
-          // parameter is ignored by buildComposerPackagesUpdated — pass [] as a no-op.
-          return buildComposerPackagesUpdated([], beforeVersions, afterVersions);
+          // changes from --with-all-dependencies are captured automatically.
+          return buildComposerPackagesUpdated(beforeVersions, afterVersions);
         } catch (readErr) {
           logger.warn(
             `composer-updater: could not read post-update composer.lock (${readErr instanceof Error ? readErr.message : String(readErr)}) — falling back to scan package list`,

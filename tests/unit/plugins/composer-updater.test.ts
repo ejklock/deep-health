@@ -612,21 +612,21 @@ describe('extractComposerLockVersions', () => {
 });
 
 // ── buildComposerPackagesUpdated unit tests ──────────────────────────────────
-// Note: the targetNames parameter is ignored — the function now diffs ALL packages
-// in afterVersions against beforeVersions to capture transitive dependency changes.
+// The function diffs ALL packages in afterVersions against beforeVersions to
+// capture transitive dependency changes.
 
 describe('buildComposerPackagesUpdated', () => {
   it('emits name@versionTo for changed packages', () => {
     const before = new Map([['vendor/pkg', '1.0.0']]);
     const after = new Map([['vendor/pkg', '1.0.1']]);
-    const result = buildComposerPackagesUpdated(['vendor/pkg'], before, after);
+    const result = buildComposerPackagesUpdated(before, after);
     expect(result).toEqual(['vendor/pkg@1.0.1']);
   });
 
   it('unchanged version is filtered', () => {
     const before = new Map([['vendor/pkg', '1.0.0']]);
     const after = new Map([['vendor/pkg', '1.0.0']]);
-    const result = buildComposerPackagesUpdated(['vendor/pkg'], before, after);
+    const result = buildComposerPackagesUpdated(before, after);
     expect(result).toEqual([]);
   });
 
@@ -634,32 +634,30 @@ describe('buildComposerPackagesUpdated', () => {
     const before = new Map([['vendor/pkg', '1.0.0']]);
     const after = new Map<string, string>();
     // afterVersions is empty — nothing to iterate, result is []
-    const result = buildComposerPackagesUpdated(['vendor/pkg'], before, after);
+    const result = buildComposerPackagesUpdated(before, after);
     expect(result).toEqual([]);
   });
 
   it('package absent in beforeVersions but present in after (new install) is emitted', () => {
     const before = new Map<string, string>();
     const after = new Map([['vendor/new', '2.0.0']]);
-    const result = buildComposerPackagesUpdated(['vendor/new'], before, after);
+    const result = buildComposerPackagesUpdated(before, after);
     expect(result).toEqual(['vendor/new@2.0.0']);
   });
 
-  it('diffs ALL packages in afterVersions regardless of targetNames — transitive deps included', () => {
-    // targetNames only lists one package, but afterVersions has two changed packages
+  it('diffs ALL packages — captures transitive deps', () => {
     const before = new Map([['vendor/direct', '1.0.0'], ['vendor/transitive', '2.0.0']]);
     const after = new Map([['vendor/direct', '1.1.0'], ['vendor/transitive', '2.1.0']]);
-    // targetNames intentionally omits vendor/transitive — it should still appear
-    const result = buildComposerPackagesUpdated(['vendor/direct'], before, after);
+    const result = buildComposerPackagesUpdated(before, after);
     expect(result).toContain('vendor/direct@1.1.0');
     expect(result).toContain('vendor/transitive@2.1.0');
     expect(result).toHaveLength(2);
   });
 
-  it('empty afterVersions produces empty result regardless of targetNames', () => {
+  it('empty afterVersions produces empty result', () => {
     const before = new Map([['vendor/pkg', '1.0.0']]);
     const after = new Map<string, string>();
-    const result = buildComposerPackagesUpdated(['vendor/pkg'], before, after);
+    const result = buildComposerPackagesUpdated(before, after);
     expect(result).toEqual([]);
   });
 });

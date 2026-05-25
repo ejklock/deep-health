@@ -48,10 +48,6 @@ export interface ExecLocale {
   /** Advisor section */
   advisors_title: string;
   advisor_header(name: string): string;
-  /** @deprecated Use advisor_clean/findings/error/skipped */
-  advisor_pass: string;
-  /** @deprecated Use advisor_clean/findings/error/skipped */
-  advisor_fail: string;
   advisor_skipped: string;
   advisor_clean: string;
   advisor_findings: string;

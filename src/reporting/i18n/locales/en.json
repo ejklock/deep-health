@@ -67,8 +67,6 @@
     },
     "advisors_title": "Advisor Analysis",
     "advisor_header": "### {{name}}",
-    "advisor_pass": "✅ clean",
-    "advisor_fail": "⚠️ findings",
     "advisor_skipped": "— skipped",
     "advisor_clean": "✅ clean",
     "advisor_findings": "⚠️ findings",
