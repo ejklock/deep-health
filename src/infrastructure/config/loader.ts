@@ -12,21 +12,21 @@ import { type Result, ok, err } from '@core/types/result';
 export const DEFAULT_CONFIG_PATH = 'project-config.yml';
 
 /**
- * Detects ecosystem runner configs that were placed under the old `scanners` block
- * and throws a clear, actionable migration error before Zod parsing.
+ * Detects legacy ecosystem runner config placements and throws clear, actionable
+ * migration errors before Zod parsing.
  *
- * The `npm`, `pip`, and `composer` runner configs moved to a top-level `runners` block
- * as of config_version "1" (2026-05-01 breaking change). Only `scanners.osv`,
- * `scanners.sonarqube`, and `scanners.primary` remain under `scanners`.
+ * Migration history:
+ * - Phase 1: `scanners.npm/pip/composer` → `runners.npm/pip/composer` (top-level block)
+ * - Phase 2: `runners.npm/pip/composer` → `ecosystems[].runner` (per-ecosystem inline)
  *
- * Also checks for the legacy `mode` field inside the new `runners` block and throws
- * if found — Docker is now the only runtime mode (see ADR-0001).
+ * The `mode` field inside ecosystem runner configs is also rejected — Docker is
+ * now the only runtime mode (see ADR-0001).
  */
 function rejectLegacyModeField(raw: unknown): void {
   if (typeof raw !== 'object' || raw === null) return;
   const obj = raw as Record<string, unknown>;
 
-  // ── Migration check: scanners.npm/pip/composer → runners.npm/pip/composer ──
+  // ── Migration check: scanners.npm/pip/composer → ecosystems[].runner ──
   const scanners = obj.scanners;
   if (typeof scanners === 'object' && scanners !== null) {
     const scannersObj = scanners as Record<string, unknown>;
@@ -34,27 +34,41 @@ function rejectLegacyModeField(raw: unknown): void {
       if (ecosystem in scannersObj) {
         throw new Error(
           `Config field 'scanners.${ecosystem}' is no longer supported. ` +
-          `Move ecosystem runner config to 'runners.${ecosystem}' (top-level block). ` +
+          `Move ecosystem runner config to the 'runner' field inside the matching ecosystems[] entry. ` +
           `See docs/adr/0004-ecosystem-runner-config-and-build-context-hardening.md for the rationale.`,
         );
       }
     }
   }
 
-  // ── Legacy mode field check: runners.npm/pip/composer ──
+  // ── Migration check: top-level runners block → ecosystems[].runner ──
   const runners = obj.runners;
   if (typeof runners === 'object' && runners !== null) {
-    const runnersObj = runners as Record<string, unknown>;
-    for (const ecosystem of ['npm', 'pip', 'composer']) {
-      const block = runnersObj[ecosystem];
-      if (typeof block === 'object' && block !== null && 'mode' in block) {
-        const value = (block as { mode: unknown }).mode;
-        throw new Error(
-          `Config field 'runners.${ecosystem}.mode' (value: '${String(value)}') is no longer supported. ` +
-          `Docker is now the only runtime mode. ` +
-          `Remove the 'mode' field from your config. ` +
-          `See docs/adr/0001-docker-only-runtime.md for the rationale.`,
-        );
+    throw new Error(
+      `The top-level 'runners' block is no longer supported. ` +
+      `Move each runner config (npm, pip, composer) to the 'runner' field inside the ` +
+      `matching ecosystems[] entry. ` +
+      `Example: ecosystems: [{ id: 'npm', runner: { language_version: '20' } }].`,
+    );
+  }
+
+  // ── Legacy mode field check in ecosystems[].runner ──
+  const ecosystems = obj.ecosystems;
+  if (Array.isArray(ecosystems)) {
+    for (const entry of ecosystems) {
+      if (typeof entry === 'object' && entry !== null) {
+        const ecoEntry = entry as Record<string, unknown>;
+        const runner = ecoEntry.runner;
+        if (typeof runner === 'object' && runner !== null && 'mode' in runner) {
+          const value = (runner as { mode: unknown }).mode;
+          const id = typeof ecoEntry.id === 'string' ? ecoEntry.id : '?';
+          throw new Error(
+            `Config field 'ecosystems[${id}].runner.mode' (value: '${String(value)}') is no longer supported. ` +
+            `Docker is now the only runtime mode. ` +
+            `Remove the 'mode' field from your config. ` +
+            `See docs/adr/0001-docker-only-runtime.md for the rationale.`,
+          );
+        }
       }
     }
   }

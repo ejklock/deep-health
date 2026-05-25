@@ -306,14 +306,13 @@ describe('OSV scanner config schema — runner + image fields', () => {
     });
   });
 
-  it('accepts osv.runner: auto', async () => {
+  it('rejects osv.runner: auto (removed — only docker and local are valid)', async () => {
     const yaml = minimalConfigWith('scanners:\n  osv:\n    runner: auto');
     await withTempConfig(yaml, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
       const result = await loadConfig(filename, dir);
-      expect(result.ok).toBe(true);
-      const config = unwrapTest(result);
-      expect(config.scanners?.osv?.runner).toBe('auto');
+      expect(result.ok).toBe(false);
+      expect(result.error).toBeInstanceOf(ConfigLoadError);
     });
   });
 
@@ -345,8 +344,7 @@ describe('OSV scanner config schema — runner + image fields', () => {
       const result = await loadConfig(filename, dir);
       expect(result.ok).toBe(false);
       expect(result.error).toBeInstanceOf(ConfigLoadError);
-      // Should show expected enum values
-      expect((result.error as ConfigLoadError).message).toMatch(/"auto"/);
+      // Should show expected enum values (docker and local only — auto was removed)
       expect((result.error as ConfigLoadError).message).toMatch(/"local"/);
       expect((result.error as ConfigLoadError).message).toMatch(/"docker"/);
     });

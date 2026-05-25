@@ -16,7 +16,7 @@
     "dev": "tsx bin/deep-health.ts",
     "build": "tsup",
     "build:sea": "tsup --config tsup.config.ts && node --experimental-sea-config sea-config.json",
-    "test": "vitest run --reporter=dot --silent tests/unit tests/integration",
+    "test": "vitest run --silent --reporter=vitest-llm-reporter tests/unit tests/integration",
     "test:verbose": "vitest run --reporter=verbose tests/unit tests/integration",
     "test:watch": "vitest",
     "test:unit": "vitest run tests/unit",
@@ -54,6 +54,7 @@
     "tsx": "^4.16.2",
     "typescript": "^5.5.4",
     "vite-tsconfig-paths": "^5.1.4",
-    "vitest": "^2.1.9"
+    "vitest": "^2.1.9",
+    "vitest-llm-reporter": "^1.2.2"
   }
 }

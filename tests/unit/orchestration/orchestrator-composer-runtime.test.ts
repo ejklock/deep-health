@@ -59,10 +59,10 @@ function makeRegistry(): ScannerEngineRegistry {
 }
 
 function baseComposerConfig(overrides: Partial<ProjectConfig> = {}): ProjectConfig {
-  const { scanners: overrideScanners, runners: overrideRunners, ...restOverrides } = overrides;
+  const { scanners: overrideScanners, ecosystems: overrideEcosystems, ...restOverrides } = overrides;
   return {
     project: { name: 'Composer Runtime Test', client: 'Test' },
-    ecosystems: [
+    ecosystems: overrideEcosystems ?? [
       {
         id: 'composer',
         validationCommands: [{ name: 'tests', command: 'php artisan test --compact' }],
@@ -80,7 +80,6 @@ function baseComposerConfig(overrides: Partial<ProjectConfig> = {}): ProjectConf
       osv: { runner: 'local' },
       ...(overrideScanners ?? {}),
     },
-    ...(overrideRunners ? { runners: overrideRunners } : {}),
     ...restOverrides,
   };
 }
@@ -198,7 +197,14 @@ describe('runOrchestrator — composer runtime phase 1', () => {
 
   it('docker mode routes env-check through composer container runner (not host fallback)', async () => {
     const config = baseComposerConfig({
-      runners: { composer: { mode: 'docker', language_version: '8.2' } },
+      ecosystems: [
+        {
+          id: 'composer',
+          validationCommands: [{ name: 'tests', command: 'php artisan test --compact' }],
+          advisors: [{ name: 'audit', command: 'composer audit' }],
+          runner: { language_version: '8.2' },
+        },
+      ],
     });
 
     const containerRunSpy = vi

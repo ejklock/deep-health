@@ -121,54 +121,48 @@ describe('generateConfigYaml', () => {
     expect(Array.isArray(parsed.protected_packages['pip'])).toBe(true);
   });
 
-  it('emits runners.pip block when pipLanguageVersion provided (no sonarqube)', () => {
+  it('passes schema validation when pipLanguageVersion provided (no sonarqube)', () => {
     const yaml = generateConfigYaml({
       pipLanguageVersion: '3.11',
       ecosystemConfigs: [{ id: 'pip' }],
     });
-    const parsed = parse(yaml) as { runners?: { pip?: { language_version?: string } } };
-    expect(parsed.runners?.pip?.language_version).toBe('3.11');
+    const parsed = parse(yaml);
+    const result = ProjectConfigSchema.safeParse(parsed);
+    // runners block is no longer generated — per-ecosystem runner config is the new pattern
+    expect(result.success).toBe(true);
   });
 
-  it('emits both runners.npm and runners.pip blocks when both languageVersion options provided', () => {
+  it('passes schema validation when both npmLanguageVersion and pipLanguageVersion provided', () => {
     const yaml = generateConfigYaml({
       npmLanguageVersion: '20',
       pipLanguageVersion: '3.11',
       ecosystemConfigs: [{ id: 'npm' }, { id: 'pip' }],
     });
-    const parsed = parse(yaml) as {
-      runners?: { npm?: { language_version?: string }; pip?: { language_version?: string } };
-    };
-    expect(parsed.runners?.npm?.language_version).toBe('20');
-    expect(parsed.runners?.pip?.language_version).toBe('3.11');
+    const parsed = parse(yaml);
+    const result = ProjectConfigSchema.safeParse(parsed);
+    expect(result.success).toBe(true);
   });
 
-  it('emits runners.composer block when composerLanguageVersion provided (without SonarQube)', () => {
+  it('passes schema validation when composerLanguageVersion provided (without SonarQube)', () => {
     const yaml = generateConfigYaml({
       composerLanguageVersion: '8.2',
       ecosystemConfigs: [{ id: 'composer' }],
     });
-    const parsed = parse(yaml) as { runners?: { composer?: { language_version?: string } } };
-    expect(parsed.runners?.composer?.language_version).toBe('8.2');
+    const parsed = parse(yaml);
+    const result = ProjectConfigSchema.safeParse(parsed);
+    expect(result.success).toBe(true);
   });
 
-  it('emits npm + pip + composer runner language_version blocks together', () => {
+  it('passes schema validation when npm + pip + composer languageVersions provided together', () => {
     const yaml = generateConfigYaml({
       npmLanguageVersion: '20',
       pipLanguageVersion: '3.11',
       composerLanguageVersion: '8.3',
       ecosystemConfigs: [{ id: 'npm' }, { id: 'pip' }, { id: 'composer' }],
     });
-    const parsed = parse(yaml) as {
-      runners?: {
-        npm?: { language_version?: string };
-        pip?: { language_version?: string };
-        composer?: { language_version?: string };
-      };
-    };
-    expect(parsed.runners?.npm?.language_version).toBe('20');
-    expect(parsed.runners?.pip?.language_version).toBe('3.11');
-    expect(parsed.runners?.composer?.language_version).toBe('8.3');
+    const parsed = parse(yaml);
+    const result = ProjectConfigSchema.safeParse(parsed);
+    expect(result.success).toBe(true);
   });
 });
 
@@ -277,58 +271,6 @@ describe('normalizeSonarProjectKey', () => {
 });
 
 describe('generateConfigYaml — dockerfile image_source options', () => {
-  it('emits image_source and dockerfile_path under runners.npm when npmImageSource="dockerfile"', () => {
-    const yaml = generateConfigYaml({
-      npmLanguageVersion: '20',
-      npmImageSource: 'dockerfile',
-      npmDockerfilePath: '.docker/node.Dockerfile',
-      ecosystemConfigs: [{ id: 'npm' }],
-    });
-    const parsed = parse(yaml) as {
-      runners?: { npm?: { image_source?: string; dockerfile_path?: string } };
-    };
-    expect(parsed.runners?.npm?.image_source).toBe('dockerfile');
-    expect(parsed.runners?.npm?.dockerfile_path).toBe('.docker/node.Dockerfile');
-  });
-
-  it('does NOT emit image_source under npm when npmImageSource is absent or "pull"', () => {
-    const yaml = generateConfigYaml({
-      npmLanguageVersion: '20',
-      ecosystemConfigs: [{ id: 'npm' }],
-    });
-    const parsed = parse(yaml) as { runners?: { npm?: Record<string, unknown> } };
-    expect(parsed.runners?.npm?.['image_source']).toBeUndefined();
-    expect(parsed.runners?.npm?.['dockerfile_path']).toBeUndefined();
-  });
-
-  it('emits image_source and dockerfile_path under runners.pip when pipImageSource="dockerfile"', () => {
-    const yaml = generateConfigYaml({
-      pipLanguageVersion: '3.11',
-      pipImageSource: 'dockerfile',
-      pipDockerfilePath: 'Dockerfile',
-      ecosystemConfigs: [{ id: 'pip' }],
-    });
-    const parsed = parse(yaml) as {
-      runners?: { pip?: { image_source?: string; dockerfile_path?: string } };
-    };
-    expect(parsed.runners?.pip?.image_source).toBe('dockerfile');
-    expect(parsed.runners?.pip?.dockerfile_path).toBe('Dockerfile');
-  });
-
-  it('emits image_source and dockerfile_path under runners.composer when composerImageSource="dockerfile"', () => {
-    const yaml = generateConfigYaml({
-      composerLanguageVersion: '8.2',
-      composerImageSource: 'dockerfile',
-      composerDockerfilePath: '.docker/php.Dockerfile',
-      ecosystemConfigs: [{ id: 'composer' }],
-    });
-    const parsed = parse(yaml) as {
-      runners?: { composer?: { image_source?: string; dockerfile_path?: string } };
-    };
-    expect(parsed.runners?.composer?.image_source).toBe('dockerfile');
-    expect(parsed.runners?.composer?.dockerfile_path).toBe('.docker/php.Dockerfile');
-  });
-
   it('generated config with npmImageSource="dockerfile" passes schema validation', () => {
     const yaml = generateConfigYaml({
       npmLanguageVersion: '20',
@@ -341,85 +283,38 @@ describe('generateConfigYaml — dockerfile image_source options', () => {
     expect(result.success).toBe(true);
   });
 
-  it('triggers hasAnyRunnerConfig when only npmImageSource is set (no languageVersion)', () => {
-    const yaml = generateConfigYaml({
-      npmImageSource: 'dockerfile',
-      npmDockerfilePath: 'Dockerfile',
-      ecosystemConfigs: [{ id: 'npm' }],
-    });
-    // Should produce a runners block (hasAnyRunnerConfig=true)
-    expect(yaml).toContain('runners:');
-    expect(yaml).toContain('image_source:');
-    expect(yaml).toContain('dockerfile_path:');
-  });
-
-  it('emits build_context under runners.npm when npmBuildContext is provided', () => {
+  it('generated config with npmImageSource absent passes schema validation', () => {
     const yaml = generateConfigYaml({
       npmLanguageVersion: '20',
-      npmImageSource: 'dockerfile',
-      npmDockerfilePath: 'Dockerfile',
-      npmBuildContext: 'docker/',
       ecosystemConfigs: [{ id: 'npm' }],
     });
-    const parsed = parse(yaml) as { runners?: { npm?: Record<string, unknown> } };
-    expect(parsed.runners?.npm?.['build_context']).toBe('docker/');
+    const parsed = parse(yaml);
+    const result = ProjectConfigSchema.safeParse(parsed);
+    expect(result.success).toBe(true);
   });
 
-  it('emits build_args under runners.npm when npmBuildArgs is provided', () => {
-    const yaml = generateConfigYaml({
-      npmLanguageVersion: '20',
-      npmImageSource: 'dockerfile',
-      npmDockerfilePath: 'Dockerfile',
-      npmBuildArgs: { NODE_VERSION: '20', APP_ENV: 'production' },
-      ecosystemConfigs: [{ id: 'npm' }],
-    });
-    const parsed = parse(yaml) as { runners?: { npm?: { build_args?: Record<string, string> } } };
-    expect(parsed.runners?.npm?.build_args?.NODE_VERSION).toBe('20');
-    expect(parsed.runners?.npm?.build_args?.APP_ENV).toBe('production');
-  });
-
-  it('does NOT emit build_context or build_args when npmImageSource is absent', () => {
-    const yaml = generateConfigYaml({
-      npmLanguageVersion: '20',
-      npmBuildContext: 'docker/',
-      npmBuildArgs: { KEY: 'val' },
-      ecosystemConfigs: [{ id: 'npm' }],
-    });
-    const parsed = parse(yaml) as { runners?: { npm?: Record<string, unknown> } };
-    expect(parsed.runners?.npm?.['build_context']).toBeUndefined();
-    expect(parsed.runners?.npm?.['build_args']).toBeUndefined();
-  });
-
-  it('emits build_context and build_args under runners.pip when provided', () => {
+  it('generated config with pipImageSource="dockerfile" passes schema validation', () => {
     const yaml = generateConfigYaml({
       pipLanguageVersion: '3.11',
       pipImageSource: 'dockerfile',
       pipDockerfilePath: 'Dockerfile',
-      pipBuildContext: '.',
-      pipBuildArgs: { PYTHON_VERSION: '3.11' },
       ecosystemConfigs: [{ id: 'pip' }],
     });
-    const parsed = parse(yaml) as {
-      runners?: { pip?: { build_context?: string; build_args?: Record<string, string> } };
-    };
-    expect(parsed.runners?.pip?.build_context).toBe('.');
-    expect(parsed.runners?.pip?.build_args?.PYTHON_VERSION).toBe('3.11');
+    const parsed = parse(yaml);
+    const result = ProjectConfigSchema.safeParse(parsed);
+    expect(result.success).toBe(true);
   });
 
-  it('emits build_context and build_args under runners.composer when provided', () => {
+  it('generated config with composerImageSource="dockerfile" passes schema validation', () => {
     const yaml = generateConfigYaml({
       composerLanguageVersion: '8.2',
       composerImageSource: 'dockerfile',
       composerDockerfilePath: '.docker/php.Dockerfile',
-      composerBuildContext: '.docker/',
-      composerBuildArgs: { PHP_VERSION: '8.2' },
       ecosystemConfigs: [{ id: 'composer' }],
     });
-    const parsed = parse(yaml) as {
-      runners?: { composer?: { build_context?: string; build_args?: Record<string, string> } };
-    };
-    expect(parsed.runners?.composer?.build_context).toBe('.docker/');
-    expect(parsed.runners?.composer?.build_args?.PHP_VERSION).toBe('8.2');
+    const parsed = parse(yaml);
+    const result = ProjectConfigSchema.safeParse(parsed);
+    expect(result.success).toBe(true);
   });
 
   it('generated config with build_context and build_args passes schema validation', () => {
@@ -430,6 +325,34 @@ describe('generateConfigYaml — dockerfile image_source options', () => {
       npmBuildContext: '.',
       npmBuildArgs: { NODE_ENV: 'test' },
       ecosystemConfigs: [{ id: 'npm' }],
+    });
+    const parsed = parse(yaml);
+    const result = ProjectConfigSchema.safeParse(parsed);
+    expect(result.success).toBe(true);
+  });
+
+  it('generated config with pip build_context and build_args passes schema validation', () => {
+    const yaml = generateConfigYaml({
+      pipLanguageVersion: '3.11',
+      pipImageSource: 'dockerfile',
+      pipDockerfilePath: 'Dockerfile',
+      pipBuildContext: '.',
+      pipBuildArgs: { PYTHON_VERSION: '3.11' },
+      ecosystemConfigs: [{ id: 'pip' }],
+    });
+    const parsed = parse(yaml);
+    const result = ProjectConfigSchema.safeParse(parsed);
+    expect(result.success).toBe(true);
+  });
+
+  it('generated config with composer build_context and build_args passes schema validation', () => {
+    const yaml = generateConfigYaml({
+      composerLanguageVersion: '8.2',
+      composerImageSource: 'dockerfile',
+      composerDockerfilePath: '.docker/php.Dockerfile',
+      composerBuildContext: '.docker/',
+      composerBuildArgs: { PHP_VERSION: '8.2' },
+      ecosystemConfigs: [{ id: 'composer' }],
     });
     const parsed = parse(yaml);
     const result = ProjectConfigSchema.safeParse(parsed);

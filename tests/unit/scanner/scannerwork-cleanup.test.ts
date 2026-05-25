@@ -23,7 +23,6 @@ vi.mock('@modules/scanner/sonar-properties', () => ({
     strippedKeys: [],
     fromScratch: false,
   })),
-  DEPRECATED_AUTH_KEYS: [],
   CLI_OWNED_KEYS: [],
 }));
 

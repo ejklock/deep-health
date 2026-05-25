@@ -275,7 +275,6 @@ function parseOsvJsonOutput(
  * Runner selection (from config.scanners.osv.runner):
  * - 'local'  — always use the local binary; fail if not installed.
  * - 'docker' — always run via an ephemeral OsvDockerRunner container.
- * - 'auto'   — try local first; fall back to Docker if local is unavailable.
  */
 export class OsvScannerEngine implements ScannerEngine {
   readonly id = 'osv';
@@ -325,19 +324,6 @@ export class OsvScannerEngine implements ScannerEngine {
       }
       return;
     }
-
-    // 'auto': local is preferred; Docker is the fallback.
-    const localOk = await this.isLocalAvailable(ctx);
-    if (localOk) return;
-
-    const dockerOk = await this.isDockerAvailable(ctx);
-    if (dockerOk) return;
-
-    const hint = getPlatformInstallHint('osv-scanner');
-    throw new EnvironmentError(
-      `osv-scanner is not available locally and Docker is not available either (runner: auto). ` +
-      `${hint} or install Docker to use the container fallback.`,
-    );
   }
 
   // ── Scan ─────────────────────────────────────────────────────────────────────
@@ -368,24 +354,16 @@ export class OsvScannerEngine implements ScannerEngine {
 
       const runnerMode = config.scanners?.osv?.runner ?? 'docker';
 
-      // Warn once for deprecated/non-docker runner modes
+      // Warn when using local runner (non-default)
       if (runnerMode === 'local') {
         logger.warn(
           '[OSV runner] runner=local: using local osv-scanner binary. ' +
           'Docker (runner: docker) is the recommended default for reproducible, ' +
           'platform-independent scans. Set scanners.osv.runner to "docker" in your config.',
         );
-      } else if (runnerMode === 'auto') {
-        logger.warn(
-          '[OSV runner] runner=auto is a deprecated escape hatch. ' +
-          'Docker (runner: docker) is now the default. ' +
-          'Set scanners.osv.runner explicitly to "docker" or "local" in your config.',
-        );
       }
 
-      // Determine effective runner: for 'auto' re-check local to pick path.
-      const useDocker = runnerMode === 'docker' ||
-        (runnerMode === 'auto' && !(await this.isLocalAvailable(ctx)));
+      const useDocker = runnerMode === 'docker';
 
       // ── Resolve scan args (scan.paths takes precedence over plugin defaults) ──
       const scanConfig = config.scan;

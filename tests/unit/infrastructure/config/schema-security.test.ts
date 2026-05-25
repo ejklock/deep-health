@@ -24,16 +24,19 @@ function makeConfig(scanners: Record<string, unknown>) {
   return { ...minimalConfig, scanners };
 }
 
-/** Build a config with the given runners block merged in (npm/pip/composer runner configs) */
-function makeRunnerConfig(runners: Record<string, unknown>) {
-  return { ...minimalConfig, runners };
+/** Build a config with the given runner block for a specific ecosystem */
+function makeRunnerConfig(ecosystemId: string, runner: Record<string, unknown>) {
+  return {
+    ...minimalConfig,
+    ecosystems: [{ id: ecosystemId, runner }],
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Group A — DockerImageRefSchema
 // ---------------------------------------------------------------------------
 
-describe('DockerImageRefSchema — scanners.npm.image', () => {
+describe('DockerImageRefSchema — ecosystems[npm].runner.image', () => {
   it.each([
     'node:20',
     'python:3.11-slim',
@@ -42,48 +45,48 @@ describe('DockerImageRefSchema — scanners.npm.image', () => {
     'image@sha256:abc123def456',
   ])('accepts valid image reference: %s', (image) => {
     const result = ProjectConfigSchema.safeParse(
-      makeRunnerConfig({ npm: { image } }),
+      makeRunnerConfig('npm', { image }),
     );
     expect(result.success).toBe(true);
   });
 
   it('rejects image with shell metacharacter (semicolon)', () => {
     const result = ProjectConfigSchema.safeParse(
-      makeRunnerConfig({ npm: { image: 'node:20 ; rm -rf /' } }),
+      makeRunnerConfig('npm', { image: 'node:20 ; rm -rf /' }),
     );
     expect(result.success).toBe(false);
   });
 
   it('rejects image with leading space', () => {
     const result = ProjectConfigSchema.safeParse(
-      makeRunnerConfig({ npm: { image: ' node:20' } }),
+      makeRunnerConfig('npm', { image: ' node:20' }),
     );
     expect(result.success).toBe(false);
   });
 
   it('rejects image starting with dash (--privileged)', () => {
     const result = ProjectConfigSchema.safeParse(
-      makeRunnerConfig({ npm: { image: '--privileged' } }),
+      makeRunnerConfig('npm', { image: '--privileged' }),
     );
     expect(result.success).toBe(false);
   });
 
   it('rejects image with uppercase character (Node:20)', () => {
     const result = ProjectConfigSchema.safeParse(
-      makeRunnerConfig({ npm: { image: 'Node:20' } }),
+      makeRunnerConfig('npm', { image: 'Node:20' }),
     );
     expect(result.success).toBe(false);
   });
 
   it('rejects image with embedded newline', () => {
     const result = ProjectConfigSchema.safeParse(
-      makeRunnerConfig({ npm: { image: 'node:20\nmalicious' } }),
+      makeRunnerConfig('npm', { image: 'node:20\nmalicious' }),
     );
     expect(result.success).toBe(false);
   });
 });
 
-describe('DockerImageRefSchema — scanners.pip.image', () => {
+describe('DockerImageRefSchema — ecosystems[pip].runner.image', () => {
   it.each([
     'node:20',
     'python:3.11-slim',
@@ -93,8 +96,7 @@ describe('DockerImageRefSchema — scanners.pip.image', () => {
   ])('accepts valid image reference: %s', (image) => {
     const result = ProjectConfigSchema.safeParse({
       ...minimalConfig,
-      ecosystems: [{ id: 'pip' }],
-      runners: { pip: { image } },
+      ecosystems: [{ id: 'pip', runner: { image } }],
     });
     expect(result.success).toBe(true);
   });
@@ -102,8 +104,7 @@ describe('DockerImageRefSchema — scanners.pip.image', () => {
   it('rejects image with shell metacharacter', () => {
     const result = ProjectConfigSchema.safeParse({
       ...minimalConfig,
-      ecosystems: [{ id: 'pip' }],
-      runners: { pip: { image: 'node:20 ; rm -rf /' } },
+      ecosystems: [{ id: 'pip', runner: { image: 'node:20 ; rm -rf /' } }],
     });
     expect(result.success).toBe(false);
   });
@@ -111,14 +112,13 @@ describe('DockerImageRefSchema — scanners.pip.image', () => {
   it('rejects image with uppercase character', () => {
     const result = ProjectConfigSchema.safeParse({
       ...minimalConfig,
-      ecosystems: [{ id: 'pip' }],
-      runners: { pip: { image: 'Node:20' } },
+      ecosystems: [{ id: 'pip', runner: { image: 'Node:20' } }],
     });
     expect(result.success).toBe(false);
   });
 });
 
-describe('DockerImageRefSchema — scanners.composer.image', () => {
+describe('DockerImageRefSchema — ecosystems[composer].runner.image', () => {
   it.each([
     'node:20',
     'python:3.11-slim',
@@ -128,8 +128,7 @@ describe('DockerImageRefSchema — scanners.composer.image', () => {
   ])('accepts valid image reference: %s', (image) => {
     const result = ProjectConfigSchema.safeParse({
       ...minimalConfig,
-      ecosystems: [{ id: 'composer' }],
-      runners: { composer: { image } },
+      ecosystems: [{ id: 'composer', runner: { image } }],
     });
     expect(result.success).toBe(true);
   });
@@ -137,8 +136,7 @@ describe('DockerImageRefSchema — scanners.composer.image', () => {
   it('rejects image with shell metacharacter', () => {
     const result = ProjectConfigSchema.safeParse({
       ...minimalConfig,
-      ecosystems: [{ id: 'composer' }],
-      runners: { composer: { image: 'node:20 ; rm -rf /' } },
+      ecosystems: [{ id: 'composer', runner: { image: 'node:20 ; rm -rf /' } }],
     });
     expect(result.success).toBe(false);
   });
@@ -146,8 +144,7 @@ describe('DockerImageRefSchema — scanners.composer.image', () => {
   it('rejects image with uppercase character', () => {
     const result = ProjectConfigSchema.safeParse({
       ...minimalConfig,
-      ecosystems: [{ id: 'composer' }],
-      runners: { composer: { image: 'Node:20' } },
+      ecosystems: [{ id: 'composer', runner: { image: 'Node:20' } }],
     });
     expect(result.success).toBe(false);
   });
@@ -253,12 +250,10 @@ describe('DockerImageRefSchema — scanners.osv.image', () => {
 describe('build_args — valid key/value pairs', () => {
   it('accepts uppercase keys with alphanumeric values', () => {
     const result = ProjectConfigSchema.safeParse(
-      makeRunnerConfig({
-        npm: {
-          image_source: 'dockerfile',
-          dockerfile_path: 'Dockerfile',
-          build_args: { NODE_VERSION: '20', APP_ENV: 'production' },
-        },
+      makeRunnerConfig('npm', {
+        image_source: 'dockerfile',
+        dockerfile_path: 'Dockerfile',
+        build_args: { NODE_VERSION: '20', APP_ENV: 'production' },
       }),
     );
     expect(result.success).toBe(true);
@@ -266,12 +261,10 @@ describe('build_args — valid key/value pairs', () => {
 
   it('accepts keys starting with underscore', () => {
     const result = ProjectConfigSchema.safeParse(
-      makeRunnerConfig({
-        npm: {
-          image_source: 'dockerfile',
-          dockerfile_path: 'Dockerfile',
-          build_args: { _PRIVATE: 'value' },
-        },
+      makeRunnerConfig('npm', {
+        image_source: 'dockerfile',
+        dockerfile_path: 'Dockerfile',
+        build_args: { _PRIVATE: 'value' },
       }),
     );
     expect(result.success).toBe(true);
@@ -281,12 +274,10 @@ describe('build_args — valid key/value pairs', () => {
 describe('build_args — invalid keys', () => {
   it('rejects lowercase key', () => {
     const result = ProjectConfigSchema.safeParse(
-      makeRunnerConfig({
-        npm: {
-          image_source: 'dockerfile',
-          dockerfile_path: 'Dockerfile',
-          build_args: { lower_key: 'val' },
-        },
+      makeRunnerConfig('npm', {
+        image_source: 'dockerfile',
+        dockerfile_path: 'Dockerfile',
+        build_args: { lower_key: 'val' },
       }),
     );
     expect(result.success).toBe(false);
@@ -294,12 +285,10 @@ describe('build_args — invalid keys', () => {
 
   it('rejects key with space', () => {
     const result = ProjectConfigSchema.safeParse(
-      makeRunnerConfig({
-        npm: {
-          image_source: 'dockerfile',
-          dockerfile_path: 'Dockerfile',
-          build_args: { 'KEY SPACE': 'val' },
-        },
+      makeRunnerConfig('npm', {
+        image_source: 'dockerfile',
+        dockerfile_path: 'Dockerfile',
+        build_args: { 'KEY SPACE': 'val' },
       }),
     );
     expect(result.success).toBe(false);
@@ -307,12 +296,10 @@ describe('build_args — invalid keys', () => {
 
   it('rejects key starting with digit', () => {
     const result = ProjectConfigSchema.safeParse(
-      makeRunnerConfig({
-        npm: {
-          image_source: 'dockerfile',
-          dockerfile_path: 'Dockerfile',
-          build_args: { '123KEY': 'val' },
-        },
+      makeRunnerConfig('npm', {
+        image_source: 'dockerfile',
+        dockerfile_path: 'Dockerfile',
+        build_args: { '123KEY': 'val' },
       }),
     );
     expect(result.success).toBe(false);
@@ -322,12 +309,10 @@ describe('build_args — invalid keys', () => {
 describe('build_args — invalid values', () => {
   it('rejects value containing newline', () => {
     const result = ProjectConfigSchema.safeParse(
-      makeRunnerConfig({
-        npm: {
-          image_source: 'dockerfile',
-          dockerfile_path: 'Dockerfile',
-          build_args: { KEY: 'val\ninjected' },
-        },
+      makeRunnerConfig('npm', {
+        image_source: 'dockerfile',
+        dockerfile_path: 'Dockerfile',
+        build_args: { KEY: 'val\ninjected' },
       }),
     );
     expect(result.success).toBe(false);
@@ -335,12 +320,10 @@ describe('build_args — invalid values', () => {
 
   it('rejects value containing carriage return', () => {
     const result = ProjectConfigSchema.safeParse(
-      makeRunnerConfig({
-        npm: {
-          image_source: 'dockerfile',
-          dockerfile_path: 'Dockerfile',
-          build_args: { KEY: 'val\rinjected' },
-        },
+      makeRunnerConfig('npm', {
+        image_source: 'dockerfile',
+        dockerfile_path: 'Dockerfile',
+        build_args: { KEY: 'val\rinjected' },
       }),
     );
     expect(result.success).toBe(false);
@@ -594,54 +577,38 @@ describe('ScanPathsConfig — path traversal prevention', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Group G — Removed deprecated composer fields
+// Group G — Removed deprecated composer fields and removed global runners block
 // ---------------------------------------------------------------------------
 
 describe('ComposerRunnerConfig — removed deprecated fields are rejected', () => {
-  it('rejects image_strategy in runners.composer (.strict() enforcement)', () => {
+  it('rejects image_strategy in ecosystems[composer].runner (.strict() enforcement)', () => {
     const result = ProjectConfigSchema.safeParse({
       ...minimalConfig,
-      ecosystems: [{ id: 'composer' }],
-      runners: {
-        composer: {
-          image_strategy: 'build',
-        },
-      },
+      ecosystems: [{ id: 'composer', runner: { image_strategy: 'build' } }],
     });
     expect(result.success).toBe(false);
     if (!result.success) {
       const messages = result.error.issues.map((i) => i.message).join(' ');
-      expect(messages).toMatch(/image_strategy/);
+      expect(messages).toMatch(/image_strategy|Unrecognized key/);
     }
   });
 
-  it('rejects framework_profile in runners.composer (.strict() enforcement)', () => {
+  it('rejects framework_profile in ecosystems[composer].runner (.strict() enforcement)', () => {
     const result = ProjectConfigSchema.safeParse({
       ...minimalConfig,
-      ecosystems: [{ id: 'composer' }],
-      runners: {
-        composer: {
-          framework_profile: 'laravel',
-        },
-      },
+      ecosystems: [{ id: 'composer', runner: { framework_profile: 'laravel' } }],
     });
     expect(result.success).toBe(false);
     if (!result.success) {
       const messages = result.error.issues.map((i) => i.message).join(' ');
-      expect(messages).toMatch(/framework_profile/);
+      expect(messages).toMatch(/framework_profile|Unrecognized key/);
     }
   });
 
   it('rejects both image_strategy and framework_profile together', () => {
     const result = ProjectConfigSchema.safeParse({
       ...minimalConfig,
-      ecosystems: [{ id: 'composer' }],
-      runners: {
-        composer: {
-          image_strategy: 'pull',
-          framework_profile: 'symfony',
-        },
-      },
+      ecosystems: [{ id: 'composer', runner: { image_strategy: 'pull', framework_profile: 'symfony' } }],
     });
     expect(result.success).toBe(false);
   });
@@ -649,15 +616,17 @@ describe('ComposerRunnerConfig — removed deprecated fields are rejected', () =
   it('still accepts valid composer config without deprecated fields', () => {
     const result = ProjectConfigSchema.safeParse({
       ...minimalConfig,
-      ecosystems: [{ id: 'composer' }],
-      runners: {
-        composer: {
-          language_version: '8.2',
-          native_deps: ['git', 'unzip'],
-        },
-      },
+      ecosystems: [{ id: 'composer', runner: { language_version: '8.2', native_deps: ['git', 'unzip'] } }],
     });
     expect(result.success).toBe(true);
+  });
+
+  it('rejects global runners block (removed — use ecosystems[].runner instead)', () => {
+    const result = ProjectConfigSchema.safeParse({
+      ...minimalConfig,
+      runners: { npm: { language_version: '20' } },
+    });
+    expect(result.success).toBe(false);
   });
 });
 
@@ -667,72 +636,72 @@ describe('ComposerRunnerConfig — removed deprecated fields are rejected', () =
 
 describe('allow_build_context_escape — accepted in all ecosystem runner configs', () => {
   it.each(['npm', 'pip', 'composer'] as const)(
-    'accepts allow_build_context_escape: true in runners.%s',
+    'accepts allow_build_context_escape: true in ecosystems[%s].runner',
     (ecosystem) => {
       const result = ProjectConfigSchema.safeParse({
         ...minimalConfig,
-        ecosystems: [{ id: ecosystem }],
-        runners: {
-          [ecosystem]: {
+        ecosystems: [{
+          id: ecosystem,
+          runner: {
             image_source: 'dockerfile',
             dockerfile_path: 'Dockerfile',
             allow_build_context_escape: true,
           },
-        },
+        }],
       });
       expect(result.success).toBe(true);
     },
   );
 
   it.each(['npm', 'pip', 'composer'] as const)(
-    'accepts allow_build_context_escape: false in runners.%s',
+    'accepts allow_build_context_escape: false in ecosystems[%s].runner',
     (ecosystem) => {
       const result = ProjectConfigSchema.safeParse({
         ...minimalConfig,
-        ecosystems: [{ id: ecosystem }],
-        runners: {
-          [ecosystem]: {
+        ecosystems: [{
+          id: ecosystem,
+          runner: {
             image_source: 'dockerfile',
             dockerfile_path: 'Dockerfile',
             allow_build_context_escape: false,
           },
-        },
+        }],
       });
       expect(result.success).toBe(true);
     },
   );
 
   it.each(['npm', 'pip', 'composer'] as const)(
-    'accepts omitted allow_build_context_escape (field is optional) in runners.%s',
+    'accepts omitted allow_build_context_escape (field is optional) in ecosystems[%s].runner',
     (ecosystem) => {
       const result = ProjectConfigSchema.safeParse({
         ...minimalConfig,
-        ecosystems: [{ id: ecosystem }],
-        runners: {
-          [ecosystem]: {
+        ecosystems: [{
+          id: ecosystem,
+          runner: {
             image_source: 'dockerfile',
             dockerfile_path: 'Dockerfile',
             // allow_build_context_escape deliberately omitted
           },
-        },
+        }],
       });
       expect(result.success).toBe(true);
     },
   );
 
   it.each(['npm', 'pip', 'composer'] as const)(
-    'rejects non-boolean allow_build_context_escape in runners.%s',
+    'rejects non-boolean allow_build_context_escape in ecosystems[%s].runner',
     (ecosystem) => {
       const result = ProjectConfigSchema.safeParse({
         ...minimalConfig,
-        ecosystems: [{ id: ecosystem }],
-        runners: {
-          [ecosystem]: {
+        ecosystems: [{
+          id: ecosystem,
+          runner: {
             image_source: 'dockerfile',
             dockerfile_path: 'Dockerfile',
             allow_build_context_escape: 'yes',
           },
-        },
+        }],
       });
       expect(result.success).toBe(false);
     },

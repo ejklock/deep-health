@@ -2,7 +2,7 @@
  * Unit tests for OsvScannerEngine.
  *
  * Covers:
- * - Runner selection: 'local', 'docker', 'auto' modes
+ * - Runner selection: 'local', 'docker' modes
  * - assertAvailable() behaviour for each mode
  * - scan() local path vs Docker path dispatch
  * - dry-run handling
@@ -161,65 +161,27 @@ describe('OsvScannerEngine.assertAvailable()', () => {
     });
   });
 
-  describe('runner: auto (default)', () => {
-    it('succeeds when local osv-scanner is available', async () => {
-      const runner = new MockRunner({ 'osv-scanner': { exitCode: 0 } });
-      const ctx = makeCtx(runner, makeConfig({ osv: { runner: 'auto' } }));
-      await expect(engine.assertAvailable(ctx)).resolves.toBeUndefined();
-    });
-
-    it('falls back to Docker check when local is unavailable, and succeeds when Docker is available', async () => {
-      const runner = new MockRunner({
-        'osv-scanner': { exitCode: 1 },
-        'docker': { exitCode: 0 },
-      });
-      const ctx = makeCtx(runner, makeConfig({ osv: { runner: 'auto' } }));
-      await expect(engine.assertAvailable(ctx)).resolves.toBeUndefined();
-    });
-
-    it('throws EnvironmentError when both local and Docker are unavailable', async () => {
-      const runner = new MockRunner({
-        'osv-scanner': { exitCode: 1 },
-        'docker': { exitCode: 1 },
-      });
-      const ctx = makeCtx(runner, makeConfig({ osv: { runner: 'auto' } }));
-      await expect(engine.assertAvailable(ctx)).rejects.toThrow(EnvironmentError);
-    });
-
-    it('defaults to auto when scanners.osv is not configured', async () => {
-      const runner = new MockRunner({ 'osv-scanner': { exitCode: 0 } });
+  describe('runner: docker (default)', () => {
+    it('defaults to docker when scanners.osv is not configured', async () => {
+      const runner = new MockRunner({ 'docker': { exitCode: 0 } });
       const ctx = makeCtx(runner, makeConfig());
       await expect(engine.assertAvailable(ctx)).resolves.toBeUndefined();
     });
 
-    it('defaults to auto when scanners is undefined', async () => {
-      const runner = new MockRunner({ 'osv-scanner': { exitCode: 0 } });
+    it('defaults to docker when scanners is undefined', async () => {
+      const runner = new MockRunner({ 'docker': { exitCode: 0 } });
       const ctx = makeCtx(runner, makeConfig(undefined));
       await expect(engine.assertAvailable(ctx)).resolves.toBeUndefined();
     });
 
-    it('returns false from isLocalAvailable when runner.run throws (line 278)', async () => {
-      // runner throws on osv-scanner --version → isLocalAvailable catch → returns false
-      // then docker check also fails → EnvironmentError thrown
-      const runner = new MockRunner({ 'docker': { exitCode: 1 } });
-      const origRun = runner.run.bind(runner);
-      runner.run = async (cmd: string, opts?: CommandRunnerOptions) => {
-        if (cmd.includes('osv-scanner')) throw new Error('spawn ENOENT');
-        return origRun(cmd, opts);
-      };
-      const ctx = makeCtx(runner, makeConfig({ osv: { runner: 'auto' } }));
-      await expect(engine.assertAvailable(ctx)).rejects.toThrow(EnvironmentError);
-    });
-
-    it('returns false from isDockerAvailable when runner.run throws (line 288)', async () => {
-      // runner returns non-zero for osv-scanner (local unavailable), then throws for docker
-      const runner = new MockRunner({ 'osv-scanner': { exitCode: 1 } });
+    it('returns false from isDockerAvailable when runner.run throws', async () => {
+      const runner = new MockRunner({});
       const origRun = runner.run.bind(runner);
       runner.run = async (cmd: string, opts?: CommandRunnerOptions) => {
         if (cmd.includes('docker')) throw new Error('spawn ENOENT');
         return origRun(cmd, opts);
       };
-      const ctx = makeCtx(runner, makeConfig({ osv: { runner: 'auto' } }));
+      const ctx = makeCtx(runner, makeConfig({ osv: { runner: 'docker' } }));
       await expect(engine.assertAvailable(ctx)).rejects.toThrow(EnvironmentError);
     });
   });
@@ -268,28 +230,6 @@ describe('OsvScannerEngine.scan() — runner dispatch', () => {
     expect(vi.mocked(OsvDockerRunner)).toHaveBeenCalledWith(
       expect.objectContaining({ image: 'ghcr.io/google/osv-scanner:v1.9.0' }),
     );
-  });
-
-  it('auto: uses local path when local is available', async () => {
-    const runner = new MockRunner({
-      'osv-scanner --version': { exitCode: 0 },
-      'osv-scanner': { exitCode: 0, stdout: MINIMAL_SCAN_JSON },
-    });
-    const ctx = makeCtx(runner, makeConfig({ osv: { runner: 'auto' } }));
-    const result = await engine.scan(ctx);
-    expect(result.status).toBe('success');
-    expect(vi.mocked(OsvDockerRunner)).not.toHaveBeenCalled();
-  });
-
-  it('auto: falls back to Docker when local is unavailable', async () => {
-    const runner = new MockRunner({
-      'osv-scanner': { exitCode: 1 },
-      'docker': { exitCode: 0 },
-    });
-    const ctx = makeCtx(runner, makeConfig({ osv: { runner: 'auto' } }));
-    const result = await engine.scan(ctx);
-    expect(result.status).toBe('success');
-    expect(vi.mocked(OsvDockerRunner)).toHaveBeenCalledOnce();
   });
 
   it('passes cwd as projectDir to OsvDockerRunner', async () => {
@@ -833,7 +773,7 @@ describe('OsvScannerEngine.scan() — CVSS score extraction (lines 46-119)', () 
   });
   afterEach(() => vi.clearAllMocks());
 
-  function makeCtxWithParseRegistry(runner: CommandRunner, mode: 'local' | 'docker' = 'docker') {
+  function makeCtxWithParseRegistry(runner: CommandRunner, mode: 'local' | 'docker' = 'docker'): ScannerEngineContext {
     return {
       runner,
       config: makeConfig({ osv: { runner: mode } }),

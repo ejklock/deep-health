@@ -851,11 +851,9 @@ export class SonarQubeEngine implements ScannerEngine {
     // Token resolution precedence (highest to lowest):
     //   1. SONAR_TOKEN env var  — recommended; keeps secrets out of the repo
     //   2. sonar.token in sonar-project.properties  — modern SonarQube key (9.x+)
-    //   3. sonar.login in sonar-project.properties  — legacy key (pre-9.x)
-    // Only throw when ALL three sources are absent.
+    // Only throw when both sources are absent.
     const envToken = process.env['SONAR_TOKEN'] ?? '';
     const propsToken = userProps.get('sonar.token') ?? '';
-    const propsLogin = userProps.get('sonar.login') ?? '';
 
     let token: string;
     if (envToken) {
@@ -864,12 +862,6 @@ export class SonarQubeEngine implements ScannerEngine {
       token = propsToken;
       logger.warn(
         `SonarQube: using sonar.token from sonar-project.properties as a fallback. ` +
-        `For better security, set the SONAR_TOKEN environment variable instead.`,
-      );
-    } else if (propsLogin) {
-      token = propsLogin;
-      logger.warn(
-        `SonarQube: using sonar.login from sonar-project.properties as a fallback. ` +
         `For better security, set the SONAR_TOKEN environment variable instead.`,
       );
     } else {

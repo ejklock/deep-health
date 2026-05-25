@@ -1,5 +1,5 @@
 import type { CommandRunner } from '@core/types/common';
-import type { ProjectConfig } from '@core/types/config';
+import type { ProjectConfig, RunnerConfig } from '@core/types/config';
 import type { EcosystemPlugin } from '@modules/ecosystem/types';
 import type { RunMode } from './types';
 import { logger } from '../utils/logger';
@@ -13,17 +13,20 @@ import { CLI_NAME } from '@infra/brand';
  *
  * Image resolution precedence:
  *   When image_source='pull' (default):
- *     1. `runners.<id>.image` — explicit image config (highest priority)
- *     2. `runners.<id>.language_version` — explicit version → `spec.resolveImage(version)`
+ *     1. `ecosystems[].runner.image` — explicit image config (highest priority)
+ *     2. `ecosystems[].runner.language_version` — explicit version → `spec.resolveImage(version)`
  *     3. `plugin.inferVersion(cwd)` — project-file version inference → `spec.resolveImage(version)`
  *     4. `spec.resolveImage(undefined)` → `spec.defaultImage` (fallback)
  *
  *   When image_source='dockerfile':
- *     - Calls `buildProjectImage()` with `runners.<id>.dockerfile_path`.
+ *     - Calls `buildProjectImage()` with `ecosystems[].runner.dockerfile_path`.
  *     - The result's `entrypointOverride` (always `""`) is forwarded to
  *       `EphemeralEcosystemContainer` to prevent ENTRYPOINT hijacking.
  *     - `image` config MUST NOT be set when image_source='dockerfile'
  *       (enforced by schema superRefine).
+ *
+ * @param runnerConfig  Optional per-ecosystem runner config from `ecosystems[].runner`.
+ *                      When absent, all image resolution falls through to plugin defaults.
  *
  * @throws {Error} when `plugin.runtimeSpec` is undefined (plugin has no runtime spec)
  * @throws {Error} when image_source='dockerfile' and dockerfile_path is missing
@@ -33,6 +36,7 @@ export async function resolveEcosystemRuntime(
   hostRunner: CommandRunner,
   config: ProjectConfig,
   cwd: string,
+  runnerConfig?: RunnerConfig,
 ): Promise<CommandRunner> {
   if (plugin.runtimeSpec === undefined) {
     throw new Error(
@@ -41,10 +45,6 @@ export async function resolveEcosystemRuntime(
   }
 
   const spec = plugin.runtimeSpec;
-
-  // Look up per-plugin runner config — keyed by plugin.id in the runners block
-  const runnerConfig =
-    config.runners?.[plugin.id as keyof typeof config.runners];
 
   // Cast to access optional fields present on ecosystem runner configs
   const runnerCfg = runnerConfig as
@@ -72,7 +72,7 @@ export async function resolveEcosystemRuntime(
     const dockerfilePath = runnerCfg?.dockerfile_path;
     if (!dockerfilePath) {
       throw new Error(
-        `[ecosystem-runtime/${plugin.id}] image_source="dockerfile" requires dockerfile_path to be configured under runners.${plugin.id}.`,
+        `[ecosystem-runtime/${plugin.id}] image_source="dockerfile" requires dockerfile_path to be configured under ecosystems[].runner (ecosystem id: ${plugin.id}).`,
       );
     }
 
@@ -113,7 +113,7 @@ export async function resolveEcosystemRuntime(
           logger.warn(
             '[ecosystem-runtime/pip] No language_version configured and no Python version file detected. ' +
             `Falling back to ${spec.defaultImage} (may resolve to Python 3.14+). ` +
-            `Run '${CLI_NAME} init' or set runners.pip.language_version in your config to pin the version.`,
+            `Run '${CLI_NAME} init' or set ecosystems[pip].runner.language_version in your config to pin the version.`,
           );
         }
       }
